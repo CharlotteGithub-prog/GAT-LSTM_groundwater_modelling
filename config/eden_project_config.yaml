@@ -1,0 +1,87 @@
+# --- GLOBAL SETTINGS ---
+# Parameters that apply across multiple parts of the pipeline
+project_name: "Eden_Catchment_Groundwater_Forecasting"
+random_seed: 55
+log_level: "INFO" # e.g., DEBUG, INFO, WARNING, ERROR
+
+# --- FILE PATHS ---
+# Centralised location for all input and output paths
+paths:
+  # data directories
+  data_dir: "data/"
+  raw_data_dir: "data/01_raw/"
+  processed_data_dir: "data/02_processed/"
+  external_data_dir: "data/03_external/"
+
+  # results directories
+  results_dir: "results/"
+  logs_results_dir: "results/logs/"
+  temp_results_dir: "results/temp_plots/"
+  tables_results_dir: "results/tables/"
+  figures_results_dir: "results/figures/"
+  trained_model_results_dir: "results/trained_models/"
+  predictions_results_dir: "results/predictions/"
+
+  # Specific input files
+  gis_eden_catchment_boundary: "data/01_raw/eden/gis/eden_catchment_boundary/NRFA_catchments.shp"
+  # groundwater_api_stations_list: "data/raw/station_ids.csv"
+  # gis_dem_path: "data/raw/dem_eden.tif"
+  # gis_catchment_boundary_path: "data/raw/eden_catchment.shp"
+
+  # Specific output files (paths for data produced by pipeline)
+  mesh_nodes_csv_output: "data/02_processed/eden/eden_catchment_mesh_nodes.csv"
+  mesh_nodes_gpkg_output: "data/02_processed/eden/eden_catchment_mesh_nodes.gpkg"
+  mesh_nodes_shp_output: "data/02_processed/eden/eden_catchment_mesh_nodes.shp"
+
+# --- DATA INGESTION SETTINGS ---
+data_ingestion:
+  api_start_date: "2010-01-01"
+  api_end_date: "2023-12-31"
+
+# # --- PREPROCESSING SETTINGS ---
+preprocessing:
+  graph_construction:
+    grid_resolution: 1000  # In metres
+
+#   time_series_cleaning:
+#     interpolation_method: "linear"
+#     max_gap_to_interpolate_days: 7
+#   spatial_alignment:
+#     mesh_resolution_km: 5
+#     snapping_tolerance_m: 20
+#   graph_construction:
+#     graph_type: "k_nearest_neighbors" # Options: "k_nearest_neighbors", "delaunay_triangulation", etc.
+#     k_neighbors: 5
+#     edge_features_to_add: ["distance", "elevation_difference"]
+#   feature_engineering:
+#     add_time_of_year: true
+#     add_lagged_features: true
+#     lag_steps: [1, 7, 14, 30] # In days / time steps
+
+# # --- MODEL SETTINGS (for GAT-LSTM) ---
+# model:
+#   architecture: "GAT_LSTM"
+#   gat_layers: 2
+#   gat_heads: 4
+#   lstm_hidden_dim: 128
+#   dropout_rate: 0.2
+#   output_dim: 1
+
+# # --- TRAINING SETTINGS ---
+# training:
+#   epochs: 100
+#   batch_size: 32
+#   learning_rate: 0.001
+#   optimizer: "Adam"
+#   loss_function: "MSELoss"
+#   early_stopping:
+#     patience: 10
+#     min_delta: 0.0001
+#   device: "cuda" # or "cpu"
+
+# # --- EVALUATION SETTINGS ---
+# evaluation:
+#   metrics: ["RMSE", "MAE", "R2"]
+#   save_plots: true
+#   split_ratio: 0.2 # 80% train, 20% test
+#   target_variable: "groundwater_level" # The column the model is predicting
