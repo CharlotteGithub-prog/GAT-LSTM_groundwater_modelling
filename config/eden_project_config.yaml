@@ -35,10 +35,22 @@ paths:
 
 # --- DATA INGESTION SETTINGS ---
 data_ingestion:
-  api_start_date: "2010-01-01"
-  api_end_date: "2023-12-31"
+  api_start_date: "2014-01-01"
+  api_end_date: "2024-12-31"
 
-# # --- PREPROCESSING SETTINGS ---
+# --- VISUALISATION SETTINGS ---
+visualisations:
+  maps:
+    display_interactive_map: True
+    esri: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
+    esri_attr: "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ"
+    map_blue: "#354c7c"
+  
+  outputs:
+    static_mesh_map_output: "results/figures/eden/maps/eden_static_mesh_map.png"
+    interactive_mesh_map_output: "results/figures/eden/maps/eden_interactive_mesh_map.html"
+
+# --- PREPROCESSING SETTINGS ---
 preprocessing:
   graph_construction:
     grid_resolution: 1000  # In metres
