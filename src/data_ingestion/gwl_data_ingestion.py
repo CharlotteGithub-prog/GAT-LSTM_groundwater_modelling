@@ -7,6 +7,7 @@ from pyproj import Transformer
 # Get a logger instance for this module.
 logger = logging.getLogger(__name__)
 
+# Process station catchments list into inital spatial data csv
 def process_station_coordinates(os_grid_squares: str, station_list_input: str,
     station_list_output: str, catchment_name: str):
     """
@@ -70,6 +71,7 @@ def grid_ref_to_coords(grid_ref: str, grid_letters: dict):
     
     return pd.Series([easting, northing, lat, lon])
 
+# Call DEFRA API and retrieve metadata by station
 def get_station_metadata(wiski_id: str, base_url: str):
     
     params = {'wiskiID': wiski_id}
@@ -94,6 +96,7 @@ def get_station_metadata(wiski_id: str, base_url: str):
         logger.error(f"Failed to decode JSON response: {e}")
         return None
 
+# Call DEFRA API and retrieve measures data by station
 def get_station_measures(row: pd.Series):
     """
     See https://environment.data.gov.uk/hydrology/doc/reference#measures-summary for measures data
@@ -123,6 +126,7 @@ def get_station_measures(row: pd.Series):
         logger.error(f"Failed to decode JSON response for measures of station {station_id}. Error: {e}")
         return []
 
+# Process both API station data calls and flatten into csv
 def fetch_and_process_station_data(stations_df: pd.DataFrame, base_url: str, output_path: str):
     """
     Fetches metadata and measures for a DataFrame of stations, processes it, and saves the result.

@@ -14,7 +14,7 @@ import logging
 from src.utils.config_loader import load_project_config
 from src.preprocessing.graph_construction import build_mesh
 from src.visualisation.mapped_visualisations import plot_interactive_mesh
-from src.data_ingestion.gwl_data_ingestion import process_station_coordinates
+from src.data_ingestion.gwl_data_ingestion import process_station_coordinates, fetch_and_process_station_data
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -51,6 +51,14 @@ for catchment in catchments_to_process:
 
     # --- 2b. Load station measures and metadata from DEFRA API ---
 
+    # Retrieve gwl monitoring station metadata and measures from DEFRA API
+    stations_with_metadata_measures = fetch_and_process_station_data(
+        stations_df=stations_with_coords_df,
+        base_url=config["global"]["paths"]["defra_station_base_url"],
+        output_path=config[catchment]["paths"]["gwl_station_metadata_measures"]
+    )
+
+    logger.info(f"Pipeline step 'Pull Hydrological Station Metadata' complete for {catchment} catchment.\n")
 
     # --- 2c. Load raw gwl timeseris data from DEFRA API ---
 
