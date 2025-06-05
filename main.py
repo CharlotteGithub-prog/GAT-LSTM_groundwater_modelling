@@ -14,6 +14,7 @@ import logging
 from src.utils.config_loader import load_project_config
 from src.preprocessing.graph_construction import build_mesh
 from src.visualisation.mapped_visualisations import plot_interactive_mesh
+from src.data_ingestion.gwl_data_ingestion import process_station_coordinates
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -26,58 +27,81 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 config = load_project_config(config_path="config/eden_project_config.yaml")
 
-# ==============================================================================
-# SECTION 2: DATA INGESTION
-# ==============================================================================
+# --- 1d. Define catchment(s) to Process --
+catchments_to_process = config["global"]["pipeline_settings"]["catchments_to_process"]
 
-# --- 1d. Data Loading ---
+# Run full pipeline by catchment
+for catchment in catchments_to_process:
 
-# ==============================================================================
-# SECTION 3: PREPROCESSING (Inc. GRAPH BUILDING)
-# ==============================================================================
+    # ==============================================================================
+    # SECTION 2: DATA INGESTION
+    # ==============================================================================
 
-# --- 3x. Build Graph Mesh ---
+    # --- 2a. Load and convert gwl station location data (DEFRA) ---
+    
+    # --- Process Catchment Stations List ----
+    stations_with_coords_df = process_station_coordinates(
+        os_grid_squares=config["global"]["paths"]["gis_os_grid_squares"],
+        station_list_input=config[catchment]["paths"]["gwl_station_list"],
+        station_list_output=config[catchment]["paths"]["gwl_station_list_with_coords"],
+        catchment_name=catchment
+    )
 
-shape_filepath = config['paths']['gis_eden_catchment_boundary']
-grid_resolution = config['preprocessing']['graph_construction']['grid_resolution']
+    logger.info(f"Pipeline step 'Process Station Coordinates for {catchment}' complete.\n")
 
-output_file_paths = {
-    'mesh_nodes_csv_output': config['paths']['mesh_nodes_csv_output'],
-    'mesh_nodes_gpkg_output': config['paths']['mesh_nodes_gpkg_output'],
-    'mesh_nodes_shp_output': config['paths']['mesh_nodes_shp_output']
-}
+    # --- 2b. Load station measures and metadata from DEFRA API ---
 
-mesh_nodes_table, mesh_nodes_gdf, catchment_polygon = build_mesh(
-    shape_filepath=shape_filepath,
-    grid_resolution=grid_resolution,
-    output_paths=output_file_paths
-)
 
-logger.info("Pipeline step 'Build Mesh' complete.")
+    # --- 2c. Load raw gwl timeseris data from DEFRA API ---
 
-# --- 3x. Save interactive map of catchment mesh ---
 
-mesh_map = plot_interactive_mesh(
-    mesh_nodes_gdf=mesh_nodes_gdf,
-    catchment_polygon=catchment_polygon,
-    map_blue=config['visualisations']['maps']['map_blue'],
-    esri=config['visualisations']['maps']['esri'],
-    esri_attr=config['visualisations']['maps']['esri_attr'],
-    static_output_path=config['visualisations']['outputs']['static_mesh_map_output'],
-    interactive_output_path=config['visualisations']['outputs']['interactive_mesh_map_output'],
-    interactive=config['visualisations']['maps']['display_interactive_map']
-)
+    # ==============================================================================
+    # SECTION 3: PREPROCESSING
+    # ==============================================================================
 
-logger.info("Pipeline step 'Interactive Mesh Mapping' complete.")
+    # ==============================================================================
+    # SECTION 4: GRAPH BUILDING
+    # ==============================================================================
 
-# ==============================================================================
-# SECTION 4: MODEL
-# ==============================================================================
+    # --- 3x. Build Catchment Graph Mesh ---
 
-# ==============================================================================
-# SECTION 5: TRAINING
-# ==============================================================================
+    output_file_paths = {
+        'mesh_nodes_csv_output': config[catchment]['paths']['mesh_nodes_csv_output'],
+        'mesh_nodes_gpkg_output': config[catchment]['paths']['mesh_nodes_gpkg_output'],
+        'mesh_nodes_shp_output': config[catchment]['paths']['mesh_nodes_shp_output']
+    }
 
-# ==============================================================================
-# SECTION 6: EVALUATION
-# ==============================================================================
+    mesh_nodes_table, mesh_nodes_gdf, catchment_polygon = build_mesh(
+        shape_filepath=config[catchment]['paths']['gis_catchment_boundary'],
+        grid_resolution=config[catchment]['preprocessing']['graph_construction']['grid_resolution'],
+        output_paths=output_file_paths
+    )
+
+    logger.info(f"Pipeline step 'Build Mesh' complete for {catchment} catchment.")
+
+    # --- 3x. Save interactive map of catchment mesh ---
+
+    mesh_map = plot_interactive_mesh(
+        mesh_nodes_gdf=mesh_nodes_gdf,
+        catchment_polygon=catchment_polygon,
+        map_blue=config['global']['visualisations']['maps']['map_blue'],
+        esri=config['global']['visualisations']['maps']['esri'],
+        esri_attr=config['global']['visualisations']['maps']['esri_attr'],
+        static_output_path=config[catchment]['visualisations']['maps']['static_mesh_map_output'],
+        interactive_output_path=config[catchment]['visualisations']['maps']['interactive_mesh_map_output'],
+        interactive=config['global']['visualisations']['maps']['display_interactive_map']
+    )
+
+    logger.info(f"Pipeline step 'Interactive Mesh Mapping' complete for {catchment} catchment.")
+
+    # ==============================================================================
+    # SECTION 5: MODEL
+    # ==============================================================================
+
+    # ==============================================================================
+    # SECTION 6: TRAINING
+    # ==============================================================================
+
+    # ==============================================================================
+    # SECTION 7: EVALUATION
+    # ==============================================================================

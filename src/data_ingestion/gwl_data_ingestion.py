@@ -1,17 +1,6 @@
-import os
-import ast
-import folium
 import logging
-import requests
-import numpy as np
 import pandas as pd
-import geopandas as gpd
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-
 from pyproj import Transformer
-from shapely.geometry import box
-from datetime import datetime, timedelta
 
 # Get a logger instance for this module.
 logger = logging.getLogger(__name__)
@@ -42,8 +31,8 @@ def process_station_coordinates(os_grid_squares: str, station_list_input: str,
     # Save processed df as csv and check head and length
     stations_df.to_csv(station_list_output, index=False)
     logger.info(f"[{catchment_name}] Saved processed station list to: {station_list_output}")
-    logger.info(f"Station location reference table head:\n\n{stations_df.head()}")
-    logger.info(f"Total Stations: {len(stations_df)}\n")
+    logger.info(f"Station location reference table head:\n\n{stations_df.head()}\n")
+    logger.info(f"Total Stations: {len(stations_df)}")
 
     logger.info(f"[{catchment_name}] Coordinate processing for station list complete.\n")
     return stations_df

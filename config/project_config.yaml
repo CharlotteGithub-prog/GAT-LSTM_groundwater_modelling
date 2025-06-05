@@ -1,0 +1,117 @@
+# ==============================================================================
+# GLOBAL CONFIG SETTINGS
+# ==============================================================================
+global:
+  pipeline_settings:
+    project_name: "Catchment_Based_Groundwater_Forecasting"
+    random_seed: 55  # Smooth operation
+    log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+    catchments_to_process: ["eden"]  # TODO: add more in future dev
+
+  # --- FILE PATHS ---
+  paths:
+    # --- Specific INPUT files ---
+    gis_os_grid_squares: "data/01_raw/global/os_grid_squares.csv"
+    # --- Specific OUTPUT files ---
+      # currently none, remove in future if not used
+    # --- Data Directories ---
+    data_dir: "data/"
+    raw_data_dir: "data/01_raw/"
+    processed_data_dir: "data/02_processed/"
+    external_data_dir: "data/03_external/"
+    # --- Results Directories ---
+    results_dir: "results/"
+    logs_results_dir: "results/logs/"
+    temp_results_dir: "results/temp_plots/"
+    tables_results_dir: "results/tables/"
+    figures_results_dir: "results/figures/"
+    trained_model_results_dir: "results/trained_models/"
+    predictions_results_dir: "results/predictions/"
+
+  # --- DATA INGESTION SETTINGS ---
+  data_ingestion:
+    api_start_date: "2014-01-01"
+    api_end_date: "2024-12-31"
+
+  # --- VISUALISATION SETTINGS ---
+  visualisations:
+    maps:
+      display_interactive_map: True
+      esri: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
+      esri_attr: "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ"
+      map_blue: "#354c7c"
+
+  #   time_series_cleaning:
+  #     interpolation_method: "linear"
+  #     max_gap_to_interpolate_days: 7
+  #   spatial_alignment:
+  #     mesh_resolution_km: 5
+  #     snapping_tolerance_m: 20
+  #   graph_construction:
+  #     graph_type: "k_nearest_neighbors" # Options: "k_nearest_neighbors", "delaunay_triangulation", etc.
+  #     k_neighbors: 5
+  #     edge_features_to_add: ["distance", "elevation_difference"]
+  #   feature_engineering:
+  #     add_time_of_year: true
+  #     add_lagged_features: true
+  #     lag_steps: [1, 7, 14, 30] # In days / time steps
+
+  # # --- MODEL SETTINGS (for GAT-LSTM) ---
+  # model:
+  #   architecture: "GAT_LSTM"
+  #   gat_layers: 2
+  #   gat_heads: 4
+  #   lstm_hidden_dim: 128
+  #   dropout_rate: 0.2
+  #   output_dim: 1
+
+  # # --- TRAINING SETTINGS ---
+  # training:
+  #   epochs: 100
+  #   batch_size: 32
+  #   learning_rate: 0.001
+  #   optimizer: "Adam"
+  #   loss_function: "MSELoss"
+  #   early_stopping:
+  #     patience: 10
+  #     min_delta: 0.0001
+  #   device: "cuda" # or "cpu"
+
+  # # --- EVALUATION SETTINGS ---
+  # evaluation:
+  #   metrics: ["RMSE", "MAE", "R2"]
+  #   save_plots: true
+  #   split_ratio: 0.2 # 80% train, 20% test
+  #   target_variable: "groundwater_level" # The column the model is predicting
+
+# ==============================================================================
+# EDEN CATCHMENT CONFIG SETTINGS
+# ==============================================================================
+
+eden:
+  # --- FILE PATHS ---
+  paths:
+    # --- Specific INPUT files ---
+    gis_catchment_boundary: "data/01_raw/eden/gis/eden_catchment_boundary/NRFA_catchments.shp"
+    gwl_station_list: "data/01_raw/eden/gwl_stations/station_list.csv"
+    # --- Specific OUPUT (processed) files ---
+    mesh_nodes_csv_output: "data/02_processed/eden/gis_and_mesh/catchment_mesh_nodes.csv"
+    mesh_nodes_gpkg_output: "data/02_processed/eden/gis_and_mesh/catchment_mesh_nodes.gpkg"
+    mesh_nodes_shp_output: "data/02_processed/eden/gis_and_mesh/catchment_mesh_nodes.shp"
+    gwl_station_list_with_coords: "data/02_processed/eden/gwl_station_data/station_list_with_coords.csv"
+  
+  # --- PREPROCESSING SETTINGS ---
+  preprocessing:
+    graph_construction:
+      grid_resolution: 1000
+  
+  visualisations:
+    maps:
+      static_mesh_map_output: "results/figures/eden/maps/static_mesh_map.png"
+      interactive_mesh_map_output: "results/figures/eden/maps/interactive_mesh_map.html"
+
+# ==============================================================================
+# FUTURE CATCHMENT CONFIG SETTINGS
+# ==============================================================================
+
+# Copy eden structure for full pipeline and adapt
