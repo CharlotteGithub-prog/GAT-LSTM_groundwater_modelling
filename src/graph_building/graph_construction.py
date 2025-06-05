@@ -7,7 +7,7 @@ from shapely.geometry import box
 # Get a logger instance for this module.
 logger = logging.getLogger(__name__)
 
-def build_mesh(shape_filepath: str, grid_resolution: int = 1000, output_paths: dict = None):
+def build_mesh(shape_filepath: str, output_path: str, grid_resolution: int = 1000):
     """
     Builds a spatial mesh of nodes (centroids of grid cells) within the input catchment boundary
     and saves the generated mesh nodes to output paths specified in project config.
@@ -15,9 +15,7 @@ def build_mesh(shape_filepath: str, grid_resolution: int = 1000, output_paths: d
     Args:
         shape_filepath (str): Path to the catchment boundary shapefile.
         grid_resolution (int): Resolution of the grid (default 1 km resolution with EPSG:27700 in meters).
-        output_paths (dict, optional): Dictionary containing output file paths.
-                                       Expected keys: 'mesh_nodes_csv_output', 'mesh_nodes_gpkg_output', 'mesh_nodes_shp_output'.
-                                       If None, files will not be saved.
+        output_paths (str): String containing output file path without extension
 
     Returns:
         tuple: (mesh_nodes_table_df, mesh_nodes_gdf, catchment_polygon)
@@ -96,20 +94,18 @@ def build_mesh(shape_filepath: str, grid_resolution: int = 1000, output_paths: d
     
     # --- Saving the outputs ---
     
-    if output_paths:
-        csv_path = output_paths.get('mesh_nodes_csv_output')
-        gpkg_path = output_paths.get('mesh_nodes_gpkg_output')
-        shp_path = output_paths.get('mesh_nodes_shp_output')
+    csv_path = f"{output_path}_{grid_resolution}.csv"
+    gpkg_path = f"{output_path}_{grid_resolution}.gpkg"
+    shp_path = f"{output_path}_{grid_resolution}.shp"
     
-        # Save the mesh nodes table and gdf to appropriate files
-        if csv_path:
-            mesh_nodes_table.to_csv(csv_path, index=False)
-            logger.info(f"Saved mesh nodes CSV to: {csv_path}")
-        if gpkg_path:
-            mesh_nodes_gdf.to_file(gpkg_path, layer='mesh_nodes', driver='GPKG')  # GeoPackage
-            logger.info(f"Saved mesh nodes GPKG to: {gpkg_path}")
-        if shp_path:
-            mesh_nodes_gdf.to_file(shp_path, driver='ESRI Shapefile')
-            logger.info(f"Saved mesh nodes shp to: {shp_path}\n")
+    # Save the mesh nodes table and gdf to appropriate files
+    mesh_nodes_table.to_csv(csv_path, index=False)
+    logger.info(f"Saved mesh nodes CSV to: {csv_path}")
+    
+    mesh_nodes_gdf.to_file(gpkg_path, layer='mesh_nodes', driver='GPKG')  # GeoPackage
+    logger.info(f"Saved mesh nodes GPKG to: {gpkg_path}")
+    
+    mesh_nodes_gdf.to_file(shp_path, driver='ESRI Shapefile')
+    logger.info(f"Saved mesh nodes shp to: {shp_path}\n")
     
     return mesh_nodes_table, mesh_nodes_gdf, catchment_polygon

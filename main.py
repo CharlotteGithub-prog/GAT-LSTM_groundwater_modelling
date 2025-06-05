@@ -51,7 +51,7 @@ try:
 
         logger.info(f"Pipeline step 'Process Station Coordinates for {catchment}' complete.\n")
 
-        # --- 2b. Load station measures and metadata from DEFRA API ---
+        # --- 2b. Retrieve station measures and metadata from DEFRA API ---
 
         stations_with_metadata_measures = fetch_and_process_station_data(
             stations_df=stations_with_coords_df,
@@ -61,7 +61,7 @@ try:
 
         logger.info(f"Pipeline step 'Pull Hydrological Station Metadata for {catchment}' complete.\n")
 
-        # --- 2c. Load raw gwl timeseris data from DEFRA API ---
+        # --- 2c. Retrieve raw gwl timeseris data by station from DEFRA API ---
 
         download_and_save_station_readings(
             stations_df=stations_with_metadata_measures,
@@ -71,6 +71,10 @@ try:
         )
 
         logger.info(f"All timeseries groundwater level data saved for {catchment} catchment.")
+        
+        # --- 2d. load camels-gb data ---
+        
+        # --- 2x. load other data ---
 
         # ==============================================================================
         # SECTION 3: PREPROCESSING
@@ -78,31 +82,37 @@ try:
         
         # --- 3a. gwl preprocessing ---
         
+        # Load station df's into dict, dropping catchments with insufficient data
         
+        # Remove outlying and incorrect data points
+        
+        # Aggregate to daily time steps
+        
+        # Interpolate across small gaps in the ts data (define threshold n/o missing time steps for interpolation eligibility) + Add binary interpolation flag column
+        
+        # Lagged: Add lagged features (by timestep across 7 days?) + potentially rolling averages (3-day/7-day?)
+        
+        # Temporal Encoding: Define sinasoidal features for seasonality (both sine and cosine for performance)
 
-        # --- 3b. camels-gb preprocessing etc... ---
+        # --- 3b. camels-gb preprocessing etc... to be defined for all other features (static then dynamic, all spatial) ---
+        
+        # --- 3x. Standardisation of all features ---
 
         # ==============================================================================
         # SECTION 4: GRAPH BUILDING
         # ==============================================================================
 
-        # --- 3x. Build Catchment Graph Mesh ---
-
-        output_file_paths = {
-            'mesh_nodes_csv_output': config[catchment]['paths']['mesh_nodes_csv_output'],
-            'mesh_nodes_gpkg_output': config[catchment]['paths']['mesh_nodes_gpkg_output'],
-            'mesh_nodes_shp_output': config[catchment]['paths']['mesh_nodes_shp_output']
-        }
+        # --- 3a. Build Catchment Graph Mesh ---
 
         mesh_nodes_table, mesh_nodes_gdf, catchment_polygon = build_mesh(
             shape_filepath=config[catchment]['paths']['gis_catchment_boundary'],
-            grid_resolution=config[catchment]['preprocessing']['graph_construction']['grid_resolution'],
-            output_paths=output_file_paths
+            output_path=config[catchment]['paths']['mesh_nodes_output'],
+            grid_resolution=config[catchment]['preprocessing']['graph_construction']['grid_resolution']
         )
 
         logger.info(f"Pipeline step 'Build Mesh' complete for {catchment} catchment.")
-
-        # --- 3x. Save interactive map of catchment mesh ---
+        
+        # --- 3b. Save interactive map of catchment mesh ---
 
         mesh_map = plot_interactive_mesh(
             mesh_nodes_gdf=mesh_nodes_gdf,
@@ -112,10 +122,17 @@ try:
             esri_attr=config['global']['visualisations']['maps']['esri_attr'],
             static_output_path=config[catchment]['visualisations']['maps']['static_mesh_map_output'],
             interactive_output_path=config[catchment]['visualisations']['maps']['interactive_mesh_map_output'],
+            grid_resolution=config[catchment]['preprocessing']['graph_construction']['grid_resolution'],
             interactive=config['global']['visualisations']['maps']['display_interactive_map']
         )
 
         logger.info(f"Pipeline step 'Interactive Mesh Mapping' complete for {catchment} catchment.")
+        
+        # --- c. Snap gwl monitoring stations to mesh ---
+        
+        # --- 3d. Snap other features data to mesh
+
+        # --- 3f. Complete mesh map (interactive map from 3a with stations marked etc) ---
 
         # ==============================================================================
         # SECTION 5: MODEL

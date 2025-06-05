@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 def plot_interactive_mesh(mesh_nodes_gdf: gpd.geodataframe, catchment_polygon: gpd.GeoDataFrame, map_blue: str,
                           esri: str, esri_attr: str, static_output_path: str, interactive_output_path: str,
-                          interactive: bool = True):
+                          grid_resolution: int = 1000, interactive: bool = True):
     """
     Build a visualisation of the catchment mesh, as either an interactive Folium map
     with optional base map tiles and layer toggles, or a static Matplotlib plot.
@@ -35,8 +35,10 @@ def plot_interactive_mesh(mesh_nodes_gdf: gpd.geodataframe, catchment_polygon: g
         plt.ylabel("EPSG:27700 Northing (m)")
         plt.title("Mesh Centroids for Eden Catchment (Resolution: 1km x 1km)")
         
-        plt.savefig(static_output_path, dpi=300)
-        logger.info(f"Static map file saved to: {static_output_path}\n")
+        full_static_output_path = static_output_path + f'_{grid_resolution}.png'
+        
+        plt.savefig(full_static_output_path, dpi=300)
+        logger.info(f"Static map file saved to: {full_static_output_path}\n")
         return fig
         
     # Interactive map otherwise
@@ -69,7 +71,9 @@ def plot_interactive_mesh(mesh_nodes_gdf: gpd.geodataframe, catchment_polygon: g
         mesh_layer.add_to(map)
         folium.LayerControl().add_to(map)
 
+        full_interactive_output_path = interactive_output_path + f'_{grid_resolution}.html'
+        
         # Save to html (unique by timestamp) and display in notebook
-        map.save(interactive_output_path)
-        logger.info(f"Interactive map file saved to: {static_output_path}\n")
+        map.save(full_interactive_output_path)
+        logger.info(f"Interactive map file saved to: {full_interactive_output_path}\n")
         return map

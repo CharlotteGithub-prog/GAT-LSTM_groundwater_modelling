@@ -41,6 +41,10 @@ global:
       esri: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
       esri_attr: "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ"
       map_blue: "#354c7c"
+    
+  # --- GRAPH CONSTRUCTION SETTINGS ---
+  graph:
+    data_point_quantity_threshold: 5000
 
   #   time_series_cleaning:
   #     interpolation_method: "linear"
@@ -96,9 +100,7 @@ eden:
     gis_catchment_boundary: "data/01_raw/eden/gis/eden_catchment_boundary/NRFA_catchments.shp"
     gwl_station_list: "data/01_raw/eden/gwl_stations/station_list.csv"
     # --- Specific OUPUT (processed) files ---
-    mesh_nodes_csv_output: "data/02_processed/eden/gis_and_mesh/catchment_mesh_nodes.csv"
-    mesh_nodes_gpkg_output: "data/02_processed/eden/gis_and_mesh/catchment_mesh_nodes.gpkg"
-    mesh_nodes_shp_output: "data/02_processed/eden/gis_and_mesh/catchment_mesh_nodes.shp"
+    mesh_nodes_output: "data/02_processed/eden/gis_and_mesh/catchment_mesh_nodes"  # ensure no specific file extension
     gwl_station_list_with_coords: "data/02_processed/eden/gwl_station_data/station_list_with_coords.csv"
     gwl_station_metadata_measures: "data/02_processed/eden/gwl_station_data/gwl_station_metadata_measures.csv"
     gwl_data_output_dir: "data/01_raw/eden/gwl_stations/API_data/"
@@ -106,12 +108,12 @@ eden:
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
     graph_construction:
-      grid_resolution: 1000
+      grid_resolution: 1000  # Likely change to 500m grid
   
   visualisations:
     maps:
-      static_mesh_map_output: "results/figures/eden/maps/static_mesh_map.png"
-      interactive_mesh_map_output: "results/figures/eden/maps/interactive_mesh_map.html"
+      static_mesh_map_output: "results/figures/eden/maps/static_mesh_map"  # ensure no specific file extension
+      interactive_mesh_map_output: "results/figures/eden/maps/interactive_mesh_map"  # ensure no specific file extension
 
 # ==============================================================================
 # FUTURE CATCHMENT CONFIG SETTINGS
