@@ -13,6 +13,7 @@ import logging
 # --- 1b. Project Imports ---
 from src.utils.config_loader import load_project_config
 from src.preprocessing.graph_construction import build_mesh
+from src.visualisation.mapped_visualisations import plot_interactive_mesh
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -24,7 +25,6 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 config = load_project_config(config_path="config/eden_project_config.yaml")
-
 
 # ==============================================================================
 # SECTION 2: DATA INGESTION
@@ -54,6 +54,21 @@ mesh_nodes_table, mesh_nodes_gdf, catchment_polygon = build_mesh(
 )
 
 logger.info("Pipeline step 'Build Mesh' complete.")
+
+# --- 3x. Save interactive map of catchment mesh ---
+
+mesh_map = plot_interactive_mesh(
+    mesh_nodes_gdf=mesh_nodes_gdf,
+    catchment_polygon=catchment_polygon,
+    map_blue=config['visualisations']['maps']['map_blue'],
+    esri=config['visualisations']['maps']['esri'],
+    esri_attr=config['visualisations']['maps']['esri_attr'],
+    static_output_path=config['visualisations']['outputs']['static_mesh_map_output'],
+    interactive_output_path=config['visualisations']['outputs']['interactive_mesh_map_output'],
+    interactive=config['visualisations']['maps']['display_interactive_map']
+)
+
+logger.info("Pipeline step 'Interactive Mesh Mapping' complete.")
 
 # ==============================================================================
 # SECTION 4: MODEL
