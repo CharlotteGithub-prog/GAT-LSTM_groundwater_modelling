@@ -14,7 +14,8 @@ import logging
 from src.utils.config_loader import load_project_config
 from src.preprocessing.graph_construction import build_mesh
 from src.visualisation.mapped_visualisations import plot_interactive_mesh
-from src.data_ingestion.gwl_data_ingestion import process_station_coordinates, fetch_and_process_station_data
+from src.data_ingestion.gwl_data_ingestion import process_station_coordinates, \
+    fetch_and_process_station_data, download_and_save_station_readings
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -39,29 +40,35 @@ for catchment in catchments_to_process:
 
     # --- 2a. Load and convert gwl station location data (DEFRA) ---
     
-    # --- Process Catchment Stations List ----
     stations_with_coords_df = process_station_coordinates(
         os_grid_squares=config["global"]["paths"]["gis_os_grid_squares"],
         station_list_input=config[catchment]["paths"]["gwl_station_list"],
         station_list_output=config[catchment]["paths"]["gwl_station_list_with_coords"],
-        catchment_name=catchment
+        catchment=catchment
     )
 
     logger.info(f"Pipeline step 'Process Station Coordinates for {catchment}' complete.\n")
 
     # --- 2b. Load station measures and metadata from DEFRA API ---
 
-    # Retrieve gwl monitoring station metadata and measures from DEFRA API
     stations_with_metadata_measures = fetch_and_process_station_data(
         stations_df=stations_with_coords_df,
         base_url=config["global"]["paths"]["defra_station_base_url"],
         output_path=config[catchment]["paths"]["gwl_station_metadata_measures"]
     )
 
-    logger.info(f"Pipeline step 'Pull Hydrological Station Metadata' complete for {catchment} catchment.\n")
+    logger.info(f"Pipeline step 'Pull Hydrological Station Metadata for {catchment}' complete.\n")
 
     # --- 2c. Load raw gwl timeseris data from DEFRA API ---
 
+    download_and_save_station_readings(
+        stations_df=stations_with_metadata_measures,
+        start_date=config["global"]["data_ingestion"]["api_start_date"],
+        end_date=config["global"]["data_ingestion"]["api_end_date"],
+        gwl_data_output_dir=config[catchment]["paths"]["gwl_data_output_dir"]
+    )
+
+    logger.info(f"All timeseries groundwater level data saved for {catchment} catchment.")
 
     # ==============================================================================
     # SECTION 3: PREPROCESSING

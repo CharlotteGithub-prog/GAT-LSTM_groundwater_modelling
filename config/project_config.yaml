@@ -31,8 +31,8 @@ global:
 
   # --- DATA INGESTION SETTINGS ---
   data_ingestion:
-    api_start_date: "2014-01-01"
-    api_end_date: "2024-12-31"
+    api_start_date: "2014-01-01T00:00:00"
+    api_end_date: "2025-01-01T00:00:00"
 
   # --- VISUALISATION SETTINGS ---
   visualisations:
@@ -101,6 +101,7 @@ eden:
     mesh_nodes_shp_output: "data/02_processed/eden/gis_and_mesh/catchment_mesh_nodes.shp"
     gwl_station_list_with_coords: "data/02_processed/eden/gwl_station_data/station_list_with_coords.csv"
     gwl_station_metadata_measures: "data/02_processed/eden/gwl_station_data/gwl_station_metadata_measures.csv"
+    gwl_data_output_dir: "data/01_raw/eden/gwl_stations/API_data/"
   
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
