@@ -1,4 +1,6 @@
+import ast
 import logging
+import requests
 import pandas as pd
 from pyproj import Transformer
 
@@ -67,3 +69,97 @@ def grid_ref_to_coords(grid_ref: str, grid_letters: dict):
     lon, lat = transformer.transform(easting, northing)  # Transform 312300, 545600 to lat, long (epsg:4326)
     
     return pd.Series([easting, northing, lat, lon])
+
+def get_station_metadata(wiski_id: str, base_url: str):
+    
+    params = {'wiskiID': wiski_id}
+    response = requests.get(base_url, params=params)
+    
+    # If response is good (200) return metadata items as single metadata column
+    try:
+        response.raise_for_status()
+        data = response.json()
+        
+        if data and 'items' in data and data['items']:
+            return data['items'][0]
+        else:
+            logger.warning(f"No metadata items found or unexpected response structure for station.")
+            return None
+       
+    # Return appropriate errors for debugging
+    except requests.exceptions.RequestException as e:
+        logger.error(f"API request failed: {e}")
+        return None
+    except ValueError as e: # Catches JSON decoding errors
+        logger.error(f"Failed to decode JSON response: {e}")
+        return None
+
+def get_station_measures(row: pd.Series):
+    """
+    See https://environment.data.gov.uk/hydrology/doc/reference#measures-summary for measures data
+    """
+    # Exract ID and metadata
+    metadata = row.get('metadata')
+    station_id = row.get('station_id')
+    measures_url = f"{metadata['@id']}/measures"
+
+    # Continue if the required things exist in the correct form
+    if not isinstance(metadata, dict) or '@id' not in metadata:
+        logger.warning(f"Station {station_id} has no valid metadata dictionary or missing '@id' for measures data.")
+        return []
+        
+    # Request the measures data
+    try:
+        response = requests.get(measures_url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return data.get('items', []) # Return the 'items' list, or an empty list if 'items' is missing
+    
+    # Return appropriate errors for debugging
+    except requests.exceptions.RequestException as e:
+        logger.error(f"API request failed for station {station_id} at {measures_url}. Error: {e}")
+        return []
+    except ValueError as e:  # If response.json() fails
+        logger.error(f"Failed to decode JSON response for measures of station {station_id}. Error: {e}")
+        return []
+
+def fetch_and_process_station_data(stations_df: pd.DataFrame, base_url: str, output_path: str):
+    """
+    Fetches metadata and measures for a DataFrame of stations, processes it, and saves the result.
+    """
+    logger.info("Fetching station metadata from DEFRA API...")
+    
+    # --- API CALL 1: Get Metadata
+    
+    stations_df['metadata'] = stations_df['station_id'].apply(
+        lambda id: get_station_metadata(id, base_url)
+    )
+    
+    # Convert metadata from string to dict using ast (API returns dict as str)
+    stations_df['metadata'] = stations_df['metadata'].apply(
+        lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
+
+    logger.info("Fetching station measures data from DEFRA API...")
+    
+    # --- API CALL 2: Get Measures
+
+    # Apply get_station_measures using df.apply with axis=1 to pass the whole row
+    stations_df['measures'] = stations_df.apply(lambda row: get_station_measures(row), axis=1)
+    logger.info("Extracting flattened columns from metadata and measures...\n")
+    
+    # Convert measures from string to dict using ast
+    stations_df['metadata'] = stations_df['metadata'].apply(
+        lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
+    
+    # Extract initial name and measure_uri info as flattened columns
+    stations_df['station_name'] = stations_df['metadata'].apply(
+        lambda x: x.get('label') if isinstance(x, dict) else None)
+    stations_df['measure_uri'] = stations_df['measures'].apply(
+        lambda x: x[0].get('@id') if x and isinstance(x, list) and x else None)
+    
+    # --- Save flattened df to csv
+
+    logger.info(f"Saving processed station data to: {output_path}")
+    stations_df.to_csv(output_path, index=False)
+
+    return stations_df

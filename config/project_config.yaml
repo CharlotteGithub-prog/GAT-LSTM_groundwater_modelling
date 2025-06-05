@@ -12,6 +12,7 @@ global:
   paths:
     # --- Specific INPUT files ---
     gis_os_grid_squares: "data/01_raw/global/os_grid_squares.csv"
+    defra_station_base_url: "https://environment.data.gov.uk/hydrology/id/stations"
     # --- Specific OUTPUT files ---
       # currently none, remove in future if not used
     # --- Data Directories ---
@@ -99,6 +100,7 @@ eden:
     mesh_nodes_gpkg_output: "data/02_processed/eden/gis_and_mesh/catchment_mesh_nodes.gpkg"
     mesh_nodes_shp_output: "data/02_processed/eden/gis_and_mesh/catchment_mesh_nodes.shp"
     gwl_station_list_with_coords: "data/02_processed/eden/gwl_station_data/station_list_with_coords.csv"
+    gwl_station_metadata_measures: "data/02_processed/eden/gwl_station_data/gwl_station_metadata_measures.csv"
   
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
