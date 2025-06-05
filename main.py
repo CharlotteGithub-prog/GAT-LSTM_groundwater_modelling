@@ -21,8 +21,8 @@ from src.data_ingestion.gwl_data_ingestion import process_station_coordinates, \
 # --- 1c. Logging Config ---
 logging.basicConfig(
     level=logging.INFO,
-   format='%(levelname)s - %(message)s',
-#    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',  # Uncomment for full logging
+    format='%(levelname)s - %(message)s',  # Uncomment for short logging
+    # format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',  # Uncomment for full logging
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
