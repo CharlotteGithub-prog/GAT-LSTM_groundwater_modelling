@@ -31,6 +31,7 @@ config = load_project_config(config_path="config/project_config.yaml")
 
 # --- 1d. Define catchment(s) to Process --
 catchments_to_process = config["global"]["pipeline_settings"]["catchments_to_process"]
+run_API_calls = False  # Select whether API calls should run
 
 # Run full pipeline by catchment
 try:
@@ -50,27 +51,30 @@ try:
         )
 
         logger.info(f"Pipeline step 'Process Station Coordinates for {catchment}' complete.\n")
+        
+        # Only run API calls as needed
+        if run_API_calls:   
 
-        # --- 2b. Retrieve station measures and metadata from DEFRA API ---
+            # --- 2b. Retrieve station measures and metadata from DEFRA API ---
 
-        stations_with_metadata_measures = fetch_and_process_station_data(
-            stations_df=stations_with_coords_df,
-            base_url=config["global"]["paths"]["defra_station_base_url"],
-            output_path=config[catchment]["paths"]["gwl_station_metadata_measures"]
-        )
+            stations_with_metadata_measures = fetch_and_process_station_data(
+                stations_df=stations_with_coords_df,
+                base_url=config["global"]["paths"]["defra_station_base_url"],
+                output_path=config[catchment]["paths"]["gwl_station_metadata_measures"]
+            )
 
-        logger.info(f"Pipeline step 'Pull Hydrological Station Metadata for {catchment}' complete.\n")
+            logger.info(f"Pipeline step 'Pull Hydrological Station Metadata for {catchment}' complete.\n")
 
-        # --- 2c. Retrieve raw gwl timeseris data by station from DEFRA API ---
+            # --- 2c. Retrieve raw gwl timeseris data by station from DEFRA API ---
 
-        download_and_save_station_readings(
-            stations_df=stations_with_metadata_measures,
-            start_date=config["global"]["data_ingestion"]["api_start_date"],
-            end_date=config["global"]["data_ingestion"]["api_end_date"],
-            gwl_data_output_dir=config[catchment]["paths"]["gwl_data_output_dir"]
-        )
+            download_and_save_station_readings(
+                stations_df=stations_with_metadata_measures,
+                start_date=config["global"]["data_ingestion"]["api_start_date"],
+                end_date=config["global"]["data_ingestion"]["api_end_date"],
+                gwl_data_output_dir=config[catchment]["paths"]["gwl_data_output_dir"]
+            )
 
-        logger.info(f"All timeseries groundwater level data saved for {catchment} catchment.")
+            logger.info(f"All timeseries groundwater level data saved for {catchment} catchment.")
         
         # --- 2d. load camels-gb data ---
         
