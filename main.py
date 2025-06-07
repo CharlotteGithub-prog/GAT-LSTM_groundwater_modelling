@@ -10,6 +10,7 @@
 # --- 1a. Library Imports ---
 import sys
 import logging
+import pandas as pd
 
 # --- 1b. Project Imports ---
 from src.utils.config_loader import load_project_config
@@ -53,19 +54,18 @@ try:
 
         logger.info(f"Pipeline step 'Process Station Coordinates for {catchment}' complete.\n")
         
-
-        # --- 2b. Retrieve station measures and metadata from DEFRA API ---
-
-        stations_with_metadata_measures = fetch_and_process_station_data(
-            stations_df=stations_with_coords_df,
-            base_url=config["global"]["paths"]["defra_station_base_url"],
-            output_path=config[catchment]["paths"]["gwl_station_metadata_measures"]
-        )
-
-        logger.info(f"Pipeline step 'Pull Hydrological Station Metadata for {catchment}' complete.\n")
-
         # Only run API calls as needed
-        if run_defra_API_calls:   
+        if run_defra_API_calls:  
+
+            # --- 2b. Retrieve station measures and metadata from DEFRA API ---
+
+            stations_with_metadata_measures = fetch_and_process_station_data(
+                stations_df=stations_with_coords_df,
+                base_url=config["global"]["paths"]["defra_station_base_url"],
+                output_path=config[catchment]["paths"]["gwl_station_metadata_measures"]
+            )
+
+            logger.info(f"Pipeline step 'Pull Hydrological Station Metadata for {catchment}' complete.\n") 
             
             # --- 2c. Retrieve raw gwl timeseris data by station from DEFRA API ---
 
@@ -77,6 +77,11 @@ try:
             )
 
             logger.info(f"All timeseries groundwater level data saved for {catchment} catchment.\n")
+        
+        else:
+            
+            loaded_csv_path = config[catchment]["paths"]["gwl_station_metadata_measures"]
+            stations_with_metadata_measures = pd.read_csv(loaded_csv_path)
         
             # --- 2d. load camels-gb data ---
             
@@ -101,6 +106,8 @@ try:
         logger.info(f"All timeseries data converted to dict for {catchment} catchment.\n")
         
         # Remove outlying and incorrect data points
+        
+        
         
         # Aggregate to daily time steps
         
