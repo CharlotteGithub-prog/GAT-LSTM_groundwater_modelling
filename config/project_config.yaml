@@ -7,6 +7,7 @@ global:
     random_seed: 55  # Smooth operation
     log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
     catchments_to_process: ["eden"]  # TODO: add more in future dev
+    run_defra_api: False
 
   # --- FILE PATHS ---
   paths:
@@ -33,6 +34,7 @@ global:
   data_ingestion:
     api_start_date: "2014-01-01T00:00:00"
     api_end_date: "2025-01-01T00:00:00"
+    col_order: ['station_name', 'date', 'dateTime', 'value', 'quality', 'measure']
 
   # --- VISUALISATION SETTINGS ---
   visualisations:
@@ -107,6 +109,7 @@ eden:
   
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
+    inclusion_threshold: 5000
     graph_construction:
       grid_resolution: 1000  # Likely change to 500m grid
   

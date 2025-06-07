@@ -17,6 +17,7 @@ from src.graph_building.graph_construction import build_mesh
 from src.visualisation.mapped_visualisations import plot_interactive_mesh
 from src.data_ingestion.gwl_data_ingestion import process_station_coordinates, \
     fetch_and_process_station_data, download_and_save_station_readings
+from src.preprocessing.gwl_preprocessing import load_timeseries_to_dict
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -29,9 +30,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 config = load_project_config(config_path="config/project_config.yaml")
 
-# --- 1d. Define catchment(s) to Process --
+# --- 1d. Define catchment(s) and API calls to Process --
 catchments_to_process = config["global"]["pipeline_settings"]["catchments_to_process"]
-run_API_calls = False  # Select whether API calls should run
+run_defra_API_calls = config["global"]["pipeline_settings"]["run_defra_api"]  # True to run API calls
 
 # Run full pipeline by catchment
 try:
@@ -52,19 +53,20 @@ try:
 
         logger.info(f"Pipeline step 'Process Station Coordinates for {catchment}' complete.\n")
         
+
+        # --- 2b. Retrieve station measures and metadata from DEFRA API ---
+
+        stations_with_metadata_measures = fetch_and_process_station_data(
+            stations_df=stations_with_coords_df,
+            base_url=config["global"]["paths"]["defra_station_base_url"],
+            output_path=config[catchment]["paths"]["gwl_station_metadata_measures"]
+        )
+
+        logger.info(f"Pipeline step 'Pull Hydrological Station Metadata for {catchment}' complete.\n")
+
         # Only run API calls as needed
-        if run_API_calls:   
-
-            # --- 2b. Retrieve station measures and metadata from DEFRA API ---
-
-            stations_with_metadata_measures = fetch_and_process_station_data(
-                stations_df=stations_with_coords_df,
-                base_url=config["global"]["paths"]["defra_station_base_url"],
-                output_path=config[catchment]["paths"]["gwl_station_metadata_measures"]
-            )
-
-            logger.info(f"Pipeline step 'Pull Hydrological Station Metadata for {catchment}' complete.\n")
-
+        if run_defra_API_calls:   
+            
             # --- 2c. Retrieve raw gwl timeseris data by station from DEFRA API ---
 
             download_and_save_station_readings(
@@ -74,11 +76,11 @@ try:
                 gwl_data_output_dir=config[catchment]["paths"]["gwl_data_output_dir"]
             )
 
-            logger.info(f"All timeseries groundwater level data saved for {catchment} catchment.")
+            logger.info(f"All timeseries groundwater level data saved for {catchment} catchment.\n")
         
-        # --- 2d. load camels-gb data ---
-        
-        # --- 2x. load other data ---
+            # --- 2d. load camels-gb data ---
+            
+            # --- 2x. load other data ---
 
         # ==============================================================================
         # SECTION 3: PREPROCESSING
@@ -87,6 +89,16 @@ try:
         # --- 3a. gwl preprocessing ---
         
         # Load station df's into dict, dropping catchments with insufficient data
+        
+        # Load timeseries CSVs from API into reference dict
+        gwl_time_series_dict = load_timeseries_to_dict(
+            stations_df=stations_with_metadata_measures,
+            col_order=config["global"]["data_ingestion"]["col_order"],
+            data_dir=config[catchment]["paths"]["gwl_data_output_dir"],
+            inclusion_threshold=config[catchment]["preprocessing"]["inclusion_threshold"]
+        )
+
+        logger.info(f"All timeseries data converted to dict for {catchment} catchment.\n")
         
         # Remove outlying and incorrect data points
         
@@ -106,7 +118,7 @@ try:
         # SECTION 4: GRAPH BUILDING
         # ==============================================================================
 
-        # --- 3a. Build Catchment Graph Mesh ---
+        # --- 4a. Build Catchment Graph Mesh ---
 
         mesh_nodes_table, mesh_nodes_gdf, catchment_polygon = build_mesh(
             shape_filepath=config[catchment]['paths']['gis_catchment_boundary'],
@@ -114,9 +126,9 @@ try:
             grid_resolution=config[catchment]['preprocessing']['graph_construction']['grid_resolution']
         )
 
-        logger.info(f"Pipeline step 'Build Mesh' complete for {catchment} catchment.")
+        logger.info(f"Pipeline step 'Build Mesh' complete for {catchment} catchment.\n")
         
-        # --- 3b. Save interactive map of catchment mesh ---
+        # --- 4b. Save interactive map of catchment mesh ---
 
         mesh_map = plot_interactive_mesh(
             mesh_nodes_gdf=mesh_nodes_gdf,
@@ -130,26 +142,127 @@ try:
             interactive=config['global']['visualisations']['maps']['display_interactive_map']
         )
 
-        logger.info(f"Pipeline step 'Interactive Mesh Mapping' complete for {catchment} catchment.")
+        logger.info(f"Pipeline step 'Interactive Mesh Mapping' complete for {catchment} catchment.\n")
         
-        # --- c. Snap gwl monitoring stations to mesh ---
-        
-        # --- 3d. Snap other features data to mesh
+        # --- 4c. Snap GWL monitoring stations to mesh nodes ---
+        # Purpose: Assign observed GWL time series and associated metadata to the closest mesh nodes.
+        # Action: Develop function to find nearest mesh node for each GWL station (e.g., using spatial indexing, k-d tree).
+        # Action: Attach GWL time series data (and static GWL station features) to these specific mesh nodes.
+        # Output: Updated mesh_nodes_gdf or a separate node feature tensor/dataframe.
 
-        # --- 3f. Complete mesh map (interactive map from 3a with stations marked etc) ---
+        # --- 4d. Snap other features data to mesh nodes (e.g., CAMELS-GB data, static attributes) ---
+        # Purpose: Integrate other relevant spatial and spatiotemporal features onto the mesh.
+        # Action: For CAMELS-GB (e.g., rainfall gauges, river flow sites), snap to nearest mesh nodes.
+        # Action: Assign CAMELS time series data (e.g., rainfall, temperature) and static attributes (e.g., elevation, soil type, geology) to all relevant mesh nodes.
+        # Action: Ensure all node features (GWL, CAMELS, static) are aligned by time and node ID.
+        # Output: Comprehensive node feature matrix/tensor (X).
+
+        # --- 4e. Define Graph Adjacency Matrix (Edges) ---
+        # Purpose: Establish connections between mesh nodes.
+        # Action: Define criteria for edges (e.g., k-nearest neighbors, distance threshold, hydrological connectivity).
+        # Action: Construct the adjacency matrix (A) for the graph.
+        # Output: Adjacency matrix or edge_index for PyTorch Geometric.
+
+        # --- 4f. Create Graph Data Object / Input Tensors ---
+        # Purpose: Assemble all graph components (nodes, edges, features, targets) into a format suitable for the GNN framework.
+        # Action: Split data into training, validation, and test sets based on time (e.g., 70/15/15 chronological split).
+        # Action: Generate graph snapshots/sequences for the GNN's input.
+        # Output: PyTorch Geometric Data objects or DGL graphs, including node features (X), edge index (edge_index), and target GWL values (Y) for observed nodes.
+
+        # --- 4g. (Optional) Visualize complete mesh map with stations and other features ---
+        # Purpose: Verify final graph structure and feature distribution visually.
+        # Action: Create an interactive map showing the mesh, GWL stations, and other snapped data points.
 
         # ==============================================================================
         # SECTION 5: MODEL
         # ==============================================================================
+        
+        # --- 5x. Goal: GAT-LSTM ---
+        
+        # --- 5a. Define Graph Neural Network Architecture ---
+        # Goal: Implement a GAT-LSTM (Graph Attention Network + Long Short-Term Memory).
+        # Action: Define the GNN layers (e.g., GATConv for spatial message passing, LSTM for temporal learning).
+        # Action: Specify input/output dimensions, hidden layer sizes, activation functions, dropout rates.
+        # Output: A PyTorch nn.Module or similar model class.
+
+        # --- 5b. Define Loss Function ---
+        # Action: Choose an appropriate loss function for regression (e.g., Mean Squared Error (MSE), Mean Absolute Error (MAE), Huber Loss).
+        # Action: Consider masking the loss calculation to only evaluate predictions at observed GWL stations if non-interpolated.
+
+        # --- 5c. Define Optimizer ---
+        # Action: Select an optimizer (e.g., Adam, SGD).
+        # Action: Configure learning rate and other optimizer parameters.
 
         # ==============================================================================
         # SECTION 6: TRAINING
         # ==============================================================================
+        
+        # --- 6a. Implement Training Loop ---
+        # Action: Iterate over epochs.
+        # Action: For each epoch, iterate over mini-batches of graph data.
+        # Action: Perform forward pass through the model.
+        # Action: Calculate loss.
+        # Action: Perform backward pass and optimize weights.
+        # Action: Implement gradient clipping if necessary.
+
+        # --- 6b. Implement Validation Loop ---
+        # Action: Periodically evaluate model performance on the validation set.
+        # Action: Monitor validation loss/metrics for early stopping.
+
+        # --- 6c. Model Checkpointing and Logging ---
+        # Action: Save best performing model weights based on validation metrics.
+        # Action: Log training and validation metrics (e.g., using TensorBoard, MLflow, or custom logging).
 
         # ==============================================================================
         # SECTION 7: EVALUATION
         # ==============================================================================
 
+        # --- 7a. Final Model Evaluation ---
+        # Action: Load the best trained model.
+        # Action: Evaluate its performance on the unseen test set.
+        # Action: Calculate key metrics (e.g., RMSE, MAE, R-squared, Nash-Sutcliffe Efficiency for hydrology).
+        # Output: Quantitative evaluation results.
+
+        # --- 7b. Visualization of Predictions ---
+        # Action: Plot actual vs. predicted GWL time series for selected stations/nodes.
+        # Action: Create animated maps showing predicted GWL changes over time across the mesh (if using interpolated pseudo-labels).
+
+        # --- 7c. Error Analysis ---
+        # Action: Identify systematic errors or biases in predictions (e.g., over/under-prediction during peaks/troughs).
+        # Action: Explore reasons for poor performance at specific stations/nodes or time periods.
+        
+        # ==============================================================================
+        # SECTION 8: INTERPRETATION & HYDROLOGICAL INSIGHTS
+        # ==============================================================================
+
+        # --- 8a. Feature Importance Analysis (Global & Local) ---
+        # Purpose: Understand which input features (climate, static, lagged GWL) drive predictions.
+        # Action: Apply SHAP (SHapley Additive exPlanations) or similar methods (e.g., Permutation Importance) to identify global feature importance.
+        # Action: For specific predictions or events, apply SHAP/LIME to understand local feature contributions.
+        # Output: Feature importance plots, tables.
+
+        # --- 8b. Spatial Relationship Interpretation (Attention/GNNExplainer) ---
+        # Purpose: Uncover how the GNN leverages spatial connections and neighbors.
+        # Action: If using GAT, analyze learned attention weights to understand influence of neighboring nodes.
+        # Action: Apply GNNExplainer (or similar graph-specific XAI methods) to identify critical subgraphs for specific node predictions.
+        # Output: Visualizations of influential neighbors/connections on maps, attention heatmaps.
+
+        # --- 8c. Analysis of Pseudo-Ungauged Generalisation ---
+        # Purpose: Evaluate the model's ability to predict at nodes masked during training.
+        # Action: Compare predictions at "held-out" (proxy-ungauged) nodes against their interpolated pseudo-ground-truth.
+        # Action: Analyze performance metrics specifically for these nodes.
+        # Action: Visualize the spatial distribution of errors for these ungauged nodes.
+
+        # --- 8d. Hydrological Interpretation and Discussion ---
+        # Purpose: Translate model insights back into hydrogeological understanding.
+        # Action: Discuss consistency of feature importances and spatial influences with known hydrological principles (e.g., lag times, flow paths, aquifer properties).
+        # Action: Provide explanations for observed model behaviors during specific hydrological events (droughts, floods).
+        # Output: Written analysis and discussion points for dissertation.
+
+        # --- 8e. Design Trade-offs Analysis (Optional, if time allows) ---
+        # Purpose: Evaluate the impact of choices in graph construction.
+        # Action: Compare results/interpretations from different graph resolutions (e.g., 500m vs 1000m) or edge definitions (e.g., KNN vs distance threshold).
+        # Output: Comparative analysis.
 
 # If critical pipeline error, exit with an error code
 except Exception as e:
