@@ -33,6 +33,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 config = load_project_config(config_path="config/project_config.yaml")
+notebook = False
 
 # --- 1d. Define catchment(s) and API calls to Process --
 catchments_to_process = config["global"]["pipeline_settings"]["catchments_to_process"]
@@ -123,11 +124,11 @@ try:
         
         if run_outlier_detection:  
             processed_gwl_time_series_dict = outlier_detection(
-                gwl_time_series_dict = gwl_time_series_dict,
-                output_path = config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
-                dpi = config[catchment]["visualisations"]["ts_plots"]["dpi_save"],
-                dict_output = config[catchment]["paths"]["gwl_outlier_dict"],
-                notebook = False
+                gwl_time_series_dict=gwl_time_series_dict,
+                output_path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
+                dpi=config[catchment]["visualisations"]["ts_plots"]["dpi_save"],
+                dict_output=config[catchment]["paths"]["gwl_outlier_dict"],
+                notebook=notebook
             )
             
             logger.info(f"All outlying data processed for {catchment} catchment.\n")
@@ -145,7 +146,7 @@ try:
             start_date=config["global"]["data_ingestion"]["api_start_date"],
             end_date=config["global"]["data_ingestion"]["api_end_date"],
             path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
-            notebook=False
+            notebook=notebook
         )
         
         logger.info(f"Pipeline step 'Resample to Daily Timesteps' complete for {catchment} catchment.\n")
@@ -157,7 +158,7 @@ try:
                 target_df=df,
                 station_name=station_name,
                 path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
-                notebook=False
+                notebook=notebook
             )
             
         logger.info(f"Pipeline step 'Remove spurious points' complete for {catchment} catchment.\n")
@@ -170,7 +171,7 @@ try:
                 station_name=station_name,
                 path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
                 max_steps=config["global"]["data_ingestion"]["max_interp_length"],
-                notebook=True
+                notebook=notebook
             )
             
         logger.info(f"Pipeline step 'Interpolate Short Gaps' complete for {catchment} catchment.\n")
