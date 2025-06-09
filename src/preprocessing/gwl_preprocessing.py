@@ -3,10 +3,13 @@ import ast
 import logging
 import numpy as np
 import pandas as pd
+import multiprocessing
+import logging.handlers
 from hampel import hampel
 from pyproj import Transformer
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from joblib import Parallel, delayed
 
 # Get a logger instance for this module.
 logger = logging.getLogger(__name__)
@@ -59,7 +62,7 @@ def load_timeseries_to_dict(stations_df: pd.DataFrame, col_order: list,
 
 def plot_timeseries(time_series_df: pd.DataFrame, station_name: str, output_path: str,
                     outlier_mask: pd.Series = None, title_suffix: str = "", save_suffix: str = "",
-                    notebook: bool = False):
+                    notebook: bool = False, dpi: int = 300):
     """
     Plot timeseries data colour coded by quality mark.
     """
@@ -81,10 +84,9 @@ def plot_timeseries(time_series_df: pd.DataFrame, station_name: str, output_path
 
     # Plot main time series data using qualities score as legend
     for quality, color in quality_colors.items():
-        mask = (df_to_plot['quality'] == quality) & df_to_plot['value'].notna()
-        if mask.any(): # Only plot if there's data for this quality
-            ax.plot(df_to_plot['dateTime'][mask], df_to_plot['value'][mask], 
-                    label=quality, color=color, alpha=0.8, linewidth=1.5)
+        temp = df_to_plot.copy()
+        temp['value'] = temp['value'].where(temp['quality'] == quality, np.nan)
+        ax.plot(temp['dateTime'], temp['value'], label=quality, color=color, alpha=0.8, linewidth=1.5)
 
     # If an outlier mask is identifed, plot the outliers
     if outlier_mask is not None and not outlier_mask.empty:
@@ -118,7 +120,7 @@ def plot_timeseries(time_series_df: pd.DataFrame, station_name: str, output_path
     ax.legend(title="Quality", loc="center left", bbox_to_anchor=(1.01, 0.5))
 
     plt.tight_layout()
-    plt.savefig(f"{output_path}{station_name}{save_suffix}.png", dpi=300)
+    plt.savefig(f"{output_path}{station_name}{save_suffix}.png", dpi=dpi)
     
     if not notebook:
         plt.close()
@@ -178,7 +180,7 @@ def identify_residual_outliers(original_values):
     
     return end_of_segment_mask
 
-def outlier_detection(gwl_time_series_dict: dict, output_path: str, notebook: bool = False):
+def outlier_detection(gwl_time_series_dict: dict, output_path: str, dpi: int, notebook: bool = False):
     """
     Detects and corrects outliers in groundwater level time series data using 
     Hampel filtering and residual-based heuristics. Also generates diagnostic plots.
@@ -206,18 +208,16 @@ def outlier_detection(gwl_time_series_dict: dict, output_path: str, notebook: bo
 
         # Ensure 'value' column is numeric and plot 'before' plot of raw ts data
         raw_csv['value'] = pd.to_numeric(raw_csv['value'], errors='coerce')
-        raw_csv['dateTime'] = pd.to_datetime(raw_csv['dateTime'], errors='coerce')
-        raw_csv['value'] = pd.to_numeric(raw_csv['value'], errors='coerce')
         
         plot_timeseries(raw_csv, station_name, output_path, title_suffix=" - Raw Data",
-                                      save_suffix='_raw', notebook=notebook)
+                                      save_suffix='_raw', notebook=notebook, dpi=dpi)
 
         # Apply initial threshold cleaning
         csv_cleaned = initial_threshold_cleaning(raw_csv, station_name, iqr_multiplier=5.0)
 
         # Store original values to later detect changes and apply Hampel filter
         original_values = csv_cleaned['value'].copy()
-        hampel_result = hampel(original_values, window_size=250, n_sigma=5.0)
+        hampel_result = hampel(original_values, window_size=100, n_sigma=5.0)
         hampel_filtered_values = hampel_result.filtered_data  # filtered data Series (outliers replaced by medians)
 
         # Create outlier mask using original numeric (not NaN) values
@@ -246,7 +246,8 @@ def outlier_detection(gwl_time_series_dict: dict, output_path: str, notebook: bo
 
         # Pass the filtered DataFrame and the generated outlier_mask, to highlight replaced points in plot
         plot_timeseries(csv_filtered, station_name, output_path, outlier_mask=final_outlier_mask_for_plotting,
-                                    title_suffix=" - Hampel Filtered", save_suffix='_filtered', notebook=notebook)
+                                    title_suffix=" - Hampel Filtered", save_suffix='_filtered', notebook=notebook,
+                                    dpi=dpi)
         
         logging.info(f"Processing {station_name} complete.\n")
         

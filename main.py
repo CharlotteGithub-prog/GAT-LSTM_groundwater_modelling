@@ -23,8 +23,8 @@ from src.preprocessing.gwl_preprocessing import load_timeseries_to_dict, outlier
 # --- 1c. Logging Config ---
 logging.basicConfig(
     level=logging.INFO,
-    format='%(levelname)s - %(message)s',  # Uncomment for short logging
-    # format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',  # Uncomment for full logging
+    # format='%(levelname)s - %(message)s',  # Uncomment for short logging
+    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',  # Uncomment for full logging
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
@@ -110,6 +110,7 @@ try:
         processed_gwl_time_series_dict = outlier_detection(
             gwl_time_series_dict = gwl_time_series_dict,
             output_path = config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
+            dpi = config[catchment]["visualisations"]["ts_plots"]["dpi_save"],
             notebook = False
         )
         
