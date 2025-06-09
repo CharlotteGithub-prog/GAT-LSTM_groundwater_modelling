@@ -20,7 +20,7 @@ from src.visualisation.mapped_visualisations import plot_interactive_mesh
 from src.data_ingestion.gwl_data_ingestion import process_station_coordinates, \
     fetch_and_process_station_data, download_and_save_station_readings
 from src.preprocessing.gwl_preprocessing import load_timeseries_to_dict, \
-    outlier_detection, resample_daily_average
+    outlier_detection, resample_daily_average, remove_spurious_data
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -92,11 +92,11 @@ try:
             
             # --- 2d. load camels-gb data ---
             
-            logging.info("a")
+            logging.info("skipping...")
             
         else:
             
-            logging.info("b")
+            logging.info("skipping...")
         
         # --- 2x. load other data ---
 
@@ -149,7 +149,21 @@ try:
         
         logger.info(f"Pipeline step 'Resample to Daily Timesteps' complete for {catchment} catchment.\n")
         
+        # Remove user-defined spurious points
+        
+        for station_name, df in daily_data.items():
+            daily_data_clean = remove_spurious_data(
+                target_df=df,
+                station_name=station_name,
+                path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
+                notebook=False
+            )
+            
+        logger.info(f"Pipeline step 'Remove spurious points' complete for {catchment} catchment.\n")
+        
         # Interpolate across small gaps in the ts data (define threshold n/o missing time steps for interpolation eligibility) + Add binary interpolation flag column
+        
+        
         
         # Lagged: Add lagged features (by timestep across 7 days?) + potentially rolling averages (3-day/7-day?)
         

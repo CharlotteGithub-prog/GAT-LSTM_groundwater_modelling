@@ -1,16 +1,11 @@
-import os
-import ast
 import joblib
 import logging
 import numpy as np
 import pandas as pd
-import multiprocessing
-import logging.handlers
 from hampel import hampel
-from pyproj import Transformer
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from joblib import Parallel, delayed
+from scipy.interpolate import PchipInterpolator
 
 # Get a logger instance for this module.
 logger = logging.getLogger(__name__)
@@ -63,32 +58,54 @@ def load_timeseries_to_dict(stations_df: pd.DataFrame, col_order: list,
 
 def plot_timeseries(time_series_df: pd.DataFrame, station_name: str, output_path: str,
                     outlier_mask: pd.Series = None, title_suffix: str = "", save_suffix: str = "",
-                    notebook: bool = False, plot_outliers: bool = True, dpi: int = 300):
+                    notebook: bool = False, plot_outliers: bool = True, dpi: int = 300,
+                    legend_type: str = None):
     """
     Plot timeseries data colour coded by quality mark.
     """
     fig, ax = plt.subplots(figsize=(15, 4))
     
-    # Define fixed colours for each quality level
-    quality_colors = {
-        'Good': '#70955F',
-        'Estimated': '#549EB1',
-        'Suspect': '#DF6607',
-        'Unchecked': '#e89c1d',
-        'Missing': '#9c9acd'
-    }
+    if legend_type == 'quality':
+        # Define fixed colours for each quality level
+        quality_colors = {
+            'Good': '#70955F',
+            'Estimated': '#549EB1',
+            'Suspect': '#DF6607',
+            'Unchecked': '#e89c1d',
+            'Missing': '#9c9acd'
+        }
 
-    for quality, color in quality_colors.items():
-        temp = time_series_df.copy()
-        temp['value'] = temp['value'].where(temp['quality'] == quality, np.nan)
-        ax.plot(
-            temp['dateTime'],
-            temp['value'],
-            label=quality,
-            color=color,
-            alpha=0.8,
-            linewidth=1.5
-        )
+        for quality, color in quality_colors.items():
+            temp = time_series_df.copy()
+            temp['value'] = temp['value'].where(temp['quality'] == quality, np.nan)
+            ax.plot(
+                temp['dateTime'],
+                temp['value'],
+                label=quality,
+                color=color,
+                alpha=0.8,
+                linewidth=1.5
+            )
+    
+    if legend_type == 'interpolation':
+        # Define fixed colours for interpolation flag
+        interpolation_colors = {
+            False: '#70955F',
+            True: '#DF6607'
+        }
+        
+        for interp_flag, color in interpolation_colors.items():
+            temp = time_series_df.copy()
+            temp['value'] = temp['value'].where(temp['Interpolated'] == interp_flag, np.nan)
+            label = "Interpolated" if interp_flag else "Original"
+            ax.plot(
+                temp['dateTime'],
+                temp['value'],
+                label=label,
+                color=color,
+                alpha=0.8,
+                linewidth=1.5
+            )
 
     # If an outlier mask is identifed, plot the outliers
     if plot_outliers:
@@ -123,15 +140,13 @@ def plot_timeseries(time_series_df: pd.DataFrame, station_name: str, output_path
     ax.set_xlabel('Date')
     ax.set_ylabel('Groundwater Level (mAOD)')
     ax.grid(True)
-    ax.legend(title="Quality", loc="center left", bbox_to_anchor=(1.01, 0.5))
+    ax.legend(title=legend_type.title(), loc="center left", bbox_to_anchor=(1.01, 0.5))
 
     plt.tight_layout()
     plt.savefig(f"{output_path}{station_name}{save_suffix}.png", dpi=dpi)
     
     if not notebook:
         plt.close()
-
-    # return plt
 
 def initial_threshold_cleaning(df: pd.DataFrame, station_name: str, iqr_multiplier: float = 5.0):
     """
@@ -218,7 +233,8 @@ def outlier_detection(gwl_time_series_dict: dict, output_path: str, dpi: int, di
         raw_csv['dateTime'] = pd.to_datetime(raw_csv['dateTime'], errors='coerce')
         
         plot_timeseries(raw_csv, station_name, output_path, title_suffix=" - Raw Data",
-                                      save_suffix='_raw', notebook=notebook, dpi=dpi)
+                                      save_suffix='_raw', notebook=notebook, dpi=dpi,
+                                      legend_type='quality')
 
         # Apply initial threshold cleaning
         csv_cleaned = initial_threshold_cleaning(raw_csv, station_name, iqr_multiplier=5.0)
@@ -255,7 +271,7 @@ def outlier_detection(gwl_time_series_dict: dict, output_path: str, dpi: int, di
         # Pass the filtered DataFrame and the generated outlier_mask, to highlight replaced points in plot
         plot_timeseries(csv_filtered, station_name, output_path, outlier_mask=final_outlier_mask_for_plotting,
                                     title_suffix=" - Hampel Filtered", save_suffix='_filtered', notebook=notebook,
-                                    dpi=dpi)
+                                    dpi=dpi, legend_type='quality')
         
         logging.info(f"Processing {station_name} complete.\n")
         
@@ -326,7 +342,8 @@ def resample_daily_average(dict: dict, start_date: str, end_date: str, path: str
             title_suffix=" - daily timestep",
             save_suffix="_aggregated_daily",
             notebook=notebook,
-            plot_outliers=False
+            plot_outliers=False,
+            legend_type='quality'
         )
         
         # For logging
@@ -368,7 +385,8 @@ def remove_spurious_data(target_df: pd.DataFrame, station_name: str, path: str, 
             title_suffix=" - daily timestep",
             save_suffix="_aggregated_daily",
             notebook=notebook,
-            plot_outliers=False
+            plot_outliers=False,
+            legend_type='quality'
         )
         
         # For logging
@@ -376,3 +394,142 @@ def remove_spurious_data(target_df: pd.DataFrame, station_name: str, path: str, 
         logger.info(f"{station_name} time series data in daily timestep saved to {save_path}.\n")
     
     return target_df
+
+def print_missing_gaps(df: pd.DataFrame, station_name: str, max_steps: int):
+    """
+    Purely for debugging and EDA.
+    """
+    is_nan = df['value'].isna()
+    gap_ids = (is_nan != is_nan.shift()).cumsum()
+    gaps = df[is_nan].groupby(gap_ids)
+
+    # Find the total data points missing and the number of gaps
+    gap_lengths = [len(group) for id, group in gaps]
+    total_missing = sum(gap_lengths)
+    total_gaps = len(gap_lengths)
+
+    print(f"{station_name} contains {total_missing} missing data points across {total_gaps} gaps.\n")
+    
+    for i, length in enumerate(gap_lengths, start=1):
+        action = "interpolate" if length <= max_steps else "do not interpolate"
+        print(f"    Gap {i}: {length} data points ({action})")
+
+def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_steps: int = 30,
+                           notebook: bool = False):
+    """
+    Interpolate missing points up to threshold defined in config using polynomial
+    spline interpolation (specifically PCHIP) and flag all interpolated data for model
+    to identify lower reliability.
+    """
+    # Create duplicate to modify and initialise interpolation flag
+    interpolated_df = df.copy()
+    interpolated_df['Interpolated']=False
+    total_interpolated = 0
+    
+    is_nan = interpolated_df['value'].isna()
+    gap_ids = (is_nan != is_nan.shift()).cumsum()
+    gaps = interpolated_df[is_nan].groupby(gap_ids)
+
+    # For more verbose logging and debugging
+    print_missing_gaps(interpolated_df, station_name, max_steps)
+    
+    # Interpolate using PCHIP
+    valid = interpolated_df['value'].notna()
+    interp = PchipInterpolator(interpolated_df.loc[valid, 'dateTime'].astype(np.int64),
+                               interpolated_df.loc[valid, 'value'])
+
+    for id, group in gaps:
+        idx = group.index
+        gap_start = idx[0]
+        gap_end = idx[-1]
+            
+        # Skip if gap is at the start or end of the time series as interp will fail
+        if gap_start == 0 or gap_end == len(interpolated_df) - 1:
+            continue
+        
+        # Otherwise apply as expected
+        if len(group) <= max_steps:
+            interpolated_df.loc[idx, 'value'] = interp(df.loc[idx, 'dateTime'].astype(np.int64))
+            interpolated_df.loc[idx, 'Interpolated'] = True
+            total_interpolated += len(group)
+            
+    logging.info(f"{station_name}: Total interpolated points = {total_interpolated}\n{'-'*60}\n")
+    
+    # resave plot if values replaced
+    if total_interpolated > 0: 
+        plot_timeseries(
+            time_series_df=interpolated_df,
+            station_name=station_name,
+            output_path=path,
+            outlier_mask=None,
+            title_suffix=" - daily timestep",
+            save_suffix="_aggregated_daily",
+            notebook=notebook,
+            plot_outliers=False,
+            legend_type='interpolation'
+        )
+
+    logger.info(f"{station_name} updated plot saved to {path}{station_name}_aggregated_daily.png")
+
+    return interpolated_df
+
+def calculate_station_distances():
+    """
+    Calculate Distances: For every station pair, calculate the Euclidean distance (or more accurately, great-circle distance
+    using lat/lon). You have easting and northing for this, which are perfect for direct Euclidean distance calculations.
+    Distance = sqrt((easting_1 - easting_2)^2 + (northing_1 - northing_2)^2)
+    """
+    print("")
+    
+def calculate_station_gwl_correlations():
+    """
+    Calculate Correlations: For all pairs of stations, calculate the Pearson correlation coefficient (r) using their overlapping
+    periods of good quality data. This is crucial to avoid spurious correlations from interpolated or missing data.
+    """
+    print("")
+    
+def plot_station_distance_correlation():
+    """
+    Visualize Distance vs. Correlation: Plot a scatter graph where the x-axis is the distance between two stations and the
+    y-axis is their correlation coefficient. You should see a general trend where correlation decreases with increasing distance.
+    """
+    print("")
+    
+def handle_large_gaps(df: pd.DataFrame, station_name: str, path: str, notebook: bool = False):
+    """
+    Define Rules:
+    1. Primary Rule (Strongest): Prioritize stations with a correlation coefficient above a certain threshold (e.g., r>0.8),
+        regardless of distance.
+    2. Secondary Rule (Distance-Based): If no highly correlated stations are found, then consider stations within a geographical
+        radius (e.g., 5-10 km) that still show a reasonable correlation (e.g., r>0.6).
+    3. Consider Hydrogeological Context: If you have any expert knowledge or geological maps of the Eden Catchment, use them to
+        inform your decisions. For example, avoid connecting stations separated by known geological faults or major surface water
+        bodies that might act as boundaries.
+    """
+    
+    # STEP ONE:
+    # Determine Relevant Nearby Stations: For each station with a large gap, identify nearby stations
+    # that have good quality data during that specific gap period. You might need to define a "threshold
+    # perimeter" based on distance or hydrogeological similarity.
+    
+    # STEP TWO: Sinusoidal Imputation (Standalone)
+    # - If no suitable nearby station is available, or as a baseline:
+    # - Fit a sine/cosine model to the observed parts of the specific station's time series (or a long-term average seasonal cycle).
+    # - Use this model to predict values for the large NaN gap.
+    # - This is often done using a Fourier series or fitting a curve to the average daily/monthly values over several years.
+    
+    # STEP THREE: Regression/Correlation Imputation (with Nearby Stations)
+    # - If a good nearby station exists:
+    # - Train a simple regression model (ee.g., linear regression, or even a more complex model if you have enough data) using
+    #   the relationship between the gappy station's values and the nearby station's values from periods where both have observations.
+    # - Use this trained model to predict the missing values in the gappy station's record, driven by the observed values from the nearby station.
+    # - This is essentially predicting GWL[_gappy] = f(GWL[_nearby], time_of_year)
+    
+    # STEP FOUR: Flagging and Feature Engineering for GAT-LSTM
+    # - Add a new flag column: Create a boolean or categorical column, e.g., 'Imputed_Method_Flag', that indicates:
+    #       0: Original observed data
+    #       1: PCHIP Interpolated (short gap)
+    #       2: Sinusoidal Imputed (large gap)
+    #       3: Nearby Station Imputed (large gap)
+    # - Create the final numerical input: Ensure all NaNs are filled by one of these methods. The GAT-LSTM will take the groundwater_level
+    #   (now 100% numerical) and the Imputed_Method_Flag (one-hot encoded or embedded) as input features.

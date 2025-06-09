@@ -37,6 +37,7 @@ global:
     api_start_date: "2014-01-01T00:00:00"
     api_end_date: "2025-01-01T00:00:00"
     col_order: ['station_name', 'date', 'dateTime', 'value', 'quality', 'measure']
+    max_interp_length: 35
 
   # --- VISUALISATION SETTINGS ---
   visualisations:
