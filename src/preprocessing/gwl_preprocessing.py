@@ -473,27 +473,47 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
 
     return interpolated_df
 
+def define_catchment_size(catchment_df: pd.DataFrame, threshold_m: int):
+    """
+    Return True is catchment width of height exceeds threshold. Catchment size will dictate distance
+    calculation formulas in subsequent interpolation calculations.
+    """
+    min_easting = catchment_df['easting'].min()
+    max_easting = catchment_df['easting'].max()
+    min_northing = catchment_df['northing'].min()
+    max_northing = catchment_df['northing'].max()
+
+    easting_range_m = max_easting - min_easting
+    northing_range_m = max_northing - min_northing
+
+    # Return true 
+    return easting_range_m > threshold_m or northing_range_m > threshold_m
+
 def calculate_station_distances():
     """
     Calculate Distances: For every station pair, calculate the Euclidean distance (or more accurately, great-circle distance
     using lat/lon). You have easting and northing for this, which are perfect for direct Euclidean distance calculations.
-    Distance = sqrt((easting_1 - easting_2)^2 + (northing_1 - northing_2)^2)
+    
+    If catchment_size = small: Distance (Euclidean) = sqrt((easting_1 - easting_2)^2 + (northing_1 - northing_2)^2)
+    If catchment_size = large: use haversine (w/lat/lon in radians) formula instead. (What should qualify as large here? Max height/width?)
+    
+    Suggested Threshold: If max_easting_range or max_northing_range is greater than 50,000 meters (50 km).
     """
-    print("")
+    # Add code here
     
 def calculate_station_gwl_correlations():
     """
     Calculate Correlations: For all pairs of stations, calculate the Pearson correlation coefficient (r) using their overlapping
     periods of good quality data. This is crucial to avoid spurious correlations from interpolated or missing data.
     """
-    print("")
+    # Add code here
     
 def plot_station_distance_correlation():
     """
     Visualize Distance vs. Correlation: Plot a scatter graph where the x-axis is the distance between two stations and the
     y-axis is their correlation coefficient. You should see a general trend where correlation decreases with increasing distance.
     """
-    print("")
+    # Add code here
     
 def handle_large_gaps(df: pd.DataFrame, station_name: str, path: str, notebook: bool = False):
     """
@@ -506,6 +526,8 @@ def handle_large_gaps(df: pd.DataFrame, station_name: str, path: str, notebook: 
         inform your decisions. For example, avoid connecting stations separated by known geological faults or major surface water
         bodies that might act as boundaries.
     """
+    # Determine catchment size for interpolation type
+    large_catchment = define_catchment_size()
     
     # STEP ONE:
     # Determine Relevant Nearby Stations: For each station with a large gap, identify nearby stations

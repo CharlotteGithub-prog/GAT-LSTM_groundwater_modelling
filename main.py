@@ -20,7 +20,8 @@ from src.visualisation.mapped_visualisations import plot_interactive_mesh
 from src.data_ingestion.gwl_data_ingestion import process_station_coordinates, \
     fetch_and_process_station_data, download_and_save_station_readings
 from src.preprocessing.gwl_preprocessing import load_timeseries_to_dict, \
-    outlier_detection, resample_daily_average, remove_spurious_data
+    outlier_detection, resample_daily_average, remove_spurious_data, \
+    interpolate_short_gaps
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -152,7 +153,7 @@ try:
         # Remove user-defined spurious points
         
         for station_name, df in daily_data.items():
-            daily_data_clean = remove_spurious_data(
+            daily_data[station_name] = remove_spurious_data(
                 target_df=df,
                 station_name=station_name,
                 path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
@@ -162,6 +163,19 @@ try:
         logger.info(f"Pipeline step 'Remove spurious points' complete for {catchment} catchment.\n")
         
         # Interpolate across small gaps in the ts data (define threshold n/o missing time steps for interpolation eligibility) + Add binary interpolation flag column
+        
+        for station_name, df in daily_data.items():
+            daily_data[station_name] = interpolate_short_gaps(
+                df=df,
+                station_name=station_name,
+                path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
+                max_steps=config["global"]["data_ingestion"]["max_interp_length"],
+                notebook=True
+            )
+            
+        logger.info(f"Pipeline step 'Interpolate Short Gaps' complete for {catchment} catchment.\n")
+
+        # Resolve larger gaps in data
         
         
         
