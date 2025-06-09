@@ -334,3 +334,45 @@ def resample_daily_average(dict: dict, start_date: str, end_date: str, path: str
         logger.info(f"{station_name} time series data in daily timestep saved to {save_path}.\n")
         
     return daily_dict
+
+def remove_spurious_data(target_df: pd.DataFrame, station_name: str, path: str, notebook: bool = False):
+    """
+    Remove predefined data points identified as spurious from domain-based
+    analysis.
+    """
+    # Initialise counter of spurious points removed
+    num_removed = 0
+    
+    if station_name == 'Renwick':
+        start_date = '2023-01-06'
+        end_date = '2023-10-23'
+
+        # Create a boolean mask for the period to be removed
+        removal_mask = (target_df['dateTime'] >= start_date) & \
+                       (target_df['dateTime'] <= end_date)
+
+        num_removed = removal_mask.sum()
+
+    if num_removed > 0:
+        target_df.loc[removal_mask, 'value'] = np.nan
+        target_df.loc[removal_mask, 'quality'] = 'Missing'  # Update quality assignment
+        logger.info(f"Station {station_name}: Removed {num_removed} data points "
+                    f"between {start_date} and {end_date}.")
+        
+        # resave plot if values replaced        
+        plot_timeseries(
+            time_series_df=target_df,
+            station_name=station_name,
+            output_path=path,
+            outlier_mask=None,
+            title_suffix=" - daily timestep",
+            save_suffix="_aggregated_daily",
+            notebook=notebook,
+            plot_outliers=False
+        )
+        
+        # For logging
+        save_path = f"{path}{station_name}_aggregated_daily.png"
+        logger.info(f"{station_name} time series data in daily timestep saved to {save_path}.\n")
+    
+    return target_df
