@@ -18,7 +18,7 @@ from src.graph_building.graph_construction import build_mesh
 from src.visualisation.mapped_visualisations import plot_interactive_mesh
 from src.data_ingestion.gwl_data_ingestion import process_station_coordinates, \
     fetch_and_process_station_data, download_and_save_station_readings
-from src.preprocessing.gwl_preprocessing import load_timeseries_to_dict
+from src.preprocessing.gwl_preprocessing import load_timeseries_to_dict, outlier_detection
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -107,9 +107,17 @@ try:
         
         # Remove outlying and incorrect data points
         
+        processed_gwl_time_series_dict = outlier_detection(
+            gwl_time_series_dict = gwl_time_series_dict,
+            output_path = config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
+            notebook = False
+        )
         
+        logger.info(f"All outlying data processed for {catchment} catchment.\n")
         
-        # Aggregate to daily time steps
+        # Aggregate to daily time 
+        
+        # (Check the high variability areas again)
         
         # Interpolate across small gaps in the ts data (define threshold n/o missing time steps for interpolation eligibility) + Add binary interpolation flag column
         

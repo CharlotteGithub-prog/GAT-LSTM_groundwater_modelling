@@ -118,6 +118,8 @@ eden:
     maps:
       static_mesh_map_output: "results/figures/eden/maps/static_mesh_map"  # ensure no specific file extension
       interactive_mesh_map_output: "results/figures/eden/maps/interactive_mesh_map"  # ensure no specific file extension
+    ts_plots:
+      time_series_gwl_output: "results/figures/eden/time_series/"
 
 # ==============================================================================
 # FUTURE CATCHMENT CONFIG SETTINGS
