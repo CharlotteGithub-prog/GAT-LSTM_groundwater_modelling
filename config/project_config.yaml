@@ -9,6 +9,7 @@ global:
     catchments_to_process: ["eden"]  # TODO: add more in future dev
     run_defra_api: False
     run_camels_api: False
+    run_outlier_detection: False
 
   # --- FILE PATHS ---
   paths:
@@ -107,6 +108,7 @@ eden:
     gwl_station_list_with_coords: "data/02_processed/eden/gwl_station_data/station_list_with_coords.csv"
     gwl_station_metadata_measures: "data/02_processed/eden/gwl_station_data/gwl_station_metadata_measures.csv"
     gwl_data_output_dir: "data/01_raw/eden/gwl_stations/API_data/"
+    gwl_outlier_dict: "data/02_processed/eden/gwl_station_data/dict_witout_outliers.pkl"
   
   # --- PREPROCESSING SETTINGS ---
   preprocessing:

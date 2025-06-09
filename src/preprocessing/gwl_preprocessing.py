@@ -1,5 +1,6 @@
 import os
 import ast
+import joblib
 import logging
 import numpy as np
 import pandas as pd
@@ -62,17 +63,12 @@ def load_timeseries_to_dict(stations_df: pd.DataFrame, col_order: list,
 
 def plot_timeseries(time_series_df: pd.DataFrame, station_name: str, output_path: str,
                     outlier_mask: pd.Series = None, title_suffix: str = "", save_suffix: str = "",
-                    notebook: bool = False, dpi: int = 300):
+                    notebook: bool = False, plot_outliers: bool = True, dpi: int = 300):
     """
     Plot timeseries data colour coded by quality mark.
     """
     fig, ax = plt.subplots(figsize=(15, 4))
-    df_to_plot = time_series_df.copy()  # Modify copy for plotting
-
-    # Ensure dateTime is datetime type and value is numeric
-    df_to_plot['dateTime'] = pd.to_datetime(df_to_plot['dateTime'], errors='coerce')
-    df_to_plot['value'] = pd.to_numeric(df_to_plot['value'], errors='coerce')
-
+    
     # Define fixed colours for each quality level
     quality_colors = {
         'Good': '#70955F',
@@ -82,29 +78,39 @@ def plot_timeseries(time_series_df: pd.DataFrame, station_name: str, output_path
         'Missing': '#9c9acd'
     }
 
-    # Plot main time series data using qualities score as legend
     for quality, color in quality_colors.items():
-        temp = df_to_plot.copy()
+        temp = time_series_df.copy()
         temp['value'] = temp['value'].where(temp['quality'] == quality, np.nan)
-        ax.plot(temp['dateTime'], temp['value'], label=quality, color=color, alpha=0.8, linewidth=1.5)
+        ax.plot(
+            temp['dateTime'],
+            temp['value'],
+            label=quality,
+            color=color,
+            alpha=0.8,
+            linewidth=1.5
+        )
 
     # If an outlier mask is identifed, plot the outliers
-    if outlier_mask is not None and not outlier_mask.empty:
-        
-        # Apply outlier mask to identify only points to mark with X
-        corrected_values = df_to_plot['value'][outlier_mask]
-        corrected_datetimes = df_to_plot['dateTime'][outlier_mask]
+    if plot_outliers:
+        if outlier_mask is not None and outlier_mask.sum() > 0:
+            
+            # Apply outlier mask to identify only points to mark with X
+            corrected_values = time_series_df['value'][outlier_mask]
+            corrected_datetimes = time_series_df['dateTime'][outlier_mask]
 
-        # Plot markers for the detected outliers
-        ax.scatter(
-            corrected_datetimes,
-            corrected_values,
-            color='red',
-            marker='x',
-            s=50, # marker size
-            label='Detected Outlier',
-            zorder=5 # Ensures markers are on top
-        )
+            # Plot markers for the detected outliers
+            ax.scatter(
+                corrected_datetimes,
+                corrected_values,
+                color='red',
+                marker='x',
+                s=50, # marker size
+                label='Outlier',
+                zorder=5 # Ensures markers are on top
+            )
+        
+        else:
+            logger.info(f"No outliers to plot for station {station_name}")
 
     # Apply auto locators and formatters to clean up ticks
     locator = mdates.AutoDateLocator(minticks=10)
@@ -125,7 +131,7 @@ def plot_timeseries(time_series_df: pd.DataFrame, station_name: str, output_path
     if not notebook:
         plt.close()
 
-    return plt
+    # return plt
 
 def initial_threshold_cleaning(df: pd.DataFrame, station_name: str, iqr_multiplier: float = 5.0):
     """
@@ -161,7 +167,7 @@ def initial_threshold_cleaning(df: pd.DataFrame, station_name: str, iqr_multipli
         
     return df_cleaned
 
-def identify_residual_outliers(original_values):
+def identify_residual_outliers(original_values: pd.Series):
     """
     Identifies potential outliers based on residuals (deviation from rolling median)
     that occur near data gaps (NaNs ahead). Returns a boolean mask.
@@ -180,7 +186,8 @@ def identify_residual_outliers(original_values):
     
     return end_of_segment_mask
 
-def outlier_detection(gwl_time_series_dict: dict, output_path: str, dpi: int, notebook: bool = False):
+def outlier_detection(gwl_time_series_dict: dict, output_path: str, dpi: int, dict_output: str,
+                      notebook: bool = False):
     """
     Detects and corrects outliers in groundwater level time series data using 
     Hampel filtering and residual-based heuristics. Also generates diagnostic plots.
@@ -208,6 +215,7 @@ def outlier_detection(gwl_time_series_dict: dict, output_path: str, dpi: int, no
 
         # Ensure 'value' column is numeric and plot 'before' plot of raw ts data
         raw_csv['value'] = pd.to_numeric(raw_csv['value'], errors='coerce')
+        raw_csv['dateTime'] = pd.to_datetime(raw_csv['dateTime'], errors='coerce')
         
         plot_timeseries(raw_csv, station_name, output_path, title_suffix=" - Raw Data",
                                       save_suffix='_raw', notebook=notebook, dpi=dpi)
@@ -217,7 +225,7 @@ def outlier_detection(gwl_time_series_dict: dict, output_path: str, dpi: int, no
 
         # Store original values to later detect changes and apply Hampel filter
         original_values = csv_cleaned['value'].copy()
-        hampel_result = hampel(original_values, window_size=100, n_sigma=5.0)
+        hampel_result = hampel(original_values, window_size=250, n_sigma=10.0)
         hampel_filtered_values = hampel_result.filtered_data  # filtered data Series (outliers replaced by medians)
 
         # Create outlier mask using original numeric (not NaN) values
@@ -255,6 +263,74 @@ def outlier_detection(gwl_time_series_dict: dict, output_path: str, dpi: int, no
             plt.show()
             
         # Store the processed DataFrame in the new dictionary
-        processed_gwl_time_series_dict[station_name] = csv_filtered
+        processed_gwl_time_series_dict[station_name] = csv_filtered  
         
+    # Save to avoid reprocessing every time and return modified dict
+    joblib.dump(processed_gwl_time_series_dict, dict_output)
     return processed_gwl_time_series_dict
+
+def resample_daily_average(dict: dict, start_date: str, end_date: str, path: str,
+                           notebook: bool = False):
+    """
+    Resample the gwl data to a daily timestep for model.
+    """
+    logger.info(f"Initalising resampling of gwl data to daily timestep.\n")
+    
+    # Initialise new dict to store resampled data
+    daily_dict = {}
+    
+    # Define global date range for model
+    start_date = pd.to_datetime(start_date)
+    end_date = pd.to_datetime(end_date)
+    full_date_range = pd.date_range(start_date, end_date, freq='D')
+    
+    # Loop through remaining gwl monitoring stations
+    for station_name, df in dict.items():
+        logger.info(f"Resampling {station_name} to daily timestep...")
+        
+        # Check sorted by date and set date as index
+        df = df.dropna(subset=['dateTime'])
+        df = df.sort_values('dateTime')
+        df = df.set_index('dateTime')
+        
+        # Define aggregation functions
+        agg_funcs = {
+            'station_name': 'first',
+            'date': 'first',
+            'value': 'mean',
+            'quality': lambda x: x.mode().iloc[0] if not x.mode().empty else pd.NA,
+            'measure': 'first'
+        }
+        
+        # Resample and aggregate
+        daily_df = df.resample('1D').agg(agg_funcs)
+        daily_df = daily_df.reindex(full_date_range)  # All stations cover full time range
+        daily_df = daily_df.reset_index().rename(columns={'index': 'dateTime'})
+        daily_dict[station_name] = daily_df
+        
+        # For logging
+        expected_days = (end_date - start_date).days + 1  # +1 to be inclusive
+        valid_days = daily_df['value'].notna().sum()
+        percent_complete = (valid_days / expected_days) * 100
+
+        logger.info(f"    {station_name} resampled -> now contains {valid_days} non-zero data points.")
+        logger.info(f"    Data covers {percent_complete:.1f}% of time period.\n")
+
+    # Save time series aggragated plots
+    for station_name, df in daily_dict.items():
+        plot_timeseries(
+            time_series_df=df,
+            station_name=station_name,
+            output_path=path,
+            outlier_mask=None,
+            title_suffix=" - daily timestep",
+            save_suffix="_aggregated_daily",
+            notebook=notebook,
+            plot_outliers=False
+        )
+        
+        # For logging
+        save_path = f"{path}{station_name}_aggregated_daily.png"
+        logger.info(f"{station_name} time series data in daily timestep saved to {save_path}.\n")
+        
+    return daily_dict

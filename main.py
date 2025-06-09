@@ -9,6 +9,7 @@
 
 # --- 1a. Library Imports ---
 import sys
+import joblib
 import logging
 import pandas as pd
 
@@ -18,7 +19,8 @@ from src.graph_building.graph_construction import build_mesh
 from src.visualisation.mapped_visualisations import plot_interactive_mesh
 from src.data_ingestion.gwl_data_ingestion import process_station_coordinates, \
     fetch_and_process_station_data, download_and_save_station_readings
-from src.preprocessing.gwl_preprocessing import load_timeseries_to_dict, outlier_detection
+from src.preprocessing.gwl_preprocessing import load_timeseries_to_dict, \
+    outlier_detection, resample_daily_average
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -34,6 +36,8 @@ config = load_project_config(config_path="config/project_config.yaml")
 # --- 1d. Define catchment(s) and API calls to Process --
 catchments_to_process = config["global"]["pipeline_settings"]["catchments_to_process"]
 run_defra_API_calls = config["global"]["pipeline_settings"]["run_defra_api"]  # True to run API calls
+run_camels_API_calls = config["global"]["pipeline_settings"]["run_camels_api"]  # True to run API calls
+run_outlier_detection = config["global"]["pipeline_settings"]["run_outlier_detection"]
 
 # Run full pipeline by catchment
 try:
@@ -83,9 +87,18 @@ try:
             loaded_csv_path = config[catchment]["paths"]["gwl_station_metadata_measures"]
             stations_with_metadata_measures = pd.read_csv(loaded_csv_path)
         
+        # Only run API calls as needed
+        if run_camels_API_calls: 
+            
             # --- 2d. load camels-gb data ---
             
-            # --- 2x. load other data ---
+            logging.info("a")
+            
+        else:
+            
+            logging.info("b")
+        
+        # --- 2x. load other data ---
 
         # ==============================================================================
         # SECTION 3: PREPROCESSING
@@ -107,18 +120,34 @@ try:
         
         # Remove outlying and incorrect data points
         
-        processed_gwl_time_series_dict = outlier_detection(
-            gwl_time_series_dict = gwl_time_series_dict,
-            output_path = config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
-            dpi = config[catchment]["visualisations"]["ts_plots"]["dpi_save"],
-            notebook = False
-        )
+        if run_outlier_detection:  
+            processed_gwl_time_series_dict = outlier_detection(
+                gwl_time_series_dict = gwl_time_series_dict,
+                output_path = config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
+                dpi = config[catchment]["visualisations"]["ts_plots"]["dpi_save"],
+                dict_output = config[catchment]["paths"]["gwl_outlier_dict"],
+                notebook = False
+            )
+            
+            logger.info(f"All outlying data processed for {catchment} catchment.\n")
         
-        logger.info(f"All outlying data processed for {catchment} catchment.\n")
+        else:
+            input_dict = config[catchment]["paths"]["gwl_outlier_dict"]
+            processed_gwl_time_series_dict = joblib.load(input_dict)
+        
+        logger.info(f"Pipeline step 'Run outlier detection and cleaning' complete for {catchment} catchment.\n")
         
         # Aggregate to daily time 
         
-        # (Check the high variability areas again)
+        daily_data = resample_daily_average(
+            dict=processed_gwl_time_series_dict,
+            start_date=config["global"]["data_ingestion"]["api_start_date"],
+            end_date=config["global"]["data_ingestion"]["api_end_date"],
+            path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
+            notebook=False
+        )
+        
+        logger.info(f"Pipeline step 'Resample to Daily Timesteps' complete for {catchment} catchment.\n")
         
         # Interpolate across small gaps in the ts data (define threshold n/o missing time steps for interpolation eligibility) + Add binary interpolation flag column
         
