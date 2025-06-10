@@ -496,7 +496,7 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
     
     # Interpolate using PCHIP
     valid = interpolated_df['value'].notna()
-    interp = PchipInterpolator(interpolated_df.loc[valid, 'dateTime'].view('int64'),
+    interp = PchipInterpolator(interpolated_df.loc[valid, 'dateTime'].astype('int64'),
                                interpolated_df.loc[valid, 'value'])
 
     for id, group in gaps:
@@ -510,7 +510,7 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
         
         # Otherwise apply as expected
         if len(group) <= max_steps:
-            interpolated_df.loc[idx, 'value'] = interp(df.loc[idx, 'dateTime'].view('int64'))
+            interpolated_df.loc[idx, 'value'] = interp(df.loc[idx, 'dateTime'].astype('int64'))
             interpolated_df.loc[idx, 'Interpolated'] = True
             total_interpolated += len(group)
             
@@ -616,14 +616,45 @@ def calculate_station_distances(spatial_df: pd.DataFrame, use_haversine: bool = 
 
     return pd.DataFrame(distance_matrix, index=stations, columns=stations)
                 
-def calculate_station_gwl_correlations():
-    """
-    Calculate Correlations: For all pairs of stations, calculate the Pearson correlation coefficient (r) using their overlapping
-    periods of good quality data. This is crucial to avoid spurious correlations from interpolated or missing data.
+def calculate_station_correlations(df: pd.DataFrame, catchment: str):
+    # Extract just the 'value' series from each station's DataFrame and store in a list
+    series_list = []
+    for station_name, station_df in df.items():
+        # Rename the series to the station_name for proper column naming after concat
+        if 'value' in station_df.columns:
+            series_list.append(station_df['value'].rename(station_name))
+            
+    gwl_data_for_correlation = pd.concat(series_list, axis=1)
+    gwl_data_for_correlation = gwl_data_for_correlation.sort_index()
+
+    correlation_matrix = gwl_data_for_correlation.corr(method='pearson')
+    min_common_observations = 365 # Example: Require at least 1 year of overlapping data
     
-    Crucial: Do not use NaN data.
-    """
-    # Add code here
+    def count_non_nan_overlap(series1, series2):
+        return pd.concat([series1, series2], axis=1).dropna().shape[0]
+
+    filtered_correlation_matrix = correlation_matrix.copy()
+
+    for col1 in correlation_matrix.columns:
+        for col2 in correlation_matrix.columns:
+            if col1 == col2:
+                continue
+            
+            # Retrieve the full series from gwl_data_for_correlation for overlap count
+            overlap_count = count_non_nan_overlap(gwl_data_for_correlation[col1], gwl_data_for_correlation[col2])
+            
+            if overlap_count < min_common_observations:
+                filtered_correlation_matrix.loc[col1, col2] = np.nan
+                filtered_correlation_matrix.loc[col2, col1] = np.nan
+    
+    # Handle negative correlations (not useful here) -> Set all values < 0 to 0
+    processed_correlation_matrix = filtered_correlation_matrix.mask(filtered_correlation_matrix < 0, 0)
+
+    logging.info(f"{catchment}: Correlation matrix calculated with a minimum of {min_common_observations} overlapping observations.\n")    
+    return processed_correlation_matrix
+
+def score_station_proximity():
+    print("")
     
 def plot_station_distance_correlation():
     """
@@ -636,7 +667,7 @@ def handle_large_gaps(df: pd.DataFrame, gaps_list: list, catchment: str, spatial
                       threshold_m: int, radius: int, notebook: bool = False):
     """
     Define Rules:
-    1. Primary Rule (Strongest): Prioritize stations with a correlation coefficient above a certain threshold (e.g., r>0.8),
+    1. Primary Rule (Strongest): Prioritise stations with a correlation coefficient above a certain threshold (e.g., r>0.8),
         regardless of distance.
     2. Secondary Rule (Distance-Based): If no highly correlated stations are found, then consider stations within a geographical
         radius (e.g., 5-10 km) that still show a reasonable correlation (e.g., r>0.6).
@@ -654,9 +685,12 @@ def handle_large_gaps(df: pd.DataFrame, gaps_list: list, catchment: str, spatial
     logging.info(f"{catchment}: Distance matrix calculated using "
                  f"{'Haversine' if large_catchment else 'Euclidean'} method.\n")
     
-    # Correlation
-    
-    # Score
+    # Calculate correlation matrix in range [0, 1]
+    correlation_matrix = calculate_station_correlations(df, catchment)
+    logging.info(f"Correlation Matrix:\n{correlation_matrix.round(2)}\n")
+
+    # Score nearby stations for stations in gaps_list
+    scoring = score_station_proximity()
     
     # STEP ONE:
     # Determine Relevant Nearby Stations: For each station with a large gap, identify nearby stations
