@@ -358,8 +358,14 @@ def remove_spurious_data(target_df: pd.DataFrame, station_name: str, path: str, 
     analysis.
     """
     # Initialise counter of spurious points removed
-    num_removed = 0
+    changes_made = False
     
+    # Check dateTime data type
+    target_df = target_df.copy()
+    target_df['dateTime'] = pd.to_datetime(target_df['dateTime'], errors='coerce')
+
+    
+    # Manual adjustment for Renwick
     if station_name == 'Renwick':
         start_date = '2023-01-06'
         end_date = '2023-10-23'
@@ -369,14 +375,67 @@ def remove_spurious_data(target_df: pd.DataFrame, station_name: str, path: str, 
                        (target_df['dateTime'] <= end_date)
 
         num_removed = removal_mask.sum()
+        if num_removed > 0:
+            target_df.loc[removal_mask, 'value'] = np.nan
+            target_df.loc[removal_mask, 'quality'] = 'Missing'
+            logger.info(f"Station {station_name}: Removed {num_removed} data points "
+                        f"between {start_date} and {end_date}.")
+            changes_made = True
+    
+    # Manual adjustment for Ainstable
+    if station_name == 'Ainstable':
+        # Phase shift section
+        start_date = '2021-06-16'
+        end_date = '2021-11-17'
+    
+        # Create a boolean mask for the period to be shifted
+        shift_mask = (target_df['dateTime'] >= start_date) & \
+                    (target_df['dateTime'] <= end_date)
 
-    if num_removed > 0:
-        target_df.loc[removal_mask, 'value'] = np.nan
-        target_df.loc[removal_mask, 'quality'] = 'Missing'  # Update quality assignment
-        logger.info(f"Station {station_name}: Removed {num_removed} data points "
+        # Apply the shift
+        shift_value = 0.4654
+        target_df.loc[shift_mask, 'value'] += shift_value
+        logger.info(f"Station {station_name}: Shifted values by +{shift_value} "
+                    f"between {start_date} and {end_date}.")
+        changes_made = True
+        
+        # Inversion secrtion
+        start_date = '2022-08-01'
+        end_date = '2023-04-18'
+
+        invert_mask = (target_df['dateTime'] >= start_date) & \
+                    (target_df['dateTime'] <= end_date)
+        
+        # Reflect around the segment mean
+        segment = target_df.loc[invert_mask, 'value']
+        segment_mean = segment.mean()
+        target_df.loc[invert_mask, 'value'] = segment_mean - (segment - segment_mean)
+        logger.info(f"Station {station_name}: Inverted segment between "
+                    f"{start_date} and {end_date} around mean = {segment_mean:.4f}")
+        
+        # Shift by phase
+        shift_value = -0.5928
+        target_df.loc[invert_mask, 'value'] += shift_value
+        logger.info(f"Station {station_name}: Shifted values by +{shift_value} "
                     f"between {start_date} and {end_date}.")
         
-        # resave plot if values replaced        
+        # Manually remove boundary points that cause issues
+        boundary_dates_to_remove = [
+            (pd.Timestamp('2021-06-13'), pd.Timestamp('2021-06-17')),
+            (pd.Timestamp('2021-11-15'), pd.Timestamp('2021-11-19')),
+            (pd.Timestamp('2023-04-16'), pd.Timestamp('2023-04-20'))
+        ]
+        
+        for start_date, end_date in boundary_dates_to_remove:
+            mask = (target_df['dateTime'] >= start_date) & (target_df['dateTime'] <= end_date)
+            if mask.any(): # Check if any dates within the range exist in the DataFrame
+                target_df.loc[mask, 'value'] = np.nan
+                target_df.loc[mask, 'quality'] = 'Missing'
+                changes_made = True
+                print(f"Removed data for range: {start_date.date()} to {end_date.date()}")
+
+    # resave plot if values replaced  
+    if changes_made:      
         plot_timeseries(
             time_series_df=target_df,
             station_name=station_name,
@@ -473,34 +532,81 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
 
     return interpolated_df
 
-def define_catchment_size(catchment_df: pd.DataFrame, threshold_m: int):
+def define_catchment_size(spatial_df: pd.DataFrame, name: str, threshold_m: int):
     """
     Return True is catchment width of height exceeds threshold. Catchment size will dictate distance
     calculation formulas in subsequent interpolation calculations.
     """
-    min_easting = catchment_df['easting'].min()
-    max_easting = catchment_df['easting'].max()
-    min_northing = catchment_df['northing'].min()
-    max_northing = catchment_df['northing'].max()
+    logging.info(f"Checking if {name} is a large catchment...\n")
+    
+    min_easting = spatial_df['easting'].min()
+    max_easting = spatial_df['easting'].max()
+    min_northing = spatial_df['northing'].min()
+    max_northing = spatial_df['northing'].max()
 
     easting_range_m = max_easting - min_easting
     northing_range_m = max_northing - min_northing
+    logging.info(f"{name} easting_range_m: {easting_range_m}")
+    logging.info(f"{name} northing_range_m: {northing_range_m}\n")
+    
+    logging.info(f"Large Catchment?: {easting_range_m > threshold_m or northing_range_m > threshold_m}"
+                 f" (threshold: {threshold_m}m)\n")
 
     # Return true 
     return easting_range_m > threshold_m or northing_range_m > threshold_m
 
-def calculate_station_distances():
+def calculate_station_distances(spatial_df: pd.DataFrame, use_haversine: bool = False,
+                                radius: float = 6371000.0):
     """
-    Calculate Distances: For every station pair, calculate the Euclidean distance (or more accurately, great-circle distance
-    using lat/lon). You have easting and northing for this, which are perfect for direct Euclidean distance calculations.
-    
-    If catchment_size = small: Distance (Euclidean) = sqrt((easting_1 - easting_2)^2 + (northing_1 - northing_2)^2)
-    If catchment_size = large: use haversine (w/lat/lon in radians) formula instead. (What should qualify as large here? Max height/width?)
-    
-    Suggested Threshold: If max_easting_range or max_northing_range is greater than 50,000 meters (50 km).
+    Calculate pairwise distances between stations using either:
+    - Euclidean distance (for small catchments, using easting/northing), or
+    - Haversine distance (for large catchments, using latitude/longitude in rads).
+
+    Returns:
+        pd.DataFrame: Square symmetric distance matrix (in m)
     """
-    # Add code here
+    # Initialise distance matrix using station list
+    stations = spatial_df['station_id'].values
+    n = len(stations)
+    distance_matrix = np.zeros((n, n))
+
+    for i in range(n):
+        row_i = spatial_df.iloc[i]  # cache for speed
+        for j in range(i, n):  # only compute half as symmetric
+            row_j = spatial_df.iloc[j]  # cache for speed
     
+            # Caculating using greater-circle (haversine)
+            if use_haversine:
+                
+                # Calculate latitude vals in radians
+                phi_1 = np.radians(row_i['lat'])
+                phi_2 = np.radians(row_j['lat'])
+                delta_phi = phi_2 - phi_1
+                
+                # Calculate longitude vals in radians
+                lambda_1 = np.radians(row_i['lon'])
+                lambda_2 = np.radians(row_j['lon'])
+                delta_lambda = lambda_2 - lambda_1
+                
+                # Calculate haversine formula
+                a = np.sin(delta_phi / 2)**2 + \
+                    np.cos(phi_1) * np.cos(phi_2) * np.sin(delta_lambda / 2)**2
+                c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+                dist = radius * c
+
+            else:
+                dx = row_i['easting'] - row_j['easting']
+                dy = row_i['northing'] - row_j['northing']
+                
+                # Calculate Euclidean formula
+                dist = np.sqrt(dx**2 + dy**2)
+                
+            # Populate dist matrix, mirroring the values
+            distance_matrix[i, j] = dist
+            distance_matrix[j, i] = dist
+
+    return pd.DataFrame(distance_matrix, index=stations, columns=stations)
+                
 def calculate_station_gwl_correlations():
     """
     Calculate Correlations: For all pairs of stations, calculate the Pearson correlation coefficient (r) using their overlapping
@@ -515,7 +621,8 @@ def plot_station_distance_correlation():
     """
     # Add code here
     
-def handle_large_gaps(df: pd.DataFrame, station_name: str, path: str, notebook: bool = False):
+def handle_large_gaps(df: pd.DataFrame, catchment: str, spatial_path: str, path: str, threshold_m: int,
+                      radius: int, notebook: bool = False):
     """
     Define Rules:
     1. Primary Rule (Strongest): Prioritize stations with a correlation coefficient above a certain threshold (e.g., r>0.8),
@@ -526,8 +633,17 @@ def handle_large_gaps(df: pd.DataFrame, station_name: str, path: str, notebook: 
         inform your decisions. For example, avoid connecting stations separated by known geological faults or major surface water
         bodies that might act as boundaries.
     """
-    # Determine catchment size for interpolation type
-    large_catchment = define_catchment_size()
+    # Load catchment spatial data and determine catchment size for interpolation type
+    spatial_df = pd.read_csv(spatial_path)
+    large_catchment = define_catchment_size(spatial_df, catchment, threshold_m)
+    
+    # Calculate pairwise distances using size-specific method
+    distance_matrix = calculate_station_distances(spatial_df, large_catchment, radius)
+    distance_matrix = np.round(distance_matrix, decimals=2)
+    logging.info(f"{catchment}: Distance matrix calculated using "
+                 f"{'Haversine' if large_catchment else 'Euclidean'} method.\n")
+    
+
     
     # STEP ONE:
     # Determine Relevant Nearby Stations: For each station with a large gap, identify nearby stations

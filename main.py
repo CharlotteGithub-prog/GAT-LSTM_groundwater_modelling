@@ -120,7 +120,17 @@ try:
 
         logger.info(f"All timeseries data converted to dict for {catchment} catchment.\n")
         
-        # Remove outlying and incorrect data points
+        # # Remove outlying and incorrect (user defined: spurious) data points
+        
+        for station_name, df in gwl_time_series_dict.items():
+            gwl_time_series_dict[station_name] = remove_spurious_data(
+                target_df=df,
+                station_name=station_name,
+                path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
+                notebook=True
+            )
+            
+        logger.info(f"Pipeline step 'Remove spurious points' complete for {catchment} catchment.\n")
         
         if run_outlier_detection:  
             processed_gwl_time_series_dict = outlier_detection(
@@ -150,18 +160,6 @@ try:
         )
         
         logger.info(f"Pipeline step 'Resample to Daily Timesteps' complete for {catchment} catchment.\n")
-        
-        # Remove user-defined spurious points
-        
-        for station_name, df in daily_data.items():
-            daily_data[station_name] = remove_spurious_data(
-                target_df=df,
-                station_name=station_name,
-                path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
-                notebook=notebook
-            )
-            
-        logger.info(f"Pipeline step 'Remove spurious points' complete for {catchment} catchment.\n")
         
         # Interpolate across small gaps in the ts data (define threshold n/o missing time steps for interpolation eligibility) + Add binary interpolation flag column
         

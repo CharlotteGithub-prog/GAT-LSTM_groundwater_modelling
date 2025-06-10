@@ -27,9 +27,8 @@ def process_station_coordinates(os_grid_squares: str, station_list_input: str,
     logger.info(f"[{catchment}] Loaded station list from: {station_list_input}")
 
     # Apply coordinate conversion using a lambda to pass grid_letters into the apply function's scope
-    stations_df[['easting', 'northing', 'lat', 'lon']] = stations_df['grid_ref'].apply(
-        lambda grid_ref: grid_ref_to_coords(grid_ref, grid_letters)
-    )
+    coords = stations_df['grid_ref'].apply(lambda ref: grid_ref_to_coords(ref, grid_letters))
+    stations_df[['easting', 'northing', 'lat', 'lon']] = coords
     logger.info(f"[{catchment}] Converted OS grid references to coordinates for {len(stations_df)} stations.\n")
 
     # Save processed df as csv and check head and length

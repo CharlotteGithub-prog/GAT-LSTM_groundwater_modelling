@@ -38,6 +38,10 @@ global:
     api_end_date: "2025-01-01T00:00:00"
     col_order: ['station_name', 'date', 'dateTime', 'value', 'quality', 'measure']
     max_interp_length: 35
+  
+  # --- PROPROCESSING SETTING ---
+  preprocessing:
+    radius: 6371000.0
 
   # --- VISUALISATION SETTINGS ---
   visualisations:
@@ -114,6 +118,7 @@ eden:
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
     inclusion_threshold: 5000
+    large_catchment_threshold_m: 50000
     graph_construction:
       grid_resolution: 1000  # Likely change to 500m grid
   
