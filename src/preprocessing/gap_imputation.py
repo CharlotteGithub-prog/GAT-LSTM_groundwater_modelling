@@ -231,13 +231,48 @@ def score_station_proximity(df_dist: pd.DataFrame, gaps_list: list, correlation_
     
     return filtered_station_scores
 
+def calculate_donor_offsets(gappy_station_name: str, gappy_station_df: pd.DataFrame,
+                            donor_names: list, df_dict_original: dict):
+    """
+    Calculates the average difference (offset) between the gappy station's values
+    and each donor station's values during their common (non-NaN) observation periods.
+    """
+    offsets = {}
+    gappy_series = gappy_station_df['value'].dropna() # Only use observed values not NaN's
+
+    # Skip if donor data not available
+    for donor_name in donor_names:
+        if donor_name not in df_dict_original:
+            continue
+
+        donor_series = df_dict_original[donor_name]['value'].dropna()
+
+        # Find common observation periods for both series
+        common_index = gappy_series.index.intersection(donor_series.index)
+       
+        # Calculate the difference for common observed periods to define y-axis shift bias
+        if len(common_index) > 0:
+            diff_series = gappy_series.loc[common_index] - donor_series.loc[common_index]
+            offsets[donor_name] = diff_series.mean()
+        else:
+            logging.warning(f"No common observation periods between {gappy_station_name} "
+                            f"and {donor_name} to calculate offset.")
+            offsets[donor_name] = 0.0 # Default to no offset (although this may not be rigorous)
+            
+    return offsets
+
 def weighted_imputation(nan_timestamps: pd.DatetimeIndex, imputation_method: str, sorted_donors: pd.Series,
                         gappy_station_df: pd.DataFrame, donor_data_for_gaps: pd.DataFrame,
-                        gappy_station_name: str, imputed_value_flag: str = 'Imputed_LargeGap'):
+                        gappy_station_name: str, donor_offsets: dict = None,
+                        imputed_value_flag: str = 'Imputed_LargeGap'):
     """
     Performs imputation for a single gappy station across its NaN timestamps
     using either single best or weighted average (donor score) method.
     """
+    # Initialise donor offsets as dict even if None (to expected form)
+    if donor_offsets is None:
+        donor_offsets = {}
+    
     # Initialise 'imputation_method' column for df if not already existing (fills with NaN initially)
     if 'imputation_method' not in gappy_station_df.columns:
         gappy_station_df['imputation_method'] = pd.Series(dtype=object, index=gappy_station_df.index)
@@ -261,10 +296,14 @@ def weighted_imputation(nan_timestamps: pd.DatetimeIndex, imputation_method: str
             # Loop through donors and calculate total weighting
             for donor_name, score in donors_to_use_series.items():
                 donor_value = relevant_donor_values.loc[timestamp, donor_name]
+                
+                # Get offset for donor -> defaulting to 0 if not found
+                offset = donor_offsets.get(donor_name, 0.0) 
 
                 # Skip NaN values as will not support imputation
                 if not pd.isna(donor_value):
-                    weighted_sum += donor_value * score
+                    adjusted_donor_value = donor_value + offset
+                    weighted_sum += adjusted_donor_value * score
                     total_weight += score
                 else:
                     logging.debug(f"Donor '{donor_name}' has NaN at {timestamp} for {gappy_station_name}.")
@@ -337,7 +376,8 @@ def group_consecutive_gaps(nan_timestamps: pd.DatetimeIndex, max_imputation_leng
     return pd.DatetimeIndex(timestamps_to_impute).sort_values()  # Return the sorted imputable timestamps
 
 def impute_across_large_gaps(df_dict_to_impute: dict, filtered_scores: dict, max_imputation_length_threshold: int,
-                             imputation_method: str = 'weighted_average', imputed_value_flag: str = 'Imputed_LargeGap'):
+                             df_dict_original: dict, imputation_method: str = 'weighted_average',
+                             imputed_value_flag: str = 'Imputed_LargeGap'):
     """
     Imputes across larger gaps using donor stations (weighted by score).
     """
@@ -421,6 +461,15 @@ def impute_across_large_gaps(df_dict_to_impute: dict, filtered_scores: dict, max
         if filtered_sorted_donors_series.empty:
             logging.info(f"No valid donor data found at NaN timestamps for {gappy_station}. Cannot impute.")
             continue
+        
+        # Calculate donor offsets for the current gappy station
+        current_donor_offsets = calculate_donor_offsets(
+            gappy_station_name=gappy_station,
+            gappy_station_df=gappy_station_df, # Can be the original df_dict[gappy_station] if doing actual imputation
+                                              # or the validation_df[gappy_station] if doing synthetic validation
+            donor_names=existing_donors, # The list of donors being considered for this gappy station
+            df_dict_original=df_dict_original # Use original data to calculate offsets
+        )
 
         # Perform imputations station by station
         weighted_imputation(
@@ -430,6 +479,7 @@ def impute_across_large_gaps(df_dict_to_impute: dict, filtered_scores: dict, max
             gappy_station_df=imputed_df_dict[gappy_station],  # single df
             donor_data_for_gaps=donor_data_for_gaps,  # donor value df
             gappy_station_name=gappy_station,
+            donor_offsets=current_donor_offsets,
             imputed_value_flag=imputed_value_flag
         )
     
@@ -623,7 +673,7 @@ def calc_validation_performance_metrics(original_values_masked: pd.Series, imput
 def synthetic_gap_imputation_validation(df_dict_original: dict, gaps_list: list, min_around: int,
                                         predefined_large_gap_lengths: list, max_imputation_length_threshold: int,
                                         filtered_scores: dict, validation_plot_path: str,
-                                        station_max_gap_lengths: dict = None):
+                                        imputation_plot_path: str, station_max_gap_lengths: dict = None):
     """
     1. Mask data portions (across max. imputation gap for each)
     2. Imputate data across synthetic gaps using impute_across_large_gaps
@@ -710,6 +760,7 @@ def synthetic_gap_imputation_validation(df_dict_original: dict, gaps_list: list,
         df_dict_to_impute=working_df_for_synthetic_gaps, # This dict now has *all* synthetic gaps
         filtered_scores=filtered_scores, # Pass pre-calc'd filtered scores
         max_imputation_length_threshold=max_imputation_length_threshold,
+        df_dict_original=df_dict_original,
         imputation_method='weighted_average'
     )
     logging.info("Global imputation for synthetic data complete.")
@@ -749,7 +800,7 @@ def synthetic_gap_imputation_validation(df_dict_original: dict, gaps_list: list,
             imputed_df_dict_synthetic_run=imputed_df_dict_synthetic_run, # Use the globally imputed dict
             original_values_masked=original_values_masked_for_validation,
             imputed_values_at_synthetic_gaps=imputed_values_at_synthetic_gaps,
-            output_path=validation_plot_path
+            output_path=imputation_plot_path
         )
 
     logging.info("Synthetic gap imputation validation complete for all stations.\n")
@@ -758,7 +809,7 @@ def synthetic_gap_imputation_validation(df_dict_original: dict, gaps_list: list,
 def handle_large_gaps(df_dict: pd.DataFrame, gaps_list: list, catchment: str, spatial_path: str, path: str,
                       threshold_m: int, radius: int, output_path: str, threshold: float, predefined_large_gap_lengths: list,
                       max_imputation_length_threshold: int, min_around: int, station_max_gap_lengths: dict,
-                      k_decay: float = 0.1, notebook: bool = False):
+                      imputation_plot_path: str, k_decay: float = 0.1, notebook: bool = False):
     """
     Handle large gap prcoessing pipeline.
     """
@@ -790,6 +841,7 @@ def handle_large_gaps(df_dict: pd.DataFrame, gaps_list: list, catchment: str, sp
         max_imputation_length_threshold=max_imputation_length_threshold,
         filtered_scores=filtered_scores,
         validation_plot_path=output_path,
+        imputation_plot_path=imputation_plot_path,
         station_max_gap_lengths=station_max_gap_lengths
     )
     
