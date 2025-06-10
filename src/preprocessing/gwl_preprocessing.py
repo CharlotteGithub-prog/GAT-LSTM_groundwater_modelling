@@ -65,6 +65,9 @@ def plot_timeseries(time_series_df: pd.DataFrame, station_name: str, output_path
     """
     fig, ax = plt.subplots(figsize=(15, 4))
     
+    # Determine the source for the x-axis data (dateTime column or index)
+    use_datetime_column = 'dateTime' in time_series_df.columns
+    
     if legend_type == 'quality':
         # Define fixed colours for each quality level
         quality_colors = {
@@ -78,8 +81,10 @@ def plot_timeseries(time_series_df: pd.DataFrame, station_name: str, output_path
         for quality, color in quality_colors.items():
             temp = time_series_df.copy()
             temp['value'] = temp['value'].where(temp['quality'] == quality, np.nan)
+            x_data = temp['dateTime'] if use_datetime_column else temp.index
+            
             ax.plot(
-                temp['dateTime'],
+                x_data,
                 temp['value'],
                 label=quality,
                 color=color,
@@ -98,8 +103,10 @@ def plot_timeseries(time_series_df: pd.DataFrame, station_name: str, output_path
             temp = time_series_df.copy()
             temp['value'] = temp['value'].where(temp['Interpolated'] == interp_flag, np.nan)
             label = "Interpolated" if interp_flag else "Original"
+            x_data = temp['dateTime'] if use_datetime_column else temp.index
+
             ax.plot(
-                temp['dateTime'],
+                x_data,
                 temp['value'],
                 label=label,
                 color=color,
@@ -495,6 +502,9 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
     interpolated_df['Interpolated']=False
     total_interpolated = 0
     
+    # Initialise variable to track max large gap (for large imputations)
+    max_uninterpolated_gap_length = 0
+    
     is_nan = interpolated_df['value'].isna()
     gap_ids = (is_nan != is_nan.shift()).cumsum()
     gaps = interpolated_df[is_nan].groupby(gap_ids)
@@ -504,7 +514,17 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
     
     # Interpolate using PCHIP
     valid = interpolated_df['value'].notna()
-    interp = PchipInterpolator(interpolated_df.loc[valid, 'dateTime'].astype('int64'),
+    
+    # Check if there are enough valid points for PCHIP interpolation
+    if len(valid[valid]) < 2: # PchipInterpolator needs at least 2 non-NaN points
+        logging.warning(f"Station {station_name}: Not enough valid data points for PCHIP interpolation. Skipping short gap interpolation.")
+        for id, group in gaps:
+            if group.iloc[0]['value'] is None: # Only process actual NaN groups
+                max_uninterpolated_gap_length = max(max_uninterpolated_gap_length, len(group))
+        return station_name if total_missing > 0 else None, interpolated_df, max_uninterpolated_gap_length
+    
+    # Call PchhipInterpolator (using the df's index directly)
+    interp = PchipInterpolator(interpolated_df.loc[valid].index.astype('int64'),
                                interpolated_df.loc[valid, 'value'])
 
     for id, group in gaps:
@@ -514,13 +534,18 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
             
         # Skip if gap is at the start or end of the time series as interp will fail
         if gap_start == 0 or gap_end == len(interpolated_df) - 1:
+            max_uninterpolated_gap_length = max(max_uninterpolated_gap_length, len(group))
             continue
         
         # Otherwise apply as expected
         if len(group) <= max_steps:
-            interpolated_df.loc[idx, 'value'] = interp(df.loc[idx, 'dateTime'].astype('int64'))
+            interpolated_df.loc[idx, 'value'] = interp(interpolated_df.loc[idx].index.astype('int64'))
             interpolated_df.loc[idx, 'Interpolated'] = True
             total_interpolated += len(group)
+        
+        else:
+            max_uninterpolated_gap_length = max(max_uninterpolated_gap_length, len(group))
+
             
     logging.info(f"{station_name}: Total interpolated points = {total_interpolated+1}\n{'-'*60}\n")
     
@@ -548,242 +573,4 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
 
     logger.info(f"{station_name} updated plot saved to {path}{station_name}_aggregated_daily.png\n")
 
-    return gap, interpolated_df
-
-def define_catchment_size(spatial_df: pd.DataFrame, name: str, threshold_m: int):
-    """
-    Return True is catchment width of height exceeds threshold. Catchment size will dictate distance
-    calculation formulas in subsequent interpolation calculations.
-    """
-    logging.info(f"Checking if {name} is a large catchment...\n")
-    
-    min_easting = spatial_df['easting'].min()
-    max_easting = spatial_df['easting'].max()
-    min_northing = spatial_df['northing'].min()
-    max_northing = spatial_df['northing'].max()
-
-    easting_range_m = max_easting - min_easting
-    northing_range_m = max_northing - min_northing
-    logging.info(f"{name} easting_range_m: {easting_range_m}")
-    logging.info(f"{name} northing_range_m: {northing_range_m}\n")
-    
-    logging.info(f"Large Catchment?: {easting_range_m > threshold_m or northing_range_m > threshold_m}"
-                 f" (threshold: {threshold_m}m)\n")
-
-    # Return true 
-    return easting_range_m > threshold_m or northing_range_m > threshold_m
-
-def calculate_station_distances(spatial_df: pd.DataFrame, use_haversine: bool = False,
-                                radius: float = 6371000.0):
-    """
-    Calculate pairwise distances between stations using either:
-    - Euclidean distance (for small catchments, using easting/northing), or
-    - Haversine distance (for large catchments, using latitude/longitude in rads).
-
-    Returns:
-        pd.DataFrame: Square symmetric distance matrix (in m)
-    """
-    # Initialise distance matrix using station list
-    stations = spatial_df['station_name'].values
-    n = len(stations)
-    distance_matrix = np.zeros((n, n))
-
-    for i in range(n):
-        row_i = spatial_df.iloc[i]  # cache for speed
-        for j in range(i, n):  # only compute half as symmetric
-            row_j = spatial_df.iloc[j]  # cache for speed
-    
-            # Caculating using greater-circle (haversine)
-            if use_haversine:
-                
-                # Calculate latitude vals in radians
-                phi_1 = np.radians(row_i['lat'])
-                phi_2 = np.radians(row_j['lat'])
-                delta_phi = phi_2 - phi_1
-                
-                # Calculate longitude vals in radians
-                lambda_1 = np.radians(row_i['lon'])
-                lambda_2 = np.radians(row_j['lon'])
-                delta_lambda = lambda_2 - lambda_1
-                
-                # Calculate haversine formula
-                a = np.sin(delta_phi / 2)**2 + \
-                    np.cos(phi_1) * np.cos(phi_2) * np.sin(delta_lambda / 2)**2
-                c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
-                dist = radius * c
-
-            else:
-                dx = row_i['easting'] - row_j['easting']
-                dy = row_i['northing'] - row_j['northing']
-                
-                # Calculate Euclidean formula
-                dist = np.sqrt(dx**2 + dy**2)
-                
-            # Populate dist matrix, mirroring the values
-            distance_matrix[i, j] = dist
-            distance_matrix[j, i] = dist
-
-    return pd.DataFrame(distance_matrix, index=stations, columns=stations)
-                
-def calculate_station_correlations(df: pd.DataFrame, catchment: str):
-    # Extract just the 'value' series from each station's DataFrame and store in a list
-    series_list = []
-    for station_name, station_df in df.items():
-        # Rename the series to the station_name for proper column naming after concat
-        if 'value' in station_df.columns:
-            series_list.append(station_df['value'].rename(station_name))
-            
-    gwl_data_for_correlation = pd.concat(series_list, axis=1)
-    gwl_data_for_correlation = gwl_data_for_correlation.sort_index()
-
-    correlation_matrix = gwl_data_for_correlation.corr(method='pearson')
-    min_common_observations = 365 # Example: Require at least 1 year of overlapping data
-    
-    def count_non_nan_overlap(series1, series2):
-        return pd.concat([series1, series2], axis=1).dropna().shape[0]
-
-    filtered_correlation_matrix = correlation_matrix.copy()
-
-    for col1 in correlation_matrix.columns:
-        for col2 in correlation_matrix.columns:
-            if col1 == col2:
-                continue
-            
-            # Retrieve the full series from gwl_data_for_correlation for overlap count
-            overlap_count = count_non_nan_overlap(gwl_data_for_correlation[col1], gwl_data_for_correlation[col2])
-            
-            if overlap_count < min_common_observations:
-                filtered_correlation_matrix.loc[col1, col2] = np.nan
-                filtered_correlation_matrix.loc[col2, col1] = np.nan
-    
-    # Handle negative correlations (not useful here) -> Set all values < 0 to 0
-    processed_correlation_matrix = filtered_correlation_matrix.mask(filtered_correlation_matrix < 0, 0)
-
-    logging.info(f"{catchment}: Correlation matrix calculated with a minimum of {min_common_observations} overlapping observations.\n")    
-    return processed_correlation_matrix
-
-def score_station_proximity(df_dist: pd.DataFrame, gaps_list: list, correlation_matrix: pd.DataFrame,
-                            distance_matrix: pd.DataFrame, k_decay: float):
-    """
-    Identified options for formula: s=ce^{-kd} or s=\frac{c}{d+1}. Trying exp decay first.
-    """
-    station_scores = {}
-    
-    # Check stations requiring imputation are indexes in scoring reference df's
-    for gappy_station in gaps_list:
-        if gappy_station not in correlation_matrix.index or gappy_station not in distance_matrix.index:
-            logging.info(f"Warning: {gappy_station} station not in scoring matrices.")
-            continue
-        
-        logging.info(f"Calculating scores for gappy station: {gappy_station}")
-   
-        # Get correlation and distance data for imputation station
-        corr_series = correlation_matrix.loc[gappy_station]
-        dist_series = distance_matrix.loc[gappy_station]  # note that dist here is in m, formula needs km
-        
-        # Initialise station specific score dict
-        scores_for_gappy_station = {}
-        
-        # Loop through all other stations to calculate scores
-        for other_station in correlation_matrix.columns:
-            if other_station == gappy_station:
-                continue  # Skip scoring the station against itself
-        
-            if other_station in corr_series.index and other_station in dist_series.index:
-                c = corr_series.loc[other_station]
-                d = dist_series.loc[other_station] / 1000  # Convert to km
-                k = k_decay
-                
-                # Handle NaN values - If corr or dist is NaN, the score should be 0
-                if pd.isna(c) or pd.isna(d) or c == 0 or d == 0:
-                    score = 0
-                else:
-                    score = c * np.exp(-k * d)
-                    
-                scores_for_gappy_station[other_station] = score
-            
-            else:
-                logging.warning(f"Station {other_station} not found in series for {gappy_station}. Skipping score calculation.")
-                
-        # Store the calculated scores for the current gappy station
-        station_scores[gappy_station] = scores_for_gappy_station
-    
-        # Log scores for debugging
-        logging.info(f"Scores for {gappy_station}:\n{pd.Series(scores_for_gappy_station).sort_values(ascending=False).round(4)}")
-        logging.info("-" * 25)
-    
-    return station_scores
-        
-    
-def plot_station_distance_correlation():
-    """
-    Visualize Distance vs. Correlation: Plot a scatter graph where the x-axis is the distance between two stations and the
-    y-axis is their correlation coefficient. You should see a general trend where correlation decreases with increasing distance.
-    """
-    # Add code here
-    
-def handle_large_gaps(df_dict: pd.DataFrame, gaps_list: list, catchment: str, spatial_path: str, path: str,
-                      threshold_m: int, radius: int, k_decay: float = 0.1, notebook: bool = False):
-    """
-    Define Rules:
-    1. Primary Rule (Strongest): Prioritise stations with a correlation coefficient above a certain threshold (e.g., r>0.8),
-        regardless of distance.
-    2. Secondary Rule (Distance-Based): If no highly correlated stations are found, then consider stations within a geographical
-        radius (e.g., 5-10 km) that still show a reasonable correlation (e.g., r>0.6).
-    3. Consider Hydrogeological Context: If you have any expert knowledge or geological maps of the Eden Catchment, use them to
-        inform your decisions. For example, avoid connecting stations separated by known geological faults or major surface water
-        bodies that might act as boundaries.
-    """
-    # Load catchment spatial data and determine catchment size for interpolation type
-    spatial_df = pd.read_csv(spatial_path)
-    spatial_df['station_name'] = spatial_df['station_name'].str.lower().str.replace(' ', '_')
-    large_catchment = define_catchment_size(spatial_df, catchment, threshold_m)
-    
-    # Calculate pairwise distances using size-specific method
-    distance_matrix = calculate_station_distances(spatial_df, large_catchment, radius)
-    distance_matrix = np.round(distance_matrix, decimals=2)
-    logging.info(f"{catchment}: Distance matrix calculated using "
-                 f"{'Haversine' if large_catchment else 'Euclidean'} method.\n")
-    logging.info(f"Distance Matrix:\n{distance_matrix.round(2)}\n")
-    
-    # Calculate correlation matrix in range [0, 1]
-    correlation_matrix = calculate_station_correlations(df_dict, catchment)
-    logging.info(f"Correlation Matrix:\n{correlation_matrix.round(2)}\n")
-
-    # Score nearby stations for stations in gaps_list
-    scoring = score_station_proximity(df_dict, gaps_list, correlation_matrix, distance_matrix, k_decay)  # Using series from prevous func?
-    
-    # Visual Inspection of Data:
-    # 1. Plot scores vs. distance: Create a scatter plot where the x-axis is distance and the y-axis is the calculated score. 
-    #    You should see a general downward trend. This can help you visually identify a natural cutoff point.
-    # 2. Plot correlation vs. distance: Separately, plot original correlation vs. distance. This helps you understand the raw
-    #    relationship before applying the decay.
-    # 3. Look at the range of scores: What's the minimum and maximum score you're getting?
-    
-    # STEP ONE:
-    # Determine Relevant Nearby Stations: For each station with a large gap, identify nearby stations
-    # that have good quality data during that specific gap period. You might need to define a "threshold
-    # perimeter" based on distance or hydrogeological similarity.
-    
-    # STEP TWO: Sinusoidal Imputation (Standalone)
-    # - If no suitable nearby station is available, or as a baseline:
-    # - Fit a sine/cosine model to the observed parts of the specific station's time series (or a long-term average seasonal cycle).
-    # - Use this model to predict values for the large NaN gap.
-    # - This is often done using a Fourier series or fitting a curve to the average daily/monthly values over several years.
-    
-    # STEP THREE: Regression/Correlation Imputation (with Nearby Stations)
-    # - If a good nearby station exists:
-    # - Train a simple regression model (ee.g., linear regression, or even a more complex model if you have enough data) using
-    #   the relationship between the gappy station's values and the nearby station's values from periods where both have observations.
-    # - Use this trained model to predict the missing values in the gappy station's record, driven by the observed values from the nearby station.
-    # - This is essentially predicting GWL[_gappy] = f(GWL[_nearby], time_of_year)
-    
-    # STEP FOUR: Flagging and Feature Engineering for GAT-LSTM
-    # - Add a new flag column: Create a boolean or categorical column, e.g., 'Imputed_Method_Flag', that indicates:
-    #       0: Original observed data
-    #       1: PCHIP Interpolated (short gap)
-    #       2: Sinusoidal Imputed (large gap)
-    #       3: Nearby Station Imputed (large gap)
-    # - Create the final numerical input: Ensure all NaNs are filled by one of these methods. The GAT-LSTM will take the groundwater_level
-    #   (now 100% numerical) and the Imputed_Method_Flag (one-hot encoded or embedded) as input features.
-    
+    return gap, interpolated_df, max_uninterpolated_gap_length
