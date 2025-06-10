@@ -29,7 +29,7 @@ def load_timeseries_to_dict(stations_df: pd.DataFrame, col_order: list,
     for index, row in stations_df.iterrows():
         uri = row['measure_uri']
         measure_id = uri.split("/")[-1]
-        name = row['station_name'].title().strip().replace(" ", "_")
+        name = row['station_name'].lower().strip().replace(" ", "_")
         
         # Read CSV into placeholder df to manipulate
         temp_df = pd.read_csv(f"{data_dir}{measure_id}_readings.csv", index_col=0, low_memory=False)
@@ -301,8 +301,9 @@ def resample_daily_average(dict: dict, start_date: str, end_date: str, path: str
     full_date_range = pd.date_range(start_date, end_date, freq='D')
     
     # Loop through remaining gwl monitoring stations
-    for station_name, df in dict.items():
-        logger.info(f"Resampling {station_name} to daily timestep...")
+    for original_station_name, df in dict.items():
+        standardised_station_name = original_station_name.lower().replace(' ', '_')
+        logger.info(f"Resampling {standardised_station_name} to daily timestep...")
         
         # Check sorted by date and set date as index
         df = df.dropna(subset=['dateTime'])
@@ -322,21 +323,28 @@ def resample_daily_average(dict: dict, start_date: str, end_date: str, path: str
         daily_df = df.resample('1D').agg(agg_funcs)
         daily_df = daily_df.reindex(full_date_range)  # All stations cover full time range
         daily_df = daily_df.reset_index().rename(columns={'index': 'dateTime'})
-        daily_dict[station_name] = daily_df
+        
+        # Ensure station names are lowercase to avoid issues later in the pipeline
+        if 'station_name' in daily_df.columns:
+            daily_df['station_name'] = standardised_station_name
+            
+        # Add processed DataFrame to daily_dict using standardised name (standardisation is key!)
+        daily_dict[standardised_station_name] = daily_df
         
         # For logging
         expected_days = (end_date - start_date).days + 1  # +1 to be inclusive
         valid_days = daily_df['value'].notna().sum()
         percent_complete = (valid_days / expected_days) * 100
 
-        logger.info(f"    {station_name} resampled -> now contains {valid_days} non-zero data points.")
+        logger.info(f"    {standardised_station_name} resampled -> now contains "
+                    f"{valid_days} non-zero data points.")
         logger.info(f"    Data covers {percent_complete:.1f}% of time period.\n")
 
     # Save time series aggragated plots
-    for station_name, df in daily_dict.items():
+    for plot_station_name, plot_df in daily_dict.items():
         plot_timeseries(
-            time_series_df=df,
-            station_name=station_name,
+            time_series_df=plot_df,
+            station_name=plot_station_name,
             output_path=path,
             outlier_mask=None,
             title_suffix=" - daily timestep",
@@ -347,9 +355,9 @@ def resample_daily_average(dict: dict, start_date: str, end_date: str, path: str
         )
         
         # For logging
-        save_path = f"{path}{station_name}_aggregated_daily.png"
-        logger.info(f"{station_name} time series data in daily timestep saved to {save_path}.\n")
-        
+        save_path = f"{path}{plot_station_name}_aggregated_daily.png"
+        logger.info(f"{plot_station_name} time series data in daily timestep saved to {save_path}.\n")
+    
     return daily_dict
 
 def remove_spurious_data(target_df: pd.DataFrame, station_name: str, path: str, notebook: bool = False):
@@ -522,6 +530,7 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
         logging.info(f"{station_name} added to list for future interpolation.")
     else:
         gap = None
+        logging.info(f"{station_name}: All interpolation complete.")
     
     # resave plot if values replaced
     if total_interpolated > 0: 
@@ -537,7 +546,7 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
             legend_type='interpolation'
         )
 
-    logger.info(f"{station_name} updated plot saved to {path}{station_name}_aggregated_daily.png")
+    logger.info(f"{station_name} updated plot saved to {path}{station_name}_aggregated_daily.png\n")
 
     return gap, interpolated_df
 
@@ -653,8 +662,58 @@ def calculate_station_correlations(df: pd.DataFrame, catchment: str):
     logging.info(f"{catchment}: Correlation matrix calculated with a minimum of {min_common_observations} overlapping observations.\n")    
     return processed_correlation_matrix
 
-def score_station_proximity():
-    print("")
+def score_station_proximity(df_dist: pd.DataFrame, gaps_list: list, correlation_matrix: pd.DataFrame,
+                            distance_matrix: pd.DataFrame, k_decay: float):
+    """
+    Identified options for formula: s=ce^{-kd} or s=\frac{c}{d+1}. Trying exp decay first.
+    """
+    station_scores = {}
+    
+    # Check stations requiring imputation are indexes in scoring reference df's
+    for gappy_station in gaps_list:
+        if gappy_station not in correlation_matrix.index or gappy_station not in distance_matrix.index:
+            logging.info(f"Warning: {gappy_station} station not in scoring matrices.")
+            continue
+        
+        logging.info(f"Calculating scores for gappy station: {gappy_station}")
+   
+        # Get correlation and distance data for imputation station
+        corr_series = correlation_matrix.loc[gappy_station]
+        dist_series = distance_matrix.loc[gappy_station]  # note that dist here is in m, formula needs km
+        
+        # Initialise station specific score dict
+        scores_for_gappy_station = {}
+        
+        # Loop through all other stations to calculate scores
+        for other_station in correlation_matrix.columns:
+            if other_station == gappy_station:
+                continue  # Skip scoring the station against itself
+        
+            if other_station in corr_series.index and other_station in dist_series.index:
+                c = corr_series.loc[other_station]
+                d = dist_series.loc[other_station] / 1000  # Convert to km
+                k = k_decay
+                
+                # Handle NaN values - If corr or dist is NaN, the score should be 0
+                if pd.isna(c) or pd.isna(d) or c == 0 or d == 0:
+                    score = 0
+                else:
+                    score = c * np.exp(-k * d)
+                    
+                scores_for_gappy_station[other_station] = score
+            
+            else:
+                logging.warning(f"Station {other_station} not found in series for {gappy_station}. Skipping score calculation.")
+                
+        # Store the calculated scores for the current gappy station
+        station_scores[gappy_station] = scores_for_gappy_station
+    
+        # Log scores for debugging
+        logging.info(f"Scores for {gappy_station}:\n{pd.Series(scores_for_gappy_station).sort_values(ascending=False).round(4)}")
+        logging.info("-" * 25)
+    
+    return station_scores
+        
     
 def plot_station_distance_correlation():
     """
@@ -663,8 +722,8 @@ def plot_station_distance_correlation():
     """
     # Add code here
     
-def handle_large_gaps(df: pd.DataFrame, gaps_list: list, catchment: str, spatial_path: str, path: str,
-                      threshold_m: int, radius: int, notebook: bool = False):
+def handle_large_gaps(df_dict: pd.DataFrame, gaps_list: list, catchment: str, spatial_path: str, path: str,
+                      threshold_m: int, radius: int, k_decay: float = 0.1, notebook: bool = False):
     """
     Define Rules:
     1. Primary Rule (Strongest): Prioritise stations with a correlation coefficient above a certain threshold (e.g., r>0.8),
@@ -677,6 +736,7 @@ def handle_large_gaps(df: pd.DataFrame, gaps_list: list, catchment: str, spatial
     """
     # Load catchment spatial data and determine catchment size for interpolation type
     spatial_df = pd.read_csv(spatial_path)
+    spatial_df['station_name'] = spatial_df['station_name'].str.lower().str.replace(' ', '_')
     large_catchment = define_catchment_size(spatial_df, catchment, threshold_m)
     
     # Calculate pairwise distances using size-specific method
@@ -684,13 +744,21 @@ def handle_large_gaps(df: pd.DataFrame, gaps_list: list, catchment: str, spatial
     distance_matrix = np.round(distance_matrix, decimals=2)
     logging.info(f"{catchment}: Distance matrix calculated using "
                  f"{'Haversine' if large_catchment else 'Euclidean'} method.\n")
+    logging.info(f"Distance Matrix:\n{distance_matrix.round(2)}\n")
     
     # Calculate correlation matrix in range [0, 1]
-    correlation_matrix = calculate_station_correlations(df, catchment)
+    correlation_matrix = calculate_station_correlations(df_dict, catchment)
     logging.info(f"Correlation Matrix:\n{correlation_matrix.round(2)}\n")
 
     # Score nearby stations for stations in gaps_list
-    scoring = score_station_proximity()
+    scoring = score_station_proximity(df_dict, gaps_list, correlation_matrix, distance_matrix, k_decay)  # Using series from prevous func?
+    
+    # Visual Inspection of Data:
+    # 1. Plot scores vs. distance: Create a scatter plot where the x-axis is distance and the y-axis is the calculated score. 
+    #    You should see a general downward trend. This can help you visually identify a natural cutoff point.
+    # 2. Plot correlation vs. distance: Separately, plot original correlation vs. distance. This helps you understand the raw
+    #    relationship before applying the decay.
+    # 3. Look at the range of scores: What's the minimum and maximum score you're getting?
     
     # STEP ONE:
     # Determine Relevant Nearby Stations: For each station with a large gap, identify nearby stations
@@ -718,3 +786,4 @@ def handle_large_gaps(df: pd.DataFrame, gaps_list: list, catchment: str, spatial
     #       3: Nearby Station Imputed (large gap)
     # - Create the final numerical input: Ensure all NaNs are filled by one of these methods. The GAT-LSTM will take the groundwater_level
     #   (now 100% numerical) and the Imputed_Method_Flag (one-hot encoded or embedded) as input features.
+    

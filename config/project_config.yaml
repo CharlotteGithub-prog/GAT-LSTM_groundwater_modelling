@@ -7,9 +7,9 @@ global:
     random_seed: 55  # Smooth operation
     log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
     catchments_to_process: ["eden"]  # TODO: add more in future dev
-    run_defra_api: False
-    run_camels_api: False
-    run_outlier_detection: False
+    run_defra_api: True
+    run_camels_api: True
+    run_outlier_detection: True
 
   # --- FILE PATHS ---
   paths:
@@ -119,6 +119,7 @@ eden:
   preprocessing:
     inclusion_threshold: 5000
     large_catchment_threshold_m: 50000
+    dist_corr_score_k_decay: 0.1
     graph_construction:
       grid_resolution: 1000  # Likely change to 500m grid
   
