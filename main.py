@@ -164,7 +164,7 @@ try:
         # Interpolate across small gaps in the ts data (define threshold n/o missing time steps for interpolation eligibility) + Add binary interpolation flag column
         
         for station_name, df in daily_data.items():
-            daily_data[station_name] = interpolate_short_gaps(
+            gaps_list, daily_data[station_name] = interpolate_short_gaps(
                 df=df,
                 station_name=station_name,
                 path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],

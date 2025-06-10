@@ -472,6 +472,8 @@ def print_missing_gaps(df: pd.DataFrame, station_name: str, max_steps: int):
     for i, length in enumerate(gap_lengths, start=1):
         action = "interpolate" if length <= max_steps else "do not interpolate"
         print(f"    Gap {i}: {length} data points ({action})")
+        
+    return total_missing
 
 def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_steps: int = 30,
                            notebook: bool = False):
@@ -490,11 +492,11 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
     gaps = interpolated_df[is_nan].groupby(gap_ids)
 
     # For more verbose logging and debugging
-    print_missing_gaps(interpolated_df, station_name, max_steps)
+    total_missing = print_missing_gaps(interpolated_df, station_name, max_steps)
     
     # Interpolate using PCHIP
     valid = interpolated_df['value'].notna()
-    interp = PchipInterpolator(interpolated_df.loc[valid, 'dateTime'].astype(np.int64),
+    interp = PchipInterpolator(interpolated_df.loc[valid, 'dateTime'].view('int64'),
                                interpolated_df.loc[valid, 'value'])
 
     for id, group in gaps:
@@ -508,11 +510,18 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
         
         # Otherwise apply as expected
         if len(group) <= max_steps:
-            interpolated_df.loc[idx, 'value'] = interp(df.loc[idx, 'dateTime'].astype(np.int64))
+            interpolated_df.loc[idx, 'value'] = interp(df.loc[idx, 'dateTime'].view('int64'))
             interpolated_df.loc[idx, 'Interpolated'] = True
             total_interpolated += len(group)
             
-    logging.info(f"{station_name}: Total interpolated points = {total_interpolated}\n{'-'*60}\n")
+    logging.info(f"{station_name}: Total interpolated points = {total_interpolated+1}\n{'-'*60}\n")
+    
+    # If some not interpolated add key to list for large interp function
+    if total_interpolated + 1 < total_missing:
+        gap = station_name
+        logging.info(f"{station_name} added to list for future interpolation.")
+    else:
+        gap = None
     
     # resave plot if values replaced
     if total_interpolated > 0: 
@@ -530,7 +539,7 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
 
     logger.info(f"{station_name} updated plot saved to {path}{station_name}_aggregated_daily.png")
 
-    return interpolated_df
+    return gap, interpolated_df
 
 def define_catchment_size(spatial_df: pd.DataFrame, name: str, threshold_m: int):
     """
@@ -566,7 +575,7 @@ def calculate_station_distances(spatial_df: pd.DataFrame, use_haversine: bool = 
         pd.DataFrame: Square symmetric distance matrix (in m)
     """
     # Initialise distance matrix using station list
-    stations = spatial_df['station_id'].values
+    stations = spatial_df['station_name'].values
     n = len(stations)
     distance_matrix = np.zeros((n, n))
 
@@ -611,6 +620,8 @@ def calculate_station_gwl_correlations():
     """
     Calculate Correlations: For all pairs of stations, calculate the Pearson correlation coefficient (r) using their overlapping
     periods of good quality data. This is crucial to avoid spurious correlations from interpolated or missing data.
+    
+    Crucial: Do not use NaN data.
     """
     # Add code here
     
@@ -621,8 +632,8 @@ def plot_station_distance_correlation():
     """
     # Add code here
     
-def handle_large_gaps(df: pd.DataFrame, catchment: str, spatial_path: str, path: str, threshold_m: int,
-                      radius: int, notebook: bool = False):
+def handle_large_gaps(df: pd.DataFrame, gaps_list: list, catchment: str, spatial_path: str, path: str,
+                      threshold_m: int, radius: int, notebook: bool = False):
     """
     Define Rules:
     1. Primary Rule (Strongest): Prioritize stations with a correlation coefficient above a certain threshold (e.g., r>0.8),
@@ -643,7 +654,9 @@ def handle_large_gaps(df: pd.DataFrame, catchment: str, spatial_path: str, path:
     logging.info(f"{catchment}: Distance matrix calculated using "
                  f"{'Haversine' if large_catchment else 'Euclidean'} method.\n")
     
-
+    # Correlation
+    
+    # Score
     
     # STEP ONE:
     # Determine Relevant Nearby Stations: For each station with a large gap, identify nearby stations
