@@ -10,3 +10,5 @@ __pycache__/
 .vscode/
 temp_plots/
 results/figures/
+.venv/
+notebooks/00_archive/

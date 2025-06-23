@@ -7,9 +7,9 @@ global:
     random_seed: 55  # Smooth operation
     log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
     catchments_to_process: ["eden"]  # TODO: add more in future dev
-    run_defra_api: False
+    run_defra_api: True
     run_camels_api: False
-    run_outlier_detection: False
+    run_outlier_detection: True
 
   # --- FILE PATHS ---
   paths:
@@ -34,8 +34,10 @@ global:
 
   # --- DATA INGESTION SETTINGS ---
   data_ingestion:
-    api_start_date: "2014-01-01T00:00:00"
-    api_end_date: "2025-01-01T00:00:00"
+    api_start_date: "2013-11-01T00:00:00"
+    api_end_date: "2025-02-28T23:59:59"
+    model_start_date: "2014-01-01T00:00:00"
+    model_end_date: "2024-12-31T23:59:59"
     col_order: ['station_name', 'date', 'dateTime', 'value', 'quality', 'measure']
     max_interp_length: 35
   

@@ -21,7 +21,10 @@ def stable_hash(station):
     Return:
         int: Stable integer hash in the range [0, 9999]. Range ensured by % 10000.
     """
-    return int(hashlib.md5(station.encode()).hexdigest(), 16) % 10000
+    station_hash = int(hashlib.md5(station.encode()).hexdigest(), 16) % 10000
+    logging.info(f"Stable station hash for {station}: {station_hash}")
+    
+    return station_hash
 
 def define_catchment_size(spatial_df: pd.DataFrame, name: str, threshold_m: int):
     """
@@ -986,21 +989,22 @@ def find_validation_gap_lengths(max_len_station_actual: int, max_imputation_leng
 def plot_imputation_validation_results(df_dict_original: dict, gappy_station: str, rmse: float, mae: float,
                                        imputed_df_dict_synthetic_run: dict, original_values_masked: pd.Series,
                                        imputed_values_at_synthetic_gaps: pd.Series, output_path:str):
-    plt.figure(figsize=(15, 4))
+    # Setup up plotting figure
     fig, ax = plt.subplots(figsize=(15, 4))
     
-    ax.plot(df_dict_original[gappy_station].index, df_dict_original[gappy_station]['value'],
-                label='Original Data (incl. real NaNs)', color='blue', alpha=0.6)
     ax.plot(imputed_df_dict_synthetic_run[gappy_station].index, imputed_df_dict_synthetic_run[gappy_station]['value'],
-                label='Imputed Data (Validation Run)', color='purple', alpha=0.7, linestyle='--')
+                label='Imputed Data (Validation Run)', color='#ff7f0e', alpha=1)
     
+    ax.plot(df_dict_original[gappy_station].index, df_dict_original[gappy_station]['value'],
+                label='Original Data (incl. real NaNs)', color='#1f77b4', alpha=1)
+
     # Plot the actual original points that were masked for synthetic gaps
     ax.plot(original_values_masked.index, original_values_masked.values,
-                'o', label='Original (Synthetic Gap)', color='red', alpha=0.8, markersize=4)
+                'o', label='Original (Synthetic Gap)', color='#d62728', alpha=0.5, markersize=2)
     
     # Plot the imputed points at the synthetic gap locations
     ax.plot(imputed_values_at_synthetic_gaps.index, imputed_values_at_synthetic_gaps.values,
-                'x', label='Imputed (Synthetic Gap)', color='green', alpha=0.8, markersize=4)
+                'x', label='Imputed (Synthetic Gap)', color='#2ca02c', alpha=0.5, markersize=2)
     
     ax.set_title(f'Synthetic Gap Imputation for {gappy_station}\nRMSE: {rmse:.2f}, MAE: {mae:.2f}')
     ax.set_xlabel('Date')

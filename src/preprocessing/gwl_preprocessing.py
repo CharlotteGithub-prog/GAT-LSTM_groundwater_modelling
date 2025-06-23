@@ -182,7 +182,7 @@ def initial_threshold_cleaning(df: pd.DataFrame, station_name: str, iqr_multipli
         num_out_of_range = out_of_range_mask.sum()
         if num_out_of_range > 0:
             logger.info(f"Station {station_name}: Identified {num_out_of_range} points outside"
-                        f"IQR-based range and set to NaN.")
+                        f" IQR-based range and set to NaN.")
             df_cleaned.loc[out_of_range_mask, 'value'] = np.nan
         else:
             logger.info(f"Station {station_name}: No points out of range.")
@@ -529,11 +529,13 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
 
     for id, group in gaps:
         idx = group.index
-        gap_start = idx[0]
-        gap_end = idx[-1]
-            
-        # Skip if gap is at the start or end of the time series as interp will fail
-        if gap_start == 0 or gap_end == len(interpolated_df) - 1:
+        gap_start_date = group.index[0]
+        gap_end_date = group.index[-1]
+        
+        print(f'TEST: STATION {station_name}, START: {gap_start_date} END {gap_end_date}.')
+
+        # Skip if at start or end of full time range
+        if (gap_start_date == interpolated_df.index.min()) or (gap_end_date == interpolated_df.index.max()):
             max_uninterpolated_gap_length = max(max_uninterpolated_gap_length, len(group))
             continue
         
