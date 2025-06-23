@@ -1,15 +1,27 @@
-import joblib
+# Library Imports
+import joblib  # For parallel processing in final pipeline
+import hashlib
 import logging
 import numpy as np
 import pandas as pd
 from hampel import hampel
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-from scipy.interpolate import PchipInterpolator
 
 # Get a logger instance for this module.
 logger = logging.getLogger(__name__)
 
+def stable_hash(station):
+    """
+    Generate a consistent integer hash for a station name using MD5.
+    
+    Hashlib is used rather than standard hash() to be consistent across invocations. Using hash
+    in the seeding over simlpe numeric seeding ensures spatial diversity with independent synthetic
+    gaps for each station - mitigating the need for hardcoded gap indices when validating
+    
+    Return:
+        int: Stable integer hash in the range [0, 9999]. Range ensured by % 10000.
+    """
+    return int(hashlib.md5(station.encode()).hexdigest(), 16) % 10000
 
 def define_catchment_size(spatial_df: pd.DataFrame, name: str, threshold_m: int):
     """
@@ -268,8 +280,11 @@ def weighted_imputation(nan_timestamps: pd.DatetimeIndex, imputation_method: str
     """
     Performs imputation for a single gappy station across its NaN timestamps
     using either single best or weighted average (donor score) method.
+    Includes boundary shift and a new smoother endpoint adjustment,
+    with specific handling for gaps at the start or end of the data.
+    Incorporates a fallback to seasonal mean if donor-based imputation fails.
     """
-    # Initialise donor offsets as dict even if None (to expected form)
+    # Initialise donor offsets as dict even if None (to expected form)
     if donor_offsets is None:
         donor_offsets = {}
     
@@ -277,18 +292,32 @@ def weighted_imputation(nan_timestamps: pd.DatetimeIndex, imputation_method: str
     if 'imputation_method' not in gappy_station_df.columns:
         gappy_station_df['imputation_method'] = pd.Series(dtype=object, index=gappy_station_df.index)
 
-    # Determine which donors to use based on if num_top_donors is passed (optional)
-    donors_to_use_series = sorted_donors # Use all filtered donors (current approach)
-
-    # Extract only relevant donor data for the imputation influence
+    # Use all filtered donors (current approach - could limit to top X in future)
+    donors_to_use_series = sorted_donors 
     relevant_donor_values = donor_data_for_gaps[donors_to_use_series.index]
+
+    # Pre-calculate seasonal means for fallback if needed
+    # Use only non-missing data from the gappy station for this calculation to avoid bias from existing NaNs
+    gappy_station_non_na_values = gappy_station_df['value'].dropna()
+    seasonal_means = pd.Series(dtype=float) # Initialise as empty Series to ensure it's always defined
+    if not gappy_station_non_na_values.empty:
+        # Calculate mean for each day of the year (1-366)
+        seasonal_means = gappy_station_non_na_values.groupby(gappy_station_non_na_values.index.dayofyear).mean()
+        logging.info(f"Calculated seasonal means for {gappy_station_name} from {len(gappy_station_non_na_values)} non-NaN historical points.")
+    else:
+        logging.warning(f"No non-NaN data found for {gappy_station_name} to calculate seasonal means. Seasonal mean fallback will not be effective.")
+
 
     # Go timestep by timestep within the gaps and perform weighted imputation
     total_imputed_values = 0
+    
+    # --- 1. Initial imputation with donor data weighting and offset (with seasonal mean fallback) ---
+    
     for timestamp in nan_timestamps:
         imputed_value = np.nan # Set to avoid error if issue with imputation
+        imputation_source_flag = None # To store whether it was donor-based or seasonal mean
 
-        if imputation_method == 'weighted_average':  # Test other options (e.g. highest score only)
+        if imputation_method == 'weighted_average':  # Test other options (e.g. highest score only)
             # Initialise weighting trackers
             weighted_sum = 0.0
             total_weight = 0.0
@@ -296,9 +325,7 @@ def weighted_imputation(nan_timestamps: pd.DatetimeIndex, imputation_method: str
             # Loop through donors and calculate total weighting
             for donor_name, score in donors_to_use_series.items():
                 donor_value = relevant_donor_values.loc[timestamp, donor_name]
-                
-                # Get offset for donor -> defaulting to 0 if not found
-                offset = donor_offsets.get(donor_name, 0.0) 
+                offset = donor_offsets.get(donor_name, 0.0) # Get offset for donor, default to 0 if none
 
                 # Skip NaN values as will not support imputation
                 if not pd.isna(donor_value):
@@ -306,26 +333,380 @@ def weighted_imputation(nan_timestamps: pd.DatetimeIndex, imputation_method: str
                     weighted_sum += adjusted_donor_value * score
                     total_weight += score
                 else:
-                    logging.debug(f"Donor '{donor_name}' has NaN at {timestamp} for {gappy_station_name}.")
+                    logging.info(f"Donor '{donor_name}' has NaN at {timestamp} for {gappy_station_name}.")
 
-            # Calculate weighted imputed value
+            # Calculate weighted imputed value from donors
             if total_weight > 0:
                 imputed_value = weighted_sum / total_weight
+                imputation_source_flag = imputed_value_flag # Mark as donor-based
         
-        # Apply the imputed value and FLAG IT (critical for model performance) in the current station's df
+        # --- Fallback to seasonal mean if donor-based imputation resulted in NaN ---
+        if pd.isna(imputed_value):
+            day_of_year = timestamp.dayofyear
+            # Ensure seasonal_means is not empty and contains the specific day_of_year
+            if not seasonal_means.empty and day_of_year in seasonal_means: 
+                imputed_value = seasonal_means.loc[day_of_year]
+                imputation_source_flag = 'Imputed_SeasonalMean' # New flag for seasonal mean fallback
+                logging.info(f"Could not impute {gappy_station_name} at {timestamp} using donors. Falling back to seasonal mean ({imputed_value:.2f}).")
+            else:
+                logging.info(f"Could not impute {gappy_station_name} at {timestamp} using donors or seasonal mean (not available/empty). Gap remains.")
+
+
+        # Apply the imputed value and flag it (critical for model performance) in the current station's df
         if not pd.isna(imputed_value):
             gappy_station_df.loc[timestamp, 'value'] = imputed_value
-            gappy_station_df.loc[timestamp, 'imputation_method'] = imputed_value_flag
+            gappy_station_df.loc[timestamp, 'imputation_method'] = imputation_source_flag # Use the determined flag
             total_imputed_values += 1
         
-        # Make it clear if imputation was not successful for data points  
+        # Make it clear if imputation was not successful for data points  
         else:
-            logging.debug(f"Could not impute {gappy_station_name} at {timestamp} due to NaN donor values. Gap remains.")
+            logging.info(f"Could not impute {gappy_station_name} at {timestamp}. Gap remains after all imputation attempts.")
     
+    # --- 2. Reevaluation using boundary shift and smooth endpoint adjustment ---
+    # This section handles per-segment adjustments after initial imputation.
+    
+    gap_segments_to_shift = get_consecutive_gap_segments(nan_timestamps)
+    logging.info(f"Identified {len(gap_segments_to_shift)} segments for boundary handling and adjustment for {gappy_station_name}.")
+
+    for segment_timestamps in gap_segments_to_shift:
+        if segment_timestamps.empty:
+            logging.info(f"Skipping empty segment for {gappy_station_name}.")
+            continue
+
+        gap_start_date = segment_timestamps.min()
+        gap_end_date = segment_timestamps.max()
+        logging.info(f"Processing gap segment from {gap_start_date.date()} to {gap_end_date.date()} ({len(segment_timestamps)} days) for {gappy_station_name}.")
+
+        # Find the last observed value before this gap
+        pre_gap_index = gappy_station_df.index < gap_start_date
+        value_before_gap = np.nan
+        if pre_gap_index.any():
+            last_observed_series = gappy_station_df.loc[pre_gap_index, 'value'].dropna()
+            value_before_gap = last_observed_series.iloc[-1] if not last_observed_series.empty else np.nan
+        else:
+            value_before_gap = np.nan
+        logging.info(f"  Value before gap ({gap_start_date.date()}): {value_before_gap:.2f}" if not pd.isna(value_before_gap) else f"  Value before gap: NaN")
+
+        # Find the first observed value after this gap
+        post_gap_index = gappy_station_df.index > gap_end_date
+        value_after_gap = np.nan
+        if post_gap_index.any():
+            first_observed_series = gappy_station_df.loc[post_gap_index, 'value'].dropna()
+            value_after_gap = first_observed_series.iloc[0] if not first_observed_series.empty else np.nan
+        else:
+            value_after_gap = np.nan
+        logging.info(f"  Value after gap ({gap_end_date.date()}): {value_after_gap:.2f}" if not pd.isna(value_after_gap) else f"  Value after gap: NaN")
+
+        # Get the currently imputed segment values (from initial imputation pass)
+        imputed_segment_values_current = gappy_station_df.loc[segment_timestamps, 'value']
+        logging.info(f"  Imputed segment values (min/max): {imputed_segment_values_current.min():.2f}/{imputed_segment_values_current.max():.2f} (NaNs: {imputed_segment_values_current.isnull().sum()})")
+
+        # Ensure there are valid imputed values in the segment to work with
+        if imputed_segment_values_current.empty or imputed_segment_values_current.isnull().all():
+            logging.info(f"  No valid imputed values found in segment {gap_start_date.date()} to {gap_end_date.date()}. Skipping boundary handling for {gappy_station_name}.")
+            continue
+            
+        # --- Handle different types of gaps based on boundary availability ---
+
+        # Case 1: Gap at the very start of the data (left-sided open gap)
+        # Condition changed: check if gap_start_date is the absolute min index of the dataframe AND value_after_gap is not NaN (targets true leading NaNs).
+        if (gap_start_date == gappy_station_df.index.min()) and not pd.isna(value_after_gap):
+            logging.info(f"  Handling start-of-data gap (first segment in DataFrame) for {gappy_station_name} (from {gap_start_date.date()} to {gap_end_date.date()}).")
+            
+            # --- Seasonal Extrapolation Backward from value_after_gap ---
+            # Replacing the problematic linear interpolation from the first imputed point
+            
+            # Check if seasonal means are available and not empty
+            if not seasonal_means.empty:
+                # Get the day of year for the end of the gap
+                day_of_year_at_end = gap_end_date.dayofyear
+
+                if day_of_year_at_end in seasonal_means:
+                    seasonal_value_at_end = seasonal_means.loc[day_of_year_at_end]
+                    
+                    # Calculate the offset needed to match value_after_gap to its seasonal expectation
+                    # This offset is applied to all seasonal values in the gap to extrapolate backward
+                    offset_from_seasonal = value_after_gap - seasonal_value_at_end
+                    logging.info(f"    Calculated seasonal offset of {offset_from_seasonal:.2f} based on value after gap.")
+
+                    adjusted_values = []
+                    for ts in segment_timestamps:
+                        day_of_year_ts = ts.dayofyear
+                        if day_of_year_ts in seasonal_means:
+                            adjusted_values.append(seasonal_means.loc[day_of_year_ts] + offset_from_seasonal)
+                        else:
+                            # If a seasonal mean for a specific day_of_year in the gap is missing,
+                            # fall back to the initially imputed value for that specific timestamp.
+                            logging.warning(f"    Seasonal mean not available for day {day_of_year_ts} in gap {ts.date()} for {gappy_station_name}. Retaining initial imputed value for this point.")
+                            adjusted_values.append(gappy_station_df.loc[ts, 'value']) # Revert to prior imputation
+                    
+                    if adjusted_values: # Ensure list is not empty before assigning
+                        gappy_station_df.loc[segment_timestamps, 'value'] = adjusted_values
+                        # Update the imputation method flag for these points to reflect seasonal extrapolation
+                        gappy_station_df.loc[segment_timestamps, 'imputation_method'] = 'Imputed_SeasonalExtrapolate'
+                        logging.info(f"  Applied seasonal extrapolation backward for start-of-data gap for {gappy_station_name}.")
+                        logging.info(f"  Segment values after seasonal extrapolation (min/max): {gappy_station_df.loc[segment_timestamps, 'value'].min():.2f}/{gappy_station_df.loc[segment_timestamps, 'value'].max():.2f}")
+                    else:
+                        logging.warning(f"  No adjusted values generated for seasonal extrapolation for {gappy_station_name}. Segment retains initial imputed values.")
+
+                else:
+                    logging.warning(f"  Seasonal mean for day {day_of_year_at_end} not available to anchor seasonal extrapolation for {gappy_station_name}. Segment retains initial imputed values.")
+                    # The segment will retain the values from the initial imputation (weighted average/seasonal mean fallback).
+
+            else:
+                logging.warning(f"  Seasonal means are empty for {gappy_station_name}. Cannot perform seasonal extrapolation for start-of-data gap. Segment retains initial imputed values.")
+                # The segment will retain the values from the initial imputation (weighted average/seasonal mean fallback).
+
+
+        # Case 2: Gap at the very end of the data (right-sided open gap)
+        # value_before_gap is not NaN, and the segment ends at the overall DataFrame's max index.
+        elif not pd.isna(value_before_gap) and (gap_end_date == gappy_station_df.index.max()):
+            logging.info(f"  Handling end-of-data gap (last segment in DataFrame) for {gappy_station_name} (from {gap_start_date.date()} to {gap_end_date.date()}).")
+            
+            # Apply initial boundary shift to match value_before_gap.
+            shift_amount = value_before_gap - imputed_segment_values_current.iloc[0]
+            gappy_station_df.loc[segment_timestamps, 'value'] += shift_amount
+            logging.info(f"  Applied boundary shift of {shift_amount:.2f} for end-of-data gap starting {gap_start_date.date()} for {gappy_station_name}.")
+            imputed_segment_values_current = gappy_station_df.loc[segment_timestamps, 'value'] # Update after shift
+            logging.info(f"  Segment values after shift (min/max): {imputed_segment_values_current.min():.2f}/{imputed_segment_values_current.max():.2f}")
+            
+            # No endpoint adjustment is applied here as there's no value_after_gap to match.
+            # The imputation relies on the shifted weighted average up to the end of the data.
+
+
+        # Case 3: Gap in the middle of data (two-sided closed gap)
+        # Both value_before_gap and value_after_gap are available and not NaN
+        else: 
+            logging.info(f"  Processing two-sided gap segment from {gap_start_date.date()} to {gap_end_date.date()} ({len(segment_timestamps)} days) for {gappy_station_name}.")
+            
+            # --- Apply Boundary Shift (as implemented before for two-sided gaps) ---
+            shift_amount = 0.0
+            initial_imputed_value = imputed_segment_values_current.iloc[0]
+            logging.info(f"  Initial imputed value at start of segment: {initial_imputed_value:.2f}")
+            
+            # Only shift if both boundary and initial imputed value are valid
+            if not pd.isna(value_before_gap) and not pd.isna(initial_imputed_value):
+                shift_amount = value_before_gap - initial_imputed_value
+                gappy_station_df.loc[segment_timestamps, 'value'] += shift_amount
+                logging.info(f"  Applied boundary shift of {shift_amount:.2f} for gap starting {gap_start_date.date()} for {gappy_station_name}.")
+                
+                # Update imputed_segment_values_current after the shift for scaling calculation
+                imputed_segment_values_current = gappy_station_df.loc[segment_timestamps, 'value']
+                logging.info(f"  Segment values after shift (min/max): {imputed_segment_values_current.min():.2f}/{imputed_segment_values_current.max():.2f}")
+            else:
+                logging.info(f"  Skipping boundary shift for gap starting {gap_start_date.date()} due to missing boundary/imputed values for {gappy_station_name}. (Before: {value_before_gap}, Imputed: {initial_imputed_value})")
+                
+            # --- Smooth Endpoint Adjustment (as implemented before for two-sided gaps) ---
+            # This ensures the end of the imputed segment smoothly transitions to value_after_gap.
+            # This case is only for when value_after_gap is available.
+            if not pd.isna(value_after_gap) and len(imputed_segment_values_current) > 0: 
+                logging.info(f"  Attempting smooth endpoint adjustment for gap {gap_start_date.date()} to {gap_end_date.date()} for {gappy_station_name}.")
+                
+                # Calculate the discrepancy at the end of the gap
+                discrepancy_at_end = value_after_gap - imputed_segment_values_current.iloc[-1]
+                logging.info(f"    Discrepancy at end of segment: {discrepancy_at_end:.2f}")
+
+                # Apply a linear ramp to distribute this discrepancy across the segment
+                num_points = len(imputed_segment_values_current)
+                if num_points > 1:
+                    # Create a linear ramp from 0 to 1 over the segment length
+                    adjustment_factors = np.linspace(0, 1, num_points)
+                    adjusted_values = imputed_segment_values_current.values + (adjustment_factors * discrepancy_at_end)
+                else: # For a single point segment, just apply the full discrepancy
+                    adjusted_values = imputed_segment_values_current.values + discrepancy_at_end
+
+                gappy_station_df.loc[segment_timestamps, 'value'] = adjusted_values
+                logging.info(f"  Applied smooth endpoint adjustment for gap {gap_start_date.date()} for {gappy_station_name}.")
+                logging.info(f"  Segment values after smooth adjustment (min/max): {gappy_station_df.loc[segment_timestamps, 'value'].min():.2f}/{gappy_station_df.loc[segment_timestamps, 'value'].max():.2f}\n")
+            else:
+                logging.info(f"  Skipping smooth endpoint adjustment for gap {gap_start_date.date()} to {gap_end_date.date()} due to missing 'value_after_gap' or empty segment for {gappy_station_name}.\n")
+
+    # # Initialise donor offsets as dict even if None (to expected form)
+    # if donor_offsets is None:
+    #     donor_offsets = {}
+    
+    # # Initialise 'imputation_method' column for df if not already existing (fills with NaN initially)
+    # if 'imputation_method' not in gappy_station_df.columns:
+    #     gappy_station_df['imputation_method'] = pd.Series(dtype=object, index=gappy_station_df.index)
+
+    # # Use all filtered donors (current approach - could limit to top X in future)
+    # donors_to_use_series = sorted_donors 
+    # relevant_donor_values = donor_data_for_gaps[donors_to_use_series.index]
+
+    # # Go timestep by timestep within the gaps and perform weighted imputation
+    # total_imputed_values = 0
+    
+    # # --- 1. Initial imputation with donor data weighting and offset ---
+    
+    # for timestamp in nan_timestamps:
+    #     imputed_value = np.nan # Set to avoid error if issue with imputation
+
+    #     if imputation_method == 'weighted_average':  # Test other options (e.g. highest score only)
+    #         # Initialise weighting trackers
+    #         weighted_sum = 0.0
+    #         total_weight = 0.0
+            
+    #         # Loop through donors and calculate total weighting
+    #         for donor_name, score in donors_to_use_series.items():
+    #             donor_value = relevant_donor_values.loc[timestamp, donor_name]
+    #             offset = donor_offsets.get(donor_name, 0.0) # Get offset for donor, default to 0 if none
+
+    #             # Skip NaN values as will not support imputation
+    #             if not pd.isna(donor_value):
+    #                 adjusted_donor_value = donor_value + offset
+    #                 weighted_sum += adjusted_donor_value * score
+    #                 total_weight += score
+    #             else:
+    #                 logging.info(f"Donor '{donor_name}' has NaN at {timestamp} for {gappy_station_name}.")
+
+    #         # Calculate weighted imputed value
+    #         if total_weight > 0:
+    #             imputed_value = weighted_sum / total_weight
+        
+    #     # Apply the imputed value and flag it (critical for model performance) in the current station's df
+    #     if not pd.isna(imputed_value):
+    #         gappy_station_df.loc[timestamp, 'value'] = imputed_value
+    #         gappy_station_df.loc[timestamp, 'imputation_method'] = imputed_value_flag
+    #         total_imputed_values += 1
+        
+    #     # Make it clear if imputation was not successful for data points  
+    #     else:
+    #         logging.info(f"Could not impute {gappy_station_name} at {timestamp} due to NaN donor values. Gap remains.")
+    
+    # # --- 2. Reevaluation using boundary shift values ---
+    
+    # gap_segments_to_shift = get_consecutive_gap_segments(nan_timestamps)
+    # logging.info(f"Identified {len(gap_segments_to_shift)} segments for boundary shifting and scaling for {gappy_station_name}.")
+
+    # for segment_timestamps in gap_segments_to_shift:
+    #     if segment_timestamps.empty:
+    #         logging.info(f"Skipping empty segment for {gappy_station_name}.")
+    #         continue
+
+    #     gap_start_date = segment_timestamps.min()
+    #     gap_end_date = segment_timestamps.max()
+    #     logging.info(f"Processing gap segment from {gap_start_date.date()} to {gap_end_date.date()} ({len(segment_timestamps)} days) for {gappy_station_name}.")
+
+    #     # Find the last observed value before this gap
+    #     pre_gap_index = gappy_station_df.index < gap_start_date
+    #     value_before_gap = np.nan
+    #     if pre_gap_index.any():
+    #         last_observed_series = gappy_station_df.loc[pre_gap_index, 'value'].dropna()
+    #         value_before_gap = last_observed_series.iloc[-1] if not last_observed_series.empty else np.nan
+    #     else:
+    #         value_before_gap = np.nan
+    #     logging.info(f"  Value before gap ({gap_start_date.date()}): {value_before_gap:.2f}" if not pd.isna(value_before_gap) else f"  Value before gap: NaN")
+
+    #     # Find the first observed value after this gap
+    #     post_gap_index = gappy_station_df.index > gap_end_date
+    #     value_after_gap = np.nan
+    #     if post_gap_index.any():
+    #         first_observed_series = gappy_station_df.loc[post_gap_index, 'value'].dropna()
+    #         value_after_gap = first_observed_series.iloc[0] if not first_observed_series.empty else np.nan
+    #     else:
+    #         value_after_gap = np.nan
+    #     logging.info(f"  Value after gap ({gap_end_date.date()}): {value_after_gap:.2f}" if not pd.isna(value_after_gap) else f"  Value after gap: NaN")
+
+    #     imputed_segment_values_current = gappy_station_df.loc[segment_timestamps, 'value']
+    #     logging.info(f"  Imputed segment values (min/max): {imputed_segment_values_current.min():.2f}/{imputed_segment_values_current.max():.2f} (NaNs: {imputed_segment_values_current.isnull().sum()})")
+
+    #     # Ensure there are valid imputed values in the segment to work with
+    #     if imputed_segment_values_current.empty or imputed_segment_values_current.isnull().all():
+    #         logging.info(f"  No valid imputed values found in segment {gap_start_date.date()} to {gap_end_date.date()}. Skipping shift/scaling for {gappy_station_name}.")
+    #         continue
+    
+    #     # --- Apply Boundary Shift (as implemented before) ---
+    #     shift_amount = 0.0
+    #     initial_imputed_value = imputed_segment_values_current.iloc[0]
+    #     logging.info(f"  Initial imputed value at start of segment: {initial_imputed_value:.2f}")
+        
+    #     if not pd.isna(value_before_gap) and not pd.isna(initial_imputed_value):
+    #         shift_amount = value_before_gap - initial_imputed_value
+    #         gappy_station_df.loc[segment_timestamps, 'value'] += shift_amount
+    #         logging.info(f"  Applied boundary shift of {shift_amount:.2f} for gap starting {gap_start_date.date()} for {gappy_station_name}.")
+            
+    #         # Update imputed_segment_values_current after the shift for scaling calculation
+    #         imputed_segment_values_current = gappy_station_df.loc[segment_timestamps, 'value']
+    #         logging.info(f"  Segment values after shift (min/max): {imputed_segment_values_current.min():.2f}/{imputed_segment_values_current.max():.2f}")
+    #     else:
+    #         logging.info(f"  Skipping boundary shift for gap starting {gap_start_date.date()} due to missing boundary/imputed values for {gappy_station_name}. (Before: {value_before_gap}, Imputed: {initial_imputed_value})")
+            
+    #     # --- 3. Refinine scaling ---
+        
+    #     if not pd.isna(value_before_gap) and not pd.isna(value_after_gap) and len(imputed_segment_values_current) > 0:
+    #         # Calculate the discrepancy at the end of the gap
+    #         discrepancy_at_end = value_after_gap - imputed_segment_values_current.iloc[-1]
+
+    #         # Apply a linear ramp to distribute this discrepancy across the segment
+    #         num_points = len(imputed_segment_values_current)
+    #         if num_points > 1:
+    #             # Create a linear ramp from 0 to 1 over the segment length
+    #             adjustment_factors = np.linspace(0, 1, num_points)
+    #             adjusted_values = imputed_segment_values_current.values + (adjustment_factors * discrepancy_at_end)
+    #         else: # For a single point segment, just apply the full discrepancy
+    #             adjusted_values = imputed_segment_values_current.values + discrepancy_at_end
+
+    #         gappy_station_df.loc[segment_timestamps, 'value'] = adjusted_values
+
+    # For Logging
     total_gaps = len(nan_timestamps)
-    percentage_imputed = (total_imputed_values / total_gaps) * 100
+    successfully_imputed_count = gappy_station_df.loc[nan_timestamps, 'imputation_method'].count() # Count non-NaN (i.e. flagged) imputation methods
+    percentage_imputed = (successfully_imputed_count / total_gaps) * 100
+    
     logging.info(f"Imputation Complete for {gappy_station_name}.")
     logging.info(f"    -> {total_imputed_values} / {total_gaps} successfully imputed ({percentage_imputed:.2f}%).\n")
+
+def get_consecutive_gap_segments(nan_timestamps: pd.DatetimeIndex, max_imputation_length_threshold: int = None):
+    """
+    Groups consecutive NaN timestamps into blocks and returns a list of DatetimeIndex segments.
+    Optionally filters segments by max_imputation_length_threshold.
+    """
+    logging.info(f"get_consecutive_gap_segments called. Input nan_timestamps count: {len(nan_timestamps)}")
+
+    if nan_timestamps.empty:
+        logging.info("Input nan_timestamps is empty. Returning empty list.")
+        return []
+
+    # Sort and calculate differences between consecutive timestamps (in days)
+    nan_timestamps = nan_timestamps.sort_values()
+    time_diffs = pd.Series(nan_timestamps).diff().dt.days
+    logging.info(f"time_diffs calculated. First 5 diffs: {time_diffs.head().tolist()}, Last 5 diffs: {time_diffs.tail().tolist()}")
+    logging.info(f"time_diffs summary: min={time_diffs.min()}, max={time_diffs.max()}, NaNs={time_diffs.isna().sum()}")
+    
+    # Identify the start of each new gap block - True if start of sequence or first element
+    gap_start_flags = (time_diffs != 1) | (pd.isna(time_diffs))
+    gap_start_integer_indices = np.where(gap_start_flags)[0]
+    
+    logging.info(f"gap_start_flags generated. Number of gap starts identified: {len(gap_start_integer_indices)}")
+    logging.info(f"gap_start_integer_indices: {gap_start_integer_indices.tolist() if len(gap_start_integer_indices) < 20 else 'Too many to list, showing first 20: ' + str(gap_start_integer_indices[:20].tolist())}")
+
+    segments = []
+    # current_segment_start_idx = 0
+
+    for i in range(len(gap_start_integer_indices)):
+        start_idx_of_segment = gap_start_integer_indices[i]
+        
+        # Determine end index for current segment
+        if i < len(gap_start_integer_indices) - 1:
+            end_idx_of_segment = gap_start_integer_indices[i+1]
+        
+        # If it's the last start index, this segment goes to the end of nan_timestamps.
+        else: 
+            end_idx_of_segment = len(nan_timestamps)
+            
+        # Slice the original nan_timestamps using the integer indices to get the DatetimeIndex segment
+        segment = nan_timestamps[start_idx_of_segment:end_idx_of_segment]
+        logging.info(f"  Segment {i+1}: Start index {start_idx_of_segment}, End index {end_idx_of_segment}, Length {len(segment)} days.")
+
+        # Apply (somewhat optional) length threshold filter
+        if max_imputation_length_threshold is None or len(segment) <= max_imputation_length_threshold:
+            segments.append(segment)
+        else:
+            # Note: This will only show if logging level is DEBUG or lower.
+            logging.debug(f"  Skipping segment from {segment.min().date()} to {segment.max().date()} "
+                          f"({len(segment)} days) due to exceeding max_imputation_length_threshold ({max_imputation_length_threshold}).")
+    
+    return segments
 
 def group_consecutive_gaps(nan_timestamps: pd.DatetimeIndex, max_imputation_length_threshold: int):
     """
@@ -488,10 +869,15 @@ def impute_across_large_gaps(df_dict_to_impute: dict, filtered_scores: dict, max
 
 def synthetic_gap_allocation(gap_lengths_to_test: list, min_around: int, valid_synthetic_indices: pd.Series,
                              gappy_station: str, current_gappy_station_df: pd.DataFrame,
-                             df_dict_original: dict, df_for_validation: dict):
+                             df_dict_original: dict, df_for_validation: dict, seed: int=None):
     """
     Create synthetic gaps based on dynamic gap requirements by station.
     """
+    # Using hash to get independent synthetic gaps for each station (for spatial diversity)
+    if seed is not None:
+        np.random.seed(seed + stable_hash(gappy_station))
+
+    
     # Initialise original_values_masked here (as accumulated across all synthetic gaps) and gap counter
     original_values_masked = pd.Series(dtype=float)
     gaps_created_count = 0
@@ -554,7 +940,6 @@ def synthetic_gap_allocation(gap_lengths_to_test: list, min_around: int, valid_s
             gaps_created_count += 1
             logging.info(f"Created synthetic gap ({gaps_created_count}/{len(gap_lengths_to_test)}) of {gap_length_days} "
                          f"days for {gappy_station} from {gap_start_date.date()} to {gap_end_date.date()}.")
-            logging.info('-' * 25)
             break  # successfully made gap, move to next gap length
 
         if attempt_count == max_attempts:
@@ -563,6 +948,7 @@ def synthetic_gap_allocation(gap_lengths_to_test: list, min_around: int, valid_s
     if gaps_created_count == 0:
         logging.info(f"No synthetic gaps were successfully created for {gappy_station}.")
 
+    logging.info('-' * 25)
     return original_values_masked
 
 def find_validation_gap_lengths(max_len_station_actual: int, max_imputation_length_threshold: int,
@@ -600,30 +986,33 @@ def find_validation_gap_lengths(max_len_station_actual: int, max_imputation_leng
 def plot_imputation_validation_results(df_dict_original: dict, gappy_station: str, rmse: float, mae: float,
                                        imputed_df_dict_synthetic_run: dict, original_values_masked: pd.Series,
                                        imputed_values_at_synthetic_gaps: pd.Series, output_path:str):
-    plt.figure(figsize=(15, 7))
-    plt.plot(df_dict_original[gappy_station].index, df_dict_original[gappy_station]['value'],
+    plt.figure(figsize=(15, 4))
+    fig, ax = plt.subplots(figsize=(15, 4))
+    
+    ax.plot(df_dict_original[gappy_station].index, df_dict_original[gappy_station]['value'],
                 label='Original Data (incl. real NaNs)', color='blue', alpha=0.6)
-    plt.plot(imputed_df_dict_synthetic_run[gappy_station].index, imputed_df_dict_synthetic_run[gappy_station]['value'],
+    ax.plot(imputed_df_dict_synthetic_run[gappy_station].index, imputed_df_dict_synthetic_run[gappy_station]['value'],
                 label='Imputed Data (Validation Run)', color='purple', alpha=0.7, linestyle='--')
     
     # Plot the actual original points that were masked for synthetic gaps
-    plt.plot(original_values_masked.index, original_values_masked.values,
+    ax.plot(original_values_masked.index, original_values_masked.values,
                 'o', label='Original (Synthetic Gap)', color='red', alpha=0.8, markersize=4)
     
     # Plot the imputed points at the synthetic gap locations
-    plt.plot(imputed_values_at_synthetic_gaps.index, imputed_values_at_synthetic_gaps.values,
+    ax.plot(imputed_values_at_synthetic_gaps.index, imputed_values_at_synthetic_gaps.values,
                 'x', label='Imputed (Synthetic Gap)', color='green', alpha=0.8, markersize=4)
     
-    plt.title(f'Synthetic Gap Imputation for {gappy_station}\nRMSE: {rmse:.2f}, MAE: {mae:.2f}')
-    plt.xlabel('Date')
-    plt.ylabel('Groundwater Level')
-    plt.legend()
-    plt.grid(True)
+    ax.set_title(f'Synthetic Gap Imputation for {gappy_station}\nRMSE: {rmse:.2f}, MAE: {mae:.2f}')
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Groundwater Level')
+    ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5))
+    ax.grid(True)
     
     # Save plot
+    fig.tight_layout()
     plot_filename = f"{output_path}{gappy_station}_synthetic_imputation_plot.png"
     plt.savefig(plot_filename, dpi=300)
-    logging.info(f"Synthetic imputation plot saved to: {plot_filename}")
+    logging.info(f"Synthetic imputation plot saved to: {plot_filename}\n")
     
     plt.close()
 
@@ -672,8 +1061,8 @@ def calc_validation_performance_metrics(original_values_masked: pd.Series, imput
 
 def synthetic_gap_imputation_validation(df_dict_original: dict, gaps_list: list, min_around: int,
                                         predefined_large_gap_lengths: list, max_imputation_length_threshold: int,
-                                        filtered_scores: dict, validation_plot_path: str,
-                                        imputation_plot_path: str, station_max_gap_lengths: dict = None):
+                                        filtered_scores: dict, validation_plot_path: str, imputation_plot_path: str,
+                                        station_max_gap_lengths: dict = None, random_seed: int = None):
     """
     1. Mask data portions (across max. imputation gap for each)
     2. Imputate data across synthetic gaps using impute_across_large_gaps
@@ -737,7 +1126,8 @@ def synthetic_gap_imputation_validation(df_dict_original: dict, gaps_list: list,
             gappy_station=gappy_station,
             current_gappy_station_df=gappy_station_df_for_synthesis, # Pass the reference from working_df
             df_dict_original=df_dict_original, # Just for internal logic not modifcation
-            df_for_validation=working_df_for_synthetic_gaps # Pass the whole dict for in-place modification
+            df_for_validation=working_df_for_synthetic_gaps,# Pass the whole dict for in-place modification
+            seed=random_seed
         )
 
         # Check if any gaps were actually created
@@ -763,11 +1153,11 @@ def synthetic_gap_imputation_validation(df_dict_original: dict, gaps_list: list,
         df_dict_original=df_dict_original,
         imputation_method='weighted_average'
     )
-    logging.info("Global imputation for synthetic data complete.")
+    logging.info("Global imputation for synthetic data complete.\n")
 
     # --- 4. Calculate Performance Metrics ---
     
-    logging.info("\nPhase 3: Calculating performance metrics and generating plots...")
+    logging.info("Calculating performance metrics and generating plots...\n")
     for gappy_station in gaps_list:
         logging.info(f"  Processing validation results for {gappy_station}...")
         
@@ -809,7 +1199,7 @@ def synthetic_gap_imputation_validation(df_dict_original: dict, gaps_list: list,
 def handle_large_gaps(df_dict: pd.DataFrame, gaps_list: list, catchment: str, spatial_path: str, path: str,
                       threshold_m: int, radius: int, output_path: str, threshold: float, predefined_large_gap_lengths: list,
                       max_imputation_length_threshold: int, min_around: int, station_max_gap_lengths: dict,
-                      imputation_plot_path: str, k_decay: float = 0.1, notebook: bool = False):
+                      imputation_plot_path: str, k_decay: float = 0.1, notebook: bool = False, random_seed: int = None):
     """
     Handle large gap prcoessing pipeline.
     """
@@ -842,7 +1232,8 @@ def handle_large_gaps(df_dict: pd.DataFrame, gaps_list: list, catchment: str, sp
         filtered_scores=filtered_scores,
         validation_plot_path=output_path,
         imputation_plot_path=imputation_plot_path,
-        station_max_gap_lengths=station_max_gap_lengths
+        station_max_gap_lengths=station_max_gap_lengths,
+        random_seed=random_seed
     )
     
     # Impute actual data gaps

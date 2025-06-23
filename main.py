@@ -9,8 +9,11 @@
 
 # --- 1a. Library Imports ---
 import sys
+import torch
+import random
 import joblib
 import logging
+import numpy as np
 import pandas as pd
 
 # --- 1b. Project Imports ---
@@ -35,7 +38,16 @@ logger = logging.getLogger(__name__)
 config = load_project_config(config_path="config/project_config.yaml")
 notebook = False
 
-# --- 1d. Define catchment(s) and API calls to Process --
+# --- 1d. Set up seeding to define global states ---
+random_seed = config["global"]["pipeline_settings"]["random_seed"]
+random.seed(random_seed)
+np.random.seed(random_seed)
+torch.manual_seed(random_seed)
+torch.cuda.manual_seed_all(random_seed)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
+# --- 1e. Define catchment(s) and API calls to Process --
 catchments_to_process = config["global"]["pipeline_settings"]["catchments_to_process"]
 run_defra_API_calls = config["global"]["pipeline_settings"]["run_defra_api"]  # True to run API calls
 run_camels_API_calls = config["global"]["pipeline_settings"]["run_camels_api"]  # True to run API calls
@@ -132,7 +144,7 @@ try:
             
         logger.info(f"Pipeline step 'Remove spurious points' complete for {catchment} catchment.\n")
         
-        if run_outlier_detection:  
+        if run_outlier_detection:   
             processed_gwl_time_series_dict = outlier_detection(
                 gwl_time_series_dict=gwl_time_series_dict,
                 output_path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
@@ -241,7 +253,7 @@ try:
         # Action: Generate graph snapshots/sequences for the GNN's input.
         # Output: PyTorch Geometric Data objects or DGL graphs, including node features (X), edge index (edge_index), and target GWL values (Y) for observed nodes.
 
-        # --- 4g. (Optional) Visualize complete mesh map with stations and other features ---
+        # --- 4g. (Optional) Visualise complete mesh map with stations and other features ---
         # Purpose: Verify final graph structure and feature distribution visually.
         # Action: Create an interactive map showing the mesh, GWL stations, and other snapped data points.
 
@@ -261,9 +273,9 @@ try:
         # Action: Choose an appropriate loss function for regression (e.g., Mean Squared Error (MSE), Mean Absolute Error (MAE), Huber Loss).
         # Action: Consider masking the loss calculation to only evaluate predictions at observed GWL stations if non-interpolated.
 
-        # --- 5c. Define Optimizer ---
-        # Action: Select an optimizer (e.g., Adam, SGD).
-        # Action: Configure learning rate and other optimizer parameters.
+        # --- 5c. Define Optimiser ---
+        # Action: Select an optimiser (e.g., Adam, SGD).
+        # Action: Configure learning rate and other optimiser parameters.
 
         # ==============================================================================
         # SECTION 6: TRAINING
@@ -295,7 +307,7 @@ try:
         # Action: Calculate key metrics (e.g., RMSE, MAE, R-squared, Nash-Sutcliffe Efficiency for hydrology).
         # Output: Quantitative evaluation results.
 
-        # --- 7b. Visualization of Predictions ---
+        # --- 7b. Visualisation of Predictions ---
         # Action: Plot actual vs. predicted GWL time series for selected stations/nodes.
         # Action: Create animated maps showing predicted GWL changes over time across the mesh (if using interpolated pseudo-labels).
 
@@ -323,7 +335,7 @@ try:
         # Purpose: Evaluate the model's ability to predict at nodes masked during training.
         # Action: Compare predictions at "held-out" (proxy-ungauged) nodes against their interpolated pseudo-ground-truth.
         # Action: Analyze performance metrics specifically for these nodes.
-        # Action: Visualize the spatial distribution of errors for these ungauged nodes.
+        # Action: Visualise the spatial distribution of errors for these ungauged nodes.
 
         # --- 8d. Hydrological Interpretation and Discussion ---
         # Purpose: Translate model insights back into hydrogeological understanding.

@@ -133,7 +133,7 @@ eden:
       interactive_mesh_map_output: "results/figures/eden/maps/interactive_mesh_map"  # ensure no specific file extension
     ts_plots:
       time_series_gwl_output: "results/figures/eden/time_series/"
-      dpi_save: 100  # Adjust to 300 for final output run
+      dpi_save: 300  # Adjust to 300 for final output run
       extension: "svg"
     corr_dist_score_scatters: "results/figures/eden/scatter/"
 
