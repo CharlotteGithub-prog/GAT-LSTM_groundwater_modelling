@@ -95,13 +95,13 @@ def plot_timeseries(time_series_df: pd.DataFrame, station_name: str, output_path
     if legend_type == 'interpolation':
         # Define fixed colours for interpolation flag
         interpolation_colors = {
-            False: '#70955F',
-            True: '#DF6607'
+            'raw': '#70955F',
+            'interpolated_short': '#DF6607'
         }
         
         for interp_flag, color in interpolation_colors.items():
             temp = time_series_df.copy()
-            temp['value'] = temp['value'].where(temp['Interpolated'] == interp_flag, np.nan)
+            temp['value'] = temp['value'].where(temp['data_type'] == interp_flag, np.nan)
             label = "Interpolated" if interp_flag else "Original"
             x_data = temp['dateTime'] if use_datetime_column else temp.index
 
@@ -497,9 +497,9 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
     spline interpolation (specifically PCHIP) and flag all interpolated data for model
     to identify lower reliability.
     """
-    # Create duplicate to modify and initialise interpolation flag
+    # Create duplicate to modify and initialise data status
     interpolated_df = df.copy()
-    interpolated_df['Interpolated']=False
+    interpolated_df['data_type']='raw'
     total_interpolated = 0
     
     # Initialise variable to track max large gap (for large imputations)
@@ -542,7 +542,7 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
         # Otherwise apply as expected
         if len(group) <= max_steps:
             interpolated_df.loc[idx, 'value'] = interp(interpolated_df.loc[idx].index.astype('int64'))
-            interpolated_df.loc[idx, 'Interpolated'] = True
+            interpolated_df.loc[idx, 'data_type'] = 'interpolated_short'
             total_interpolated += len(group)
         
         else:
@@ -576,3 +576,6 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
     logger.info(f"{station_name} updated plot saved to {path}{station_name}_aggregated_daily.png\n")
 
     return gap, interpolated_df, max_uninterpolated_gap_length
+
+def handle_short_gaps():
+    print("a")
