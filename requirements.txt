@@ -1,5 +1,6 @@
 folium==0.19.6
 geopandas==0.14.0
+fiona==1.9.5
 hampel==1.0.2
 ipython==8.12.3
 ipywidgets==8.1.5
