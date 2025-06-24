@@ -1219,19 +1219,19 @@ def handle_large_gaps(df_dict: pd.DataFrame, gaps_list: list, catchment: str, sp
         end_date=model_end_date
     )
 
-    # --- Mask remaining (non-imputable) gaps so they can be passed into model ---
-    masked_df_dict = mask_data_gaps(
-        df_dict=trimmed_df_dict
-    )
+    # # --- Mask remaining (non-imputable) gaps so they can be passed into model ---
+    # masked_df_dict = mask_data_gaps(
+    #     df_dict=trimmed_df_dict
+    # )
     
     # --- Plot final df with raw and imputed data, marked using data_type column ---
     plot_final_gwl_timeseries(
-        df_dict=masked_df_dict,
+        df_dict=trimmed_df_dict,
         output_path=path
     )
     
     # --- Return final df with all gaps imputed or masked -> all with 100% coverage ---
-    return synthetic_imputation_performace, masked_df_dict
+    return synthetic_imputation_performace, trimmed_df_dict
     
     # STEP ONE:
     # Determine Relevant Nearby Stations: For each station with a large gap, identify nearby stations
