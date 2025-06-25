@@ -1,4 +1,5 @@
 # Library Imports
+import os
 import copy
 import joblib  # If adding parallel processing in final pipeline
 import hashlib
@@ -6,7 +7,6 @@ import logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 
 # Get a logger instance for this module.
 logger = logging.getLogger(__name__)
@@ -1085,15 +1085,10 @@ def synthetic_gap_imputation_validation(df_dict_original: dict, gaps_list: list,
     logging.info("Synthetic gap imputation validation complete for all stations.\n")
     return validation_results, synthetic_gap_flags, imputed_df_dict_synthetic_run, df_dict_original
 
-def clean_and_trim_to_model_bounds(df_dict, df_dict_original, synthetic_gap_flags, start_date, end_date):
+def clean_df_dict(df_dict, df_dict_original, synthetic_gap_flags):
     """
     tbd
     """
-    # Initialise new dataframe to store imputed, cleaned and trimmed data
-    trimmed_df = {}
-    
-    logging.info(f"Trimming data frames to final model range...")
-    
     # Clean dataframe of synthetic and validation data
     for station, synthetic_dates in synthetic_gap_flags.items():
         if station not in df_dict:
@@ -1110,12 +1105,12 @@ def clean_and_trim_to_model_bounds(df_dict, df_dict_original, synthetic_gap_flag
                 df_dict[station].loc[dt, 'data_type'] = 'raw'
                 revert_count += 1
 
-    # Trim data frame by station to bounds of model
-    for station, df in df_dict.items():
-        trimmed_df[station] = df.loc[start_date:end_date].copy()
+    # # Trim data frame by station to bounds of model
+    # for station, df in df_dict.items():
+    #     trimmed_df[station] = df.loc[start_date:end_date].copy()
         
     # Set NaN to mean
-    for station, df in trimmed_df.items():
+    for station, df in df_dict.items():
         df['masked'] = df['value'].isna()  # Create boolean masked col
         df.loc[df['value'].isna(), 'data_type'] = 'masked'  # Set data_type to masked
         
@@ -1124,71 +1119,9 @@ def clean_and_trim_to_model_bounds(df_dict, df_dict_original, synthetic_gap_flag
         # df['value'].fillna(station_mean, inplace=True)  # TODO: SOLVE
         df['value'] = df['value'].fillna(df['value'].mean())
     
-    logging.info(f"All stations trimmed from {start_date} to {end_date}\n")
+    logging.info(f"All stations cleaned and complete with NaN filled to mean.\n")
                 
-    return trimmed_df
-
-def plot_final_gwl_timeseries(df_dict: dict, output_path: str, highlight_column: str = 'data_type', dpi: int = 300):
-    """
-    Plot groundwater level time series with colour-coded imputation types using the 'data_type' column.
-
-    """
-    # Define fixed colors for each data type
-    color_map = {
-        'raw': '#1f77b4',               
-        'interpolated_short': '#ff7f0e',
-        'imputed_long': "#56cb54", 
-        'masked': "#aeaeae"         
-    }
-
-    logging.info(f"Unique data types:")
-    for station_name, df in df_dict.items():
-        logging.info(f"    {station_name}: {df['data_type'].dropna().unique()}")
-        fig, ax = plt.subplots(figsize=(15, 4))
-        
-        # Draw base line
-        ax.plot(df.index, df['value'],
-            color=color_map['raw'],
-            linewidth=0.9,
-            zorder=0,
-            label='Raw')  
-
-        # Loop through each unique value in the highlight_column
-        for data_type, color in color_map.items():
-            if data_type not in df[highlight_column].unique():
-                continue
-
-            # Boolean mask
-            mask = df['data_type'] == data_type
-
-            # Group by consecutive values of True using .diff() and cumsum
-            segment_groups = (mask != mask.shift()).cumsum()
-
-            for _, segment in df[mask].groupby(segment_groups):
-                ax.plot(segment.index, segment['value'],
-                        label=data_type.replace('_', ' ').title(),
-                        color=color,
-                        alpha=0.9,
-                        linewidth=0.9)
-
-        # Axis formatting
-        ax.set_title(f'{station_name} Groundwater Level (Final)')
-        ax.set_xlabel('Date')
-        ax.xaxis.set_major_locator(mdates.YearLocator())
-        ax.set_xlim(pd.Timestamp('2013-06-30'), pd.Timestamp('2025-06-30'))
-        ax.set_ylabel('Groundwater Level (mAOD)')
-        ax.grid(True)
-        
-        # Deduplication and Plot Legend
-        handles, labels = ax.get_legend_handles_labels()
-        unique_labels_dict = dict(zip(labels, handles))
-        sorted_handles = [unique_labels_dict[label] for label in unique_labels_dict]
-        ax.legend(sorted_handles, unique_labels_dict, loc="center left", bbox_to_anchor=(1.01, 0.5), title='Data Type')
-
-        # Tidy and save
-        fig.tight_layout()
-        plt.savefig(f"{output_path}/final_plots/{station_name}_final_gwl_plot.png", dpi=dpi)
-        plt.close()
+    return df_dict
 
 def mask_data_gaps(df_dict: dict):
     """
@@ -1201,8 +1134,7 @@ def mask_data_gaps(df_dict: dict):
 def handle_large_gaps(df_dict: pd.DataFrame, gaps_list: list, catchment: str, spatial_path: str, path: str,
                       threshold_m: int, radius: int, output_path: str, threshold: float, predefined_large_gap_lengths: list,
                       max_imputation_length_threshold: int, min_around: int, station_max_gap_lengths: dict,
-                      model_start_date: str, model_end_date: str, k_decay: float = 0.1,
-                      notebook: bool = False, random_seed: int = None):
+                      k_decay: float = 0.1, random_seed: int = None):
     """
     Handle large gap prcoessing pipeline.
     """
@@ -1244,20 +1176,12 @@ def handle_large_gaps(df_dict: pd.DataFrame, gaps_list: list, catchment: str, sp
         random_seed=random_seed
     )
     
-    # --- Revert df back to original with only real gaps imputed, mask and trim to model data range---
-    trimmed_df_dict = clean_and_trim_to_model_bounds(
+    # --- Revert df back to original with only real gaps imputed and mask---
+    cleaned_df_dict = clean_df_dict(
         df_dict=imputed_df_dict_synthetic_run,
         df_dict_original=df_dict_original,
         synthetic_gap_flags=synthetic_gap_flags,
-        start_date=model_start_date,
-        end_date=model_end_date
-    )
-    
-    # --- Plot final df with raw and imputed data, marked using data_type column ---
-    plot_final_gwl_timeseries(
-        df_dict=trimmed_df_dict,
-        output_path=path
     )
     
     # --- Return final df with all gaps imputed or masked -> all with 100% coverage ---
-    return synthetic_imputation_performace, trimmed_df_dict
+    return synthetic_imputation_performace, cleaned_df_dict

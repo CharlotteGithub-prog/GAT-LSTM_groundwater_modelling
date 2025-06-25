@@ -26,6 +26,8 @@ from src.preprocessing.gwl_preprocessing import load_timeseries_to_dict, \
     outlier_detection, resample_daily_average, remove_spurious_data, \
     handle_short_gaps
 from src.preprocessing.gap_imputation import handle_large_gaps
+from src.preprocessing.gwl_feature_engineering import build_lags, trim_and_save, \
+    build_seasonality_features
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -189,7 +191,7 @@ try:
 
         # Resolve larger gaps in data
         
-        synthetic_imputation_performace, trimmed_df_dict = handle_large_gaps(
+        synthetic_imputation_performace, cleaned_df_dict = handle_large_gaps(
             df_dict=daily_data,
             gaps_list=gaps_list,
             catchment=catchment,
@@ -205,6 +207,7 @@ try:
             station_max_gap_lengths=station_max_gap_lengths_calculated,
             model_start_date=config['global']['data_ingestion']['model_start_date'],
             model_end_date=config['global']['data_ingestion']['model_end_date'],
+            trimmed_output_dir=config[catchment]["paths"]["trimmed_output_dir"],
             k_decay=config[catchment]["preprocessing"]["dist_corr_score_k_decay"],
             notebook=notebook,
             random_seed=config["global"]["pipeline_settings"]["random_seed"]
@@ -212,13 +215,42 @@ try:
             
         logger.info(f"Pipeline step 'Interpolate Long Gaps' complete for {catchment} catchment.\n")
         
-        # Lagged: Add lagged features (by timestep across 7 days?) + potentially rolling averages (3-day/7-day?)
+        # Add lagged ground water measurement features (1-7 days, lagged before trimming for full coverage)
         
-        # Temporal Encoding: Define sinasoidal features for seasonality (both sine and cosine for performance)
+        df_with_lags = build_lags(
+            df_dict=cleaned_df_dict,
+            catchment=catchment
+        )
+
+        # define sinusoidal features for seasonality (both sine and cosine for performance)
+        
+        df_with_seasons = build_seasonality_features(
+            df_dict=df_with_lags,
+            catchment=catchment
+        )
+
+        logger.info(f"Pipeline step 'Build Seasons and Lags' complete for {catchment} catchment.\n")
+        
+        # Clean up final dataframes and trim to the temporal bounds of the GAT-LSTM model
+        
+        trimmed_df_dict = trim_and_save(
+            df_dict=df_with_seasons,
+            model_start_date=config['global']['data_ingestion']['model_start_date'],
+            model_end_date=config['global']['data_ingestion']['model_end_date'],
+            trimmed_output_dir=config[catchment]["paths"]["trimmed_output_dir"],
+            ts_path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
+            notebook=notebook
+        )
+        
+        logger.info(f"Pipeline step 'Trim GWL to Model Bounds' complete for {catchment} catchment.\n")
+        
+        # Temporal Encoding: Define sinusoidal features for seasonality (both sine and cosine for performance)
 
         # --- 3b. camels-gb preprocessing etc... to be defined for all other features (static then dynamic, all spatial) ---
         
-        # --- 3x. Standardisation of all features ---
+        # Add 7d rainfall lags, and 30 + 60/90 day rainfall rolling averages
+        
+        # --- 3x. Standardisation of all features and round all numeric to 3-4dp ---
 
         # ==============================================================================
         # SECTION 4: GRAPH BUILDING
@@ -262,6 +294,7 @@ try:
         # Action: Assign CAMELS time series data (e.g., rainfall, temperature) and static attributes (e.g., elevation, soil type, geology) to all relevant mesh nodes.
         # Action: Ensure all node features (GWL, CAMELS, static) are aligned by time and node ID.
         # Output: Comprehensive node feature matrix/tensor (X).
+        # NB: INCLUDING SEASONALITY FEATURES PROPOGATED FROM STATIONS
 
         # --- 4e. Define Graph Adjacency Matrix (Edges) ---
         # Purpose: Establish connections between mesh nodes.

@@ -10,6 +10,7 @@ global:
     run_defra_api: False
     run_camels_api: False
     run_outlier_detection: False
+    run_gwl_imputation: False
 
   # --- FILE PATHS ---
   paths:
@@ -119,6 +120,7 @@ eden:
     gwl_station_metadata_measures: "data/02_processed/eden/gwl_station_data/gwl_station_metadata_measures.csv"
     gwl_data_output_dir: "data/01_raw/eden/gwl_stations/API_data/"
     gwl_outlier_dict: "data/02_processed/eden/gwl_station_data/dict_witout_outliers.pkl"
+    trimmed_output_dir: "data/02_processed/eden/gwl_timeseries/"
   
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
