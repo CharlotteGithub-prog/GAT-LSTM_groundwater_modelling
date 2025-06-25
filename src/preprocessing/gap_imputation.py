@@ -1141,8 +1141,9 @@ def plot_final_gwl_timeseries(df_dict: dict, output_path: str, highlight_column:
         'masked': "#aeaeae"         
     }
 
+    logging.info(f"Unique data types:")
     for station_name, df in df_dict.items():
-        print(f"Unique data types in {station_name}: {df['data_type'].dropna().unique()}")
+        logging.info(f"    {station_name}: {df['data_type'].dropna().unique()}")
         fig, ax = plt.subplots(figsize=(15, 4))
         
         # Draw base line

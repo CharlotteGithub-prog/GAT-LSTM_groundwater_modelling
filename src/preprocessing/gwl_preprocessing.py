@@ -594,6 +594,56 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
 
     return gap, interpolated_df, max_uninterpolated_gap_length
 
-def handle_short_gaps():
-    """Handle short process imputation pipeline"""
-    print("a")
+def handle_short_gaps(daily_data: dict, path: str, max_steps: int, start_date: str,
+                      end_date: str, notebook: bool=False):
+    """
+    Handles short-gap imputation for groundwater level time series.
+
+    - Interpolates small gaps (e.g., < max_steps days) using `interpolate_short_gaps`.
+    - Logs and returns stations still requiring long-gap imputation.
+    - Reindexes all time series to a complete daily range for modelling.
+
+    Returns:
+        daily_data (dict): Updated time series per station.
+        gaps_list (list): Stations still needing long-gap interpolation.
+        station_max_gap_lengths_calculated (dict): Max gap lengths per station.
+    """
+    for station_name, df_data in daily_data.items():
+        if 'dateTime' in df_data.columns:
+            df_data['dateTime'] = pd.to_datetime(df_data['dateTime'], errors='coerce')
+            df_data = df_data.set_index('dateTime').sort_index()
+            daily_data[station_name] = df_data # Update the dict with the indexed DataFrame
+
+    gaps_list = []
+    station_max_gap_lengths_calculated = {}
+
+    for station_name, df in daily_data.items():
+        gap_status_for_large_interp, updated_df, max_gap_len_for_this_station = interpolate_short_gaps(
+            df=df,
+            station_name=station_name,
+            path=path,
+            max_steps=max_steps,
+            notebook=notebook
+        )
+        
+        # Update daily_data with the processed (interpolated) DataFrame
+        daily_data[station_name] = updated_df
+
+        if gap_status_for_large_interp: # If the station still needs large gap interp
+            gaps_list.append(station_name)
+            if max_gap_len_for_this_station > 0: # Only store if there was an actual large gap
+                station_max_gap_lengths_calculated[station_name] = max_gap_len_for_this_station
+            
+    logging.info(f"Stations still needing interpolation: {gaps_list}\n")
+    logging.info(f"Max uninterpolated gap lengths per station:\n{station_max_gap_lengths_calculated}\n")
+
+    # Define the full date range based on your config
+    start_date = pd.to_datetime(start_date)
+    end_date = pd.to_datetime(end_date)
+    full_date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+
+    for station_name, df_data in daily_data.items():
+        df_data = df_data.reindex(full_date_range)
+        daily_data[station_name] = df_data  # Update the dict with the reindexed DataFrame
+            
+    return daily_data, gaps_list, station_max_gap_lengths_calculated
