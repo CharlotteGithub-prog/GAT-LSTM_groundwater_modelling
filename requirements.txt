@@ -15,4 +15,5 @@ Shapely==2.1.1
 torch==2.5.1
 notebook==7.2.2
 requests==2.32.3
+feature_engine==1.8.3
 scikit-learn
