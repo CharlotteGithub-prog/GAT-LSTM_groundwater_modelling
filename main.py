@@ -175,16 +175,16 @@ try:
         
         # Interpolate across small gaps in the ts data (define threshold n/o missing time steps for interpolation eligibility) + Add binary interpolation flag column
         
-        # for station_name, df in daily_data.items():
-        #     gaps_list, daily_data[station_name] = interpolate_short_gaps(
-        #         df=df,
-        #         station_name=station_name,
-        #         path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
-        #         max_steps=config["global"]["data_ingestion"]["max_interp_length"],
-        #         notebook=notebook
-        #     )
+        for station_name, df in daily_data.items():
+            gaps_list, daily_data[station_name] = interpolate_short_gaps(
+                df=df,
+                station_name=station_name,
+                path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
+                max_steps=config["global"]["data_ingestion"]["max_interp_length"],
+                notebook=notebook
+            )
             
-        # logger.info(f"Pipeline step 'Interpolate Short Gaps' complete for {catchment} catchment.\n")
+        logger.info(f"Pipeline step 'Interpolate Short Gaps' complete for {catchment} catchment.\n")
 
         # Resolve larger gaps in data
         

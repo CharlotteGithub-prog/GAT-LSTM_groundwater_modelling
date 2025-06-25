@@ -380,8 +380,8 @@ def remove_spurious_data(target_df: pd.DataFrame, station_name: str, path: str, 
     target_df['dateTime'] = pd.to_datetime(target_df['dateTime'], errors='coerce')
 
     
-    # Manual adjustment for Renwick
-    if station_name == 'Renwick':
+    # Manual adjustment for renwick
+    if station_name == 'renwick':
         start_date = '2023-01-06'
         end_date = '2023-10-23'
 
@@ -397,8 +397,8 @@ def remove_spurious_data(target_df: pd.DataFrame, station_name: str, path: str, 
                         f"between {start_date} and {end_date}.")
             changes_made = True
     
-    # Manual adjustment for Ainstable
-    if station_name == 'Ainstable':
+    # Manual adjustment for ainstable
+    elif station_name == 'ainstable':
         # Phase shift section
         start_date = '2021-06-16'
         end_date = '2021-11-17'
@@ -448,6 +448,23 @@ def remove_spurious_data(target_df: pd.DataFrame, station_name: str, path: str, 
                 target_df.loc[mask, 'quality'] = 'Missing'
                 changes_made = True
                 print(f"Removed data for range: {start_date.date()} to {end_date.date()}")
+
+    # Manual adjustment for east_brownrigg
+    elif station_name == 'east_brownrigg':
+        start_date = '2014-11-02'
+        end_date = '2015-03-14'
+
+        # Create a boolean mask for the period to be removed
+        removal_mask = (target_df['dateTime'] >= start_date) & \
+                       (target_df['dateTime'] <= end_date)
+
+        num_removed = removal_mask.sum()
+        if num_removed > 0:
+            target_df.loc[removal_mask, 'value'] = np.nan
+            target_df.loc[removal_mask, 'quality'] = 'Missing'
+            logger.info(f"Station {station_name}: Removed {num_removed} data points "
+                        f"between {start_date} and {end_date}.")
+            changes_made = True
 
     # resave plot if values replaced  
     if changes_made:      
@@ -578,4 +595,5 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
     return gap, interpolated_df, max_uninterpolated_gap_length
 
 def handle_short_gaps():
+    """Handle short process imputation pipeline"""
     print("a")
