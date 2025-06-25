@@ -24,7 +24,8 @@ from src.data_ingestion.gwl_data_ingestion import process_station_coordinates, \
     fetch_and_process_station_data, download_and_save_station_readings
 from src.preprocessing.gwl_preprocessing import load_timeseries_to_dict, \
     outlier_detection, resample_daily_average, remove_spurious_data, \
-    interpolate_short_gaps
+    handle_short_gaps
+from src.preprocessing.gap_imputation import handle_large_gaps
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -175,20 +176,41 @@ try:
         
         # Interpolate across small gaps in the ts data (define threshold n/o missing time steps for interpolation eligibility) + Add binary interpolation flag column
         
-        for station_name, df in daily_data.items():
-            gaps_list, daily_data[station_name] = interpolate_short_gaps(
-                df=df,
-                station_name=station_name,
-                path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
-                max_steps=config["global"]["data_ingestion"]["max_interp_length"],
-                notebook=notebook
-            )
+        daily_data, gaps_list, station_max_gap_lengths_calculated = handle_short_gaps(
+            daily_data=daily_data,
+            path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
+            max_steps=config["global"]["data_ingestion"]["max_interp_length"],
+            start_date=config["global"]["data_ingestion"]["api_start_date"],
+            end_date=config["global"]["data_ingestion"]["api_end_date"],
+            notebook=notebook
+        )
             
         logger.info(f"Pipeline step 'Interpolate Short Gaps' complete for {catchment} catchment.\n")
 
         # Resolve larger gaps in data
         
-        
+        synthetic_imputation_performace, trimmed_df_dict = handle_large_gaps(
+            df_dict=daily_data,
+            gaps_list=gaps_list,
+            catchment=catchment,
+            spatial_path=config[catchment]["paths"]["gwl_station_list_with_coords"],
+            path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
+            threshold_m=config[catchment]["preprocessing"]["large_catchment_threshold_m"],
+            radius=config["global"]["preprocessing"]["radius"],
+            output_path=config[catchment]["visualisations"]["corr_dist_score_scatters"],
+            threshold=config[catchment]["preprocessing"]["dist_corr_score_threshold"],
+            predefined_large_gap_lengths=config["global"]["preprocessing"]["gap_lengths_days"] ,
+            max_imputation_length_threshold=config["global"]["preprocessing"]["max_imputation_threshold"],
+            min_around=config["global"]["preprocessing"]["min_data_points_around_gap"],
+            station_max_gap_lengths=station_max_gap_lengths_calculated,
+            model_start_date=config['global']['data_ingestion']['model_start_date'],
+            model_end_date=config['global']['data_ingestion']['model_end_date'],
+            k_decay=config[catchment]["preprocessing"]["dist_corr_score_k_decay"],
+            notebook=notebook,
+            random_seed=config["global"]["pipeline_settings"]["random_seed"]
+        )
+            
+        logger.info(f"Pipeline step 'Interpolate Long Gaps' complete for {catchment} catchment.\n")
         
         # Lagged: Add lagged features (by timestep across 7 days?) + potentially rolling averages (3-day/7-day?)
         
