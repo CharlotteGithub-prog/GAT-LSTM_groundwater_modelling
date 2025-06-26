@@ -30,7 +30,7 @@ from src.preprocessing.gwl_preprocessing import load_timeseries_to_dict, \
 from src.preprocessing.gap_imputation import handle_large_gaps
 from src.preprocessing.gwl_feature_engineering import build_lags, trim_and_save, \
     build_seasonality_features
-from src.data_ingestion.landcover_data_ingestion import load_land_cover_data
+from src.data_ingestion.static_data_ingestion import load_land_cover_data
 
 # --- 1c. Logging Config ---
 logging.basicConfig(

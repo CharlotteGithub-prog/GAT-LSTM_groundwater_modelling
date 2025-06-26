@@ -114,6 +114,8 @@ eden:
     # --- Specific INPUT files ---
     gis_catchment_boundary: "data/01_raw/eden/gis/eden_catchment_boundary/NRFA_catchments.shp"
     gwl_station_list: "data/01_raw/eden/gwl_stations/station_list.csv"
+    raw_land_cover_path: "data/01_raw/eden/static/land_cover/gb2023lcm1km_dominant_aggregate.tif"
+    elevation_dir_path: "data/01_raw/eden/static/elevation/"
     # --- Specific OUPUT (processed) files ---
     mesh_nodes_output: "data/02_processed/eden/gis_and_mesh/catchment_mesh_nodes"  # ensure no specific file extension
     gwl_station_list_with_coords: "data/02_processed/eden/gwl_station_data/station_list_with_coords.csv"
@@ -121,7 +123,6 @@ eden:
     gwl_data_output_dir: "data/01_raw/eden/gwl_stations/API_data/"
     gwl_outlier_dict: "data/02_processed/eden/gwl_station_data/dict_witout_outliers.pkl"
     trimmed_output_dir: "data/02_processed/eden/gwl_timeseries/"
-    raw_land_cover_path: "data/01_raw/eden/static/land_cover/gb2023lcm1km_dominant_aggregate.tif"
     land_cover_csv_path: "data/02_processed/eden/static/land_cover/land_cover.csv"
   
   # --- PREPROCESSING SETTINGS ---
