@@ -268,15 +268,15 @@ try:
         
         # --- 3c. Preprocess Time Series Features ---
         
-        # Precipitation (Daily Rainfall, mm) [HadUK-GRID]
+        # Precipitation (Daily Rainfall, mm, catchment total) [HadUK-GRID]
         
-        # Temperature (Daily Mean Temperature, °C) [HadUK-GRID]
+        # Temperature (Daily Mean Temperature, °C, catchment average) [HadUK-GRID]
         
-        # Evapotranspiration [CHESS-PE / EA PET]
+        # Evapotranspiration [CHESS-PE / EA PET, catchment total]
         
         # River Flow / Streamflow / River Stage [DEFRA / NRFA]
         
-        # Atmospheric Pressure (Daily Mean, hPa/mbar) [HadUK-Grid]
+        # Atmospheric Pressure (Daily Mean, hPa/mbar, catchment average) [HadUK-Grid]
         
         # --- 3d. Derived Hydrogeological Feature Engineering ---
         
@@ -286,9 +286,30 @@ try:
         
         # Pour point (catchment) by node -> see notion notes (important to consider)
         
-        # --- 3e. Standardisation of all features and round all numeric to 3-4dp ---
+        # ==============================================================================
+        # SECTION 5: TRAINING/TESTING SPLIT
+        # ==============================================================================
         
+        # --- 5a. Split the data temporally ---
         
+        # E.g., 70/15/15 train/val/test by date -> Key:Must be segregated by time, not mixed
+        # All subsequent steps must be done AFTER split to avoid data leakage
+        
+        # --- 5b. Standardisation of all numeric features and round all numeric to 3-4dp ---
+        
+        # Using from sklearn.preprocessing import StandardScaler
+        
+        # --- 5c. One-Hot Encode Categorical Features ---
+        
+        # Using from sklearn.preprocessing import OneHotEncoder
+        
+        # --- 5d. Weight imbalanced classes (land_use) ---
+        
+        # Using from sklearn.utils.class_weight import compute_class_weight
+        
+        # --- 5e. Build adjacency matrix / graph structure ---
+        
+        # --- 5f. Create final PyTorch Geometric data objects or graph sequences ---
 
         # ==============================================================================
         # SECTION 4: GRAPH BUILDING
