@@ -121,6 +121,8 @@ eden:
     gwl_data_output_dir: "data/01_raw/eden/gwl_stations/API_data/"
     gwl_outlier_dict: "data/02_processed/eden/gwl_station_data/dict_witout_outliers.pkl"
     trimmed_output_dir: "data/02_processed/eden/gwl_timeseries/"
+    raw_land_cover_path: "data/01_raw/eden/static/land_cover/gb2023lcm1km_dominant_aggregate.tif"
+    land_cover_csv_path: "data/02_processed/eden/static/land_cover/land_cover.csv"
   
   # --- PREPROCESSING SETTINGS ---
   preprocessing:

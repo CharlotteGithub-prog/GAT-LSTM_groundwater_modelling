@@ -28,6 +28,7 @@ from src.preprocessing.gwl_preprocessing import load_timeseries_to_dict, \
 from src.preprocessing.gap_imputation import handle_large_gaps
 from src.preprocessing.gwl_feature_engineering import build_lags, trim_and_save, \
     build_seasonality_features
+from src.data_ingestion.landcover_data_ingestion import load_land_cover_data
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -242,8 +243,16 @@ try:
         
         # --- 3b. Preprocess Static Features ---
         
-        # Land Cover [UKCEH LCM2023 / DIGIMAPS (LCM2021 / CEH Land Cover)]
+        # Land Cover [UKCEH LCM2023]
         
+        land_cover_df, catchment_gdf = load_land_cover_data(
+            tif_path=config[catchment]['paths']['raw_land_cover_path'],
+            csv_path=config[catchment]['paths']['land_cover_csv_path'],
+            catchment=catchment,
+            shape_filepath=config[catchment]['paths']['gis_catchment_boundary']
+        )
+        
+        logger.info(f"Mesh of land use data initialised for {catchment} catchment.\n")
         
         # Elevation [DIGIMAPS (via OS Terrain 5 / Terrain 50)]
         
