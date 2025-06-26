@@ -244,13 +244,46 @@ try:
         
         logger.info(f"Pipeline step 'Trim GWL to Model Bounds' complete for {catchment} catchment.\n")
         
-        # Temporal Encoding: Define sinusoidal features for seasonality (both sine and cosine for performance)
+        # --- 3b. Preprocess Static Features ---
+        
+        # Land Cover [UKCEH LCM2023 / DIGIMAPS (LCM2021 / CEH Land Cover)]
+        
+        
+        # Elevation [DIGIMAPS (via OS Terrain 5 / Terrain 50)]
+        
+        # Slope [DEMS/CAMELS-GB/DIGIMAPS]
+        
+        # Soil type  [CEH's Grid-to-Grid soil maps / HOST soil classes / CAMELS-GB / BFIHOST]
+        
+        # Distance from River (Derived) [DEFRA/DIGIMAP]
+        
+        # Aquifer Properties (tbd - depth? type? transmissivity? storage coefficientet?) [DEFRA/BGS]
+        
+        # Geological Maps [DIGIMAPS (BGS data via Geology Digimap)]
+        
+        # --- 3c. Preprocess Time Series Features ---
+        
+        # Precipitation (Daily Rainfall, mm) [HadUK-GRID]
+        
+        # Temperature (Daily Mean Temperature, °C) [HadUK-GRID]
+        
+        # Evapotranspiration [CHESS-PE / EA PET]
+        
+        # River Flow / Streamflow / River Stage [DEFRA / NRFA]
+        
+        # Atmospheric Pressure (Daily Mean, hPa/mbar) [HadUK-Grid]
+        
+        # --- 3d. Derived Hydrogeological Feature Engineering ---
+        
+        # 7 day rainfall lags [DERIVED]
 
-        # --- 3b. camels-gb preprocessing etc... to be defined for all other features (static then dynamic, all spatial) ---
+        # 30/60/90 day rainfall / ET / temperature rolling averages [DERIVED]
         
-        # Add 7d rainfall lags, and 30 + 60/90 day rainfall rolling averages
+        # Pour point (catchment) by node -> see notion notes (important to consider)
         
-        # --- 3x. Standardisation of all features and round all numeric to 3-4dp ---
+        # --- 3e. Standardisation of all features and round all numeric to 3-4dp ---
+        
+        
 
         # ==============================================================================
         # SECTION 4: GRAPH BUILDING
