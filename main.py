@@ -205,11 +205,7 @@ try:
             max_imputation_length_threshold=config["global"]["preprocessing"]["max_imputation_threshold"],
             min_around=config["global"]["preprocessing"]["min_data_points_around_gap"],
             station_max_gap_lengths=station_max_gap_lengths_calculated,
-            model_start_date=config['global']['data_ingestion']['model_start_date'],
-            model_end_date=config['global']['data_ingestion']['model_end_date'],
-            trimmed_output_dir=config[catchment]["paths"]["trimmed_output_dir"],
             k_decay=config[catchment]["preprocessing"]["dist_corr_score_k_decay"],
-            notebook=notebook,
             random_seed=config["global"]["pipeline_settings"]["random_seed"]
         )
             
@@ -294,6 +290,7 @@ try:
         mesh_nodes_table, mesh_nodes_gdf, catchment_polygon = build_mesh(
             shape_filepath=config[catchment]['paths']['gis_catchment_boundary'],
             output_path=config[catchment]['paths']['mesh_nodes_output'],
+            catchment=catchment,
             grid_resolution=config[catchment]['preprocessing']['graph_construction']['grid_resolution']
         )
 
