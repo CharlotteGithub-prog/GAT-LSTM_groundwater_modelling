@@ -253,13 +253,13 @@ try:
         
         # Slope [DEMS/CAMELS-GB/DIGIMAPS]
         
-        # Soil type  [CEH's Grid-to-Grid soil maps / HOST soil classes / CAMELS-GB / BFIHOST]
-        
-        # Distance from River (Derived) [DEFRA/DIGIMAP]
+        # Soil type [CEH's Grid-to-Grid soil maps / HOST soil classes / CAMELS-GB / BFIHOST]
         
         # Aquifer Properties (tbd - depth? type? transmissivity? storage coefficientet?) [DEFRA/BGS]
         
         # Geological Maps [DIGIMAPS (BGS data via Geology Digimap)]
+        
+        # Distance from River (Derived) [DEFRA/DIGIMAP]
         
         # --- 3c. Preprocess Time Series Features ---
         
