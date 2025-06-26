@@ -12,3 +12,6 @@ temp_plots/
 results/figures/
 .venv/
 notebooks/00_archive/
+/data/01_raw/*
+/data/02_processed/*
+/data/03_external/*
