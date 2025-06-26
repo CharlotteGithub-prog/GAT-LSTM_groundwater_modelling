@@ -3,6 +3,8 @@
 
 ### FULL PIPELINE ###
 
+# Expected Processing Time: ## hrs ## minutes
+
 # ==============================================================================
 # SECTION 1: IMPORTS & CONFIGURATION
 # ==============================================================================
@@ -53,8 +55,8 @@ torch.backends.cudnn.benchmark = False
 
 # --- 1e. Define catchment(s) and API calls to Process --
 catchments_to_process = config["global"]["pipeline_settings"]["catchments_to_process"]
-run_defra_API_calls = config["global"]["pipeline_settings"]["run_defra_api"]  # True to run API calls
-run_camels_API_calls = config["global"]["pipeline_settings"]["run_camels_api"]  # True to run API calls
+run_defra_API_calls = config["global"]["pipeline_settings"]["run_defra_api"]
+run_camels_API_calls = config["global"]["pipeline_settings"]["run_camels_api"]
 run_outlier_detection = config["global"]["pipeline_settings"]["run_outlier_detection"]
 
 # Run full pipeline by catchment
@@ -62,7 +64,7 @@ try:
     for catchment in catchments_to_process:
 
         # ==============================================================================
-        # SECTION 2: DATA INGESTION
+        # SECTION 2: API DATA INGESTION
         # ==============================================================================
 
         # --- 2a. Load and convert gwl station location data (DEFRA) ---
@@ -105,28 +107,13 @@ try:
             loaded_csv_path = config[catchment]["paths"]["gwl_station_metadata_measures"]
             stations_with_metadata_measures = pd.read_csv(loaded_csv_path)
         
-        # Only run API calls as needed
-        if run_camels_API_calls: 
-            
-            # --- 2d. load camels-gb data ---
-            
-            logging.info("skipping...")
-            
-        else:
-            
-            logging.info("skipping...")
-        
-        # --- 2x. load other data ---
-
         # ==============================================================================
         # SECTION 3: PREPROCESSING
         # ==============================================================================
         
         # --- 3a. gwl preprocessing ---
         
-        # Load station df's into dict, dropping catchments with insufficient data
-        
-        # Load timeseries CSVs from API into reference dict
+        # Load timeseries CSVs from API into reference dict, dropping stations with insuffient data
         gwl_time_series_dict = load_timeseries_to_dict(
             stations_df=stations_with_metadata_measures,
             col_order=config["global"]["data_ingestion"]["col_order"],
@@ -136,7 +123,7 @@ try:
 
         logger.info(f"All timeseries data converted to dict for {catchment} catchment.\n")
         
-        # # Remove outlying and incorrect (user defined: spurious) data points
+        # Remove outlying and incorrect (user defined: spurious) data points
         
         for station_name, df in gwl_time_series_dict.items():
             gwl_time_series_dict[station_name] = remove_spurious_data(
@@ -147,6 +134,8 @@ try:
             )
             
         logger.info(f"Pipeline step 'Remove spurious points' complete for {catchment} catchment.\n")
+        
+        # Run initial outlier detection and removal
         
         if run_outlier_detection:   
             processed_gwl_time_series_dict = outlier_detection(
@@ -177,7 +166,8 @@ try:
         
         logger.info(f"Pipeline step 'Resample to Daily Timesteps' complete for {catchment} catchment.\n")
         
-        # Interpolate across small gaps in the ts data (define threshold n/o missing time steps for interpolation eligibility) + Add binary interpolation flag column
+        # Interpolate across small gaps in the ts data (define threshold n/o missing time steps for interpolation eligibility)
+        # + Add binary interpolation flag column
         
         daily_data, gaps_list, station_max_gap_lengths_calculated = handle_short_gaps(
             daily_data=daily_data,
@@ -190,7 +180,7 @@ try:
             
         logger.info(f"Pipeline step 'Interpolate Short Gaps' complete for {catchment} catchment.\n")
 
-        # Resolve larger gaps in data
+        # Resolve larger gaps in data through a more considered donor imputation process
         
         synthetic_imputation_performace, cleaned_df_dict = handle_large_gaps(
             df_dict=daily_data,
@@ -252,7 +242,7 @@ try:
             shape_filepath=config[catchment]['paths']['gis_catchment_boundary']
         )
         
-        logger.info(f"Mesh of land use data initialised for {catchment} catchment.\n")
+        logger.info(f"1km granularity land use data processed for {catchment} catchment.\n")
         
         # Elevation [DIGIMAPS (via OS Terrain 5 / Terrain 50)]
         
@@ -286,31 +276,6 @@ try:
         
         # Pour point (catchment) by node -> see notion notes (important to consider)
         
-        # ==============================================================================
-        # SECTION 5: TRAINING/TESTING SPLIT
-        # ==============================================================================
-        
-        # --- 5a. Split the data temporally ---
-        
-        # E.g., 70/15/15 train/val/test by date -> Key:Must be segregated by time, not mixed
-        # All subsequent steps must be done AFTER split to avoid data leakage
-        
-        # --- 5b. Standardisation of all numeric features and round all numeric to 3-4dp ---
-        
-        # Using from sklearn.preprocessing import StandardScaler
-        
-        # --- 5c. One-Hot Encode Categorical Features ---
-        
-        # Using from sklearn.preprocessing import OneHotEncoder
-        
-        # --- 5d. Weight imbalanced classes (land_use) ---
-        
-        # Using from sklearn.utils.class_weight import compute_class_weight
-        
-        # --- 5e. Build adjacency matrix / graph structure ---
-        
-        # --- 5f. Create final PyTorch Geometric data objects or graph sequences ---
-
         # ==============================================================================
         # SECTION 4: GRAPH BUILDING
         # ==============================================================================
@@ -356,47 +321,68 @@ try:
         # Output: Comprehensive node feature matrix/tensor (X).
         # NB: INCLUDING SEASONALITY FEATURES PROPOGATED FROM STATIONS
 
-        # --- 4e. Define Graph Adjacency Matrix (Edges) ---
+        # --- 4e. (Optional) Visualise complete mesh map with stations and other features ---
+        # Purpose: Verify final graph structure and feature distribution visually.
+        # Action: Create an interactive map showing the mesh, GWL stations, and other snapped data points.
+        
+        # ==============================================================================
+        # SECTION 5: TRAINING/TESTING SPLIT
+        # ==============================================================================
+        
+        # --- 5a. Split the data temporally ---
+        
+        # E.g., 70/15/15 train/val/test by date -> Key:Must be segregated by time, not mixed
+        # All subsequent steps must be done AFTER split to avoid data leakage
+        
+        # --- 5b. Standardisation of all numeric features and round all numeric to 3-4dp ---
+        
+        # Using from sklearn.preprocessing import StandardScaler
+        
+        # --- 5c. One-Hot Encode Categorical Features ---
+        
+        # Using from sklearn.preprocessing import OneHotEncoder
+        
+        # --- 5d. Weight imbalanced classes (land_use) ---
+        
+        # Using from sklearn.utils.class_weight import compute_class_weight
+
+        # --- 5e. Define Graph Adjacency Matrix (Edges) ---
         # Purpose: Establish connections between mesh nodes.
         # Action: Define criteria for edges (e.g., k-nearest neighbors, distance threshold, hydrological connectivity).
         # Action: Construct the adjacency matrix (A) for the graph.
         # Output: Adjacency matrix or edge_index for PyTorch Geometric.
 
-        # --- 4f. Create Graph Data Object / Input Tensors ---
+        # --- 5f. Create Graph Data Object / Input Tensors ---
         # Purpose: Assemble all graph components (nodes, edges, features, targets) into a format suitable for the GNN framework.
         # Action: Split data into training, validation, and test sets based on time (e.g., 70/15/15 chronological split).
         # Action: Generate graph snapshots/sequences for the GNN's input.
         # Output: PyTorch Geometric Data objects or DGL graphs, including node features (X), edge index (edge_index), and target GWL values (Y) for observed nodes.
 
-        # --- 4g. (Optional) Visualise complete mesh map with stations and other features ---
-        # Purpose: Verify final graph structure and feature distribution visually.
-        # Action: Create an interactive map showing the mesh, GWL stations, and other snapped data points.
-
         # ==============================================================================
-        # SECTION 5: MODEL
+        # SECTION 6: MODEL
         # ==============================================================================
         
-        # --- 5x. Goal: GAT-LSTM ---
+        # --- 6. Goal: GAT-LSTM ---
         
-        # --- 5a. Define Graph Neural Network Architecture ---
+        # --- 6a. Define Graph Neural Network Architecture ---
         # Goal: Implement a GAT-LSTM (Graph Attention Network + Long Short-Term Memory).
         # Action: Define the GNN layers (e.g., GATConv for spatial message passing, LSTM for temporal learning).
         # Action: Specify input/output dimensions, hidden layer sizes, activation functions, dropout rates.
         # Output: A PyTorch nn.Module or similar model class.
 
-        # --- 5b. Define Loss Function ---
+        # --- 6b. Define Loss Function ---
         # Action: Choose an appropriate loss function for regression (e.g., Mean Squared Error (MSE), Mean Absolute Error (MAE), Huber Loss).
         # Action: Consider masking the loss calculation to only evaluate predictions at observed GWL stations if non-interpolated.
 
-        # --- 5c. Define Optimiser ---
+        # --- 6c. Define Optimiser ---
         # Action: Select an optimiser (e.g., Adam, SGD).
         # Action: Configure learning rate and other optimiser parameters.
 
         # ==============================================================================
-        # SECTION 6: TRAINING
+        # SECTION 7: TRAINING
         # ==============================================================================
         
-        # --- 6a. Implement Training Loop ---
+        # --- 7a. Implement Training Loop ---
         # Action: Iterate over epochs.
         # Action: For each epoch, iterate over mini-batches of graph data.
         # Action: Perform forward pass through the model.
@@ -404,61 +390,61 @@ try:
         # Action: Perform backward pass and optimize weights.
         # Action: Implement gradient clipping if necessary.
 
-        # --- 6b. Implement Validation Loop ---
+        # --- 7b. Implement Validation Loop ---
         # Action: Periodically evaluate model performance on the validation set.
         # Action: Monitor validation loss/metrics for early stopping.
 
-        # --- 6c. Model Checkpointing and Logging ---
+        # --- 7c. Model Checkpointing and Logging ---
         # Action: Save best performing model weights based on validation metrics.
         # Action: Log training and validation metrics (e.g., using TensorBoard, MLflow, or custom logging).
 
         # ==============================================================================
-        # SECTION 7: EVALUATION
+        # SECTION 8: EVALUATION
         # ==============================================================================
 
-        # --- 7a. Final Model Evaluation ---
+        # --- 8a. Final Model Evaluation ---
         # Action: Load the best trained model.
         # Action: Evaluate its performance on the unseen test set.
         # Action: Calculate key metrics (e.g., RMSE, MAE, R-squared, Nash-Sutcliffe Efficiency for hydrology).
         # Output: Quantitative evaluation results.
 
-        # --- 7b. Visualisation of Predictions ---
+        # --- 8b. Visualisation of Predictions ---
         # Action: Plot actual vs. predicted GWL time series for selected stations/nodes.
         # Action: Create animated maps showing predicted GWL changes over time across the mesh (if using interpolated pseudo-labels).
 
-        # --- 7c. Error Analysis ---
+        # --- 8c. Error Analysis ---
         # Action: Identify systematic errors or biases in predictions (e.g., over/under-prediction during peaks/troughs).
         # Action: Explore reasons for poor performance at specific stations/nodes or time periods.
         
         # ==============================================================================
-        # SECTION 8: INTERPRETATION & HYDROLOGICAL INSIGHTS
+        # SECTION 9: INTERPRETATION & HYDROLOGICAL INSIGHTS
         # ==============================================================================
 
-        # --- 8a. Feature Importance Analysis (Global & Local) ---
+        # --- 9a. Feature Importance Analysis (Global & Local) ---
         # Purpose: Understand which input features (climate, static, lagged GWL) drive predictions.
         # Action: Apply SHAP (SHapley Additive exPlanations) or similar methods (e.g., Permutation Importance) to identify global feature importance.
         # Action: For specific predictions or events, apply SHAP/LIME to understand local feature contributions.
         # Output: Feature importance plots, tables.
 
-        # --- 8b. Spatial Relationship Interpretation (Attention/GNNExplainer) ---
+        # --- 9b. Spatial Relationship Interpretation (Attention/GNNExplainer) ---
         # Purpose: Uncover how the GNN leverages spatial connections and neighbors.
         # Action: If using GAT, analyze learned attention weights to understand influence of neighboring nodes.
         # Action: Apply GNNExplainer (or similar graph-specific XAI methods) to identify critical subgraphs for specific node predictions.
         # Output: Visualizations of influential neighbors/connections on maps, attention heatmaps.
 
-        # --- 8c. Analysis of Pseudo-Ungauged Generalisation ---
+        # --- 9c. Analysis of Pseudo-Ungauged Generalisation ---
         # Purpose: Evaluate the model's ability to predict at nodes masked during training.
         # Action: Compare predictions at "held-out" (proxy-ungauged) nodes against their interpolated pseudo-ground-truth.
         # Action: Analyze performance metrics specifically for these nodes.
         # Action: Visualise the spatial distribution of errors for these ungauged nodes.
 
-        # --- 8d. Hydrological Interpretation and Discussion ---
+        # --- 9d. Hydrological Interpretation and Discussion ---
         # Purpose: Translate model insights back into hydrogeological understanding.
         # Action: Discuss consistency of feature importances and spatial influences with known hydrological principles (e.g., lag times, flow paths, aquifer properties).
         # Action: Provide explanations for observed model behaviors during specific hydrological events (droughts, floods).
         # Output: Written analysis and discussion points for dissertation.
 
-        # --- 8e. Design Trade-offs Analysis (Optional, if time allows) ---
+        # --- 9e. Design Trade-offs Analysis (Optional, if time allows) ---
         # Purpose: Evaluate the impact of choices in graph construction.
         # Action: Compare results/interpretations from different graph resolutions (e.g., 500m vs 1000m) or edge definitions (e.g., KNN vs distance threshold).
         # Output: Comparative analysis.
