@@ -1,17 +1,25 @@
+# --- Python & Jupyter Cache Files ---
 __pycache__/
 .ipynb_checkpoints/
 *.pyc
+
+# --- Binary & Model Artifacts ---
 *.pkl
-*.csv
 *.hdf5
 *.zip
+
+# --- Local Dev & OS Files ---
 .env
 .DS_Store
 .vscode/
+.venv/
+
+# --- Output / Generated Content ---
 temp_plots/
 results/figures/
-.venv/
 notebooks/00_archive/
+
+# --- Data Directories (structure retained with .gitkeep) ---
 /data/01_raw/*
 !/data/01_raw/.gitkeep
 /data/02_processed/*
