@@ -124,7 +124,7 @@ eden:
     gwl_outlier_dict: "data/02_processed/eden/gwl_station_data/dict_witout_outliers.pkl"
     trimmed_output_dir: "data/02_processed/eden/gwl_timeseries/"
     land_cover_csv_path: "data/02_processed/eden/static/land_cover/land_cover.csv"
-    elevation_csv_path: "data/02_processed/eden/static/elevation/elevation.csv"
+    elevation_tif_path: "data/02_processed/eden/static/elevation/elevation.tif"
   
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
@@ -134,6 +134,8 @@ eden:
     dist_corr_score_threshold: 0.3
     graph_construction:
       grid_resolution: 1000  # Potentially change to 500m grid
+    catchment_max_elevation: 945.40  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
+    catchment_min_elevation: 8.00  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
   
   visualisations:
     maps:
