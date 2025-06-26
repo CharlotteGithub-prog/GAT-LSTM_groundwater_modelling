@@ -1,5 +1,6 @@
 # Library Imports
 import os
+import sys
 import copy
 import joblib  # If adding parallel processing in final pipeline
 import hashlib
@@ -8,7 +9,15 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# Get a logger instance for this module.
+# Set up logger config
+logging.basicConfig(
+    level=logging.INFO,
+   format='%(levelname)s - %(message)s',
+#    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
+# Set up logger for file and load config file for paths and params
 logger = logging.getLogger(__name__)
 
 def stable_hash(station):

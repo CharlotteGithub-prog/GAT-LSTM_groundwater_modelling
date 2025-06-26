@@ -1,3 +1,4 @@
+import sys
 import joblib
 import logging
 import numpy as np
@@ -7,7 +8,15 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from scipy.interpolate import PchipInterpolator
 
-# Get a logger instance for this module.
+# Set up logger config
+logging.basicConfig(
+    level=logging.INFO,
+   format='%(levelname)s - %(message)s',
+#    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
+# Set up logger for file and load config file for paths and params
 logger = logging.getLogger(__name__)
 
 def load_timeseries_to_dict(stations_df: pd.DataFrame, col_order: list,
