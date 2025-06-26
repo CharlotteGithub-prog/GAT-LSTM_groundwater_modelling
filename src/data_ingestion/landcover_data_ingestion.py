@@ -73,6 +73,25 @@ def load_land_cover_data(tif_path: str, csv_path: str, catchment: str, shape_fil
     
     return land_cover_df, catchment_gdf
 
+def aggregate_land_cover_categories(land_use_df: pd.DataFrame):
+    """
+    Map land use categories from full detail to primary categories to reduce dimensionality
+    """
+    # Confirm data type
+    land_use_df['land_cover_code'] = land_use_df['land_cover_code'].astype(int)
+    
+    # Define mapping
+    mapping = {1: 1, 2: 1, 3: 2, 4: 3, 5: 4,
+               6: 5, 7: 6, 8: 6, 9: 6, 10: 7}
+    
+    # Map all categories to new combined categories
+    land_use_df['land_cover_code'] = land_use_df['land_cover_code'].replace(mapping)
+
+    # Convert to categorical dtype
+    land_use_df['land_cover_code'] = land_use_df['land_cover_code'].astype('category')
+        
+    return land_use_df
+
 def load_elevation_data():
     pass
 
