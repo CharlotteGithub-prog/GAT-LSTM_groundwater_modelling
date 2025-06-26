@@ -1,13 +1,16 @@
 # Import Libraries
 import os
 import sys
+import glob
 import logging
 import rasterio
 import rioxarray
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+from rasterio.merge import merge
 from shapely.geometry import Point
+from rasterstats import zonal_stats
 
 from src.data_ingestion.spatial_transformations import easting_northing_to_lat_long, \
     find_catchment_boundary
@@ -22,6 +25,8 @@ logging.basicConfig(
 
 # Set up logger for file and load config file for paths and params
 logger = logging.getLogger(__name__)
+
+# TODO: Make resolution dynamic for land cover
 
 def load_land_cover_data(tif_path: str, csv_path: str, catchment: str, shape_filepath: str):
     """
@@ -66,12 +71,15 @@ def load_land_cover_data(tif_path: str, csv_path: str, catchment: str, shape_fil
     NaN_count = land_cover_df['land_cover_code'].isna().sum()
     if NaN_count > 0:
         logger.info(f"Total missing land cover codes: {NaN_count}")
+        
+    # Aggregate categories to reduce dimensionality
+    agg_land_cover_df = aggregate_land_cover_categories(land_cover_df)
     
     # Save to csv for preprocessing
-    land_cover_df.to_csv(csv_path, index=False)
+    agg_land_cover_df.to_csv(csv_path, index=False)
     logger.info(f"Land Cover data succesfully saved to {csv_path}.")
     
-    return land_cover_df, catchment_gdf
+    return agg_land_cover_df, catchment_gdf
 
 def aggregate_land_cover_categories(land_use_df: pd.DataFrame):
     """
@@ -92,8 +100,14 @@ def aggregate_land_cover_categories(land_use_df: pd.DataFrame):
         
     return land_use_df
 
-def load_elevation_data():
-    pass
+def load_elevation_data(dir_path: str, csv_path: str, catchment: str, shape_filepath: str,
+                        catchment_gdf: gpd.GeoDataFrame, mesh_nodes_gdf: gpd.GeoDataFrame,
+                        grid_resolution: int = 1000):
+    """
+    Loads OS elevation DTM data from tile directory using rasterio, flattens it to a DataFrame,
+    converts x, y coordinates to lat/lon, and saves to CSV.
+    """
+    
 
 def load_slope_data():
     pass

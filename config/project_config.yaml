@@ -124,6 +124,7 @@ eden:
     gwl_outlier_dict: "data/02_processed/eden/gwl_station_data/dict_witout_outliers.pkl"
     trimmed_output_dir: "data/02_processed/eden/gwl_timeseries/"
     land_cover_csv_path: "data/02_processed/eden/static/land_cover/land_cover.csv"
+    elevation_csv_path: "data/02_processed/eden/static/elevation/elevation.csv"
   
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
@@ -132,7 +133,7 @@ eden:
     dist_corr_score_k_decay: 0.05
     dist_corr_score_threshold: 0.3
     graph_construction:
-      grid_resolution: 1000  # Likely change to 500m grid
+      grid_resolution: 1000  # Potentially change to 500m grid
   
   visualisations:
     maps:

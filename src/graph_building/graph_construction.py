@@ -61,17 +61,25 @@ def build_mesh(shape_filepath: str, output_path: str, catchment: str, grid_resol
 
     # Initialise grid cell list and set up regular grid of points within the bounding box
     all_mesh_nodes_points = []
+    all_mesh_polygons = []
+    
     for x_bl in x_coordinates_bottomleft:
         for y_bl in y_coordinates_bottomleft:
             # Calculate the centroid of each cell
             centroid_x = x_bl + (grid_resolution / 2)
             centroid_y = y_bl + (grid_resolution / 2)
             all_mesh_nodes_points.append(Point(centroid_x, centroid_y))
+            
+            # Create the polygon for this cell
+            cell_polygon = box(x_bl, y_bl, x_bl + grid_resolution, y_bl + grid_resolution)
+            all_mesh_polygons.append(cell_polygon)
     
-    logger.info(f"Generated {len(all_mesh_nodes_points)} grid cells within bounding box (before filtering).")
+    logger.info(f"Generated {len(all_mesh_nodes_points)} grid cells (centroids and polygons) within bounding "
+                f"box (before filtering).")
 
     # Create GEOdf of all potential (bounding box) nodes
     all_mesh_nodes_gdf = gpd.GeoDataFrame(geometry=all_mesh_nodes_points, crs="EPSG:27700")
+    all_mesh_polygons_gdf = gpd.GeoDataFrame(geometry=all_mesh_polygons, crs="EPSG:27700")
     
     # Create a single-row GEOdf from the geometry (boundary)
     catchment_gdf_for_sjoin = gpd.GeoDataFrame(geometry=[catchment_geometry], crs=catchment_polygon.crs)
@@ -85,6 +93,16 @@ def build_mesh(shape_filepath: str, output_path: str, catchment: str, grid_resol
     
     # Assign unique node_ids (UNID) after filtering
     mesh_nodes_gdf['node_id'] = range(len(mesh_nodes_gdf))
+    
+    # Rename geometry column of polygons to avoid conflict during sjoin and use 'left_index' to match
+    mesh_cells_gdf_polygons = gpd.sjoin(
+        all_mesh_polygons_gdf.reset_index().rename(columns={'index': 'original_poly_index'}),
+        mesh_nodes_gdf[['node_id', 'geometry']],
+        how="inner",
+        predicate='contains' # Ensure polygon always contains its centroid
+    )
+    
+    mesh_cells_gdf_polygons = mesh_cells_gdf_polygons.drop(columns=['index_right']).set_index('original_poly_index')
 
     # Add original Easting/Northing coordinates (as in EPSG:27700)
     mesh_nodes_gdf['easting'] = mesh_nodes_gdf.geometry.x
@@ -117,4 +135,4 @@ def build_mesh(shape_filepath: str, output_path: str, catchment: str, grid_resol
     mesh_nodes_gdf.to_file(shp_path, driver='ESRI Shapefile')
     logger.info(f"Saved mesh nodes shp to: {shp_path}\n")
     
-    return mesh_nodes_table, mesh_nodes_gdf, catchment_polygon
+    return mesh_nodes_table, mesh_nodes_gdf, mesh_cells_gdf_polygons, catchment_polygon
