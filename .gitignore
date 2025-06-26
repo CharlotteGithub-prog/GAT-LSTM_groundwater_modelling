@@ -12,9 +12,9 @@ temp_plots/
 results/figures/
 .venv/
 notebooks/00_archive/
-/data/01_raw/
+/data/01_raw/*
 !/data/01_raw/.gitkeep
-/data/02_processed/
+/data/02_processed/*
 !/data/02_processed/.gitkeep
-/data/03_external/
+/data/03_external/*
 !/data/03_external/.gitkeep
