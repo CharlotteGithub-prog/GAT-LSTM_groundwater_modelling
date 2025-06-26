@@ -28,10 +28,11 @@ def build_mesh(shape_filepath: str, output_path: str, catchment: str, grid_resol
         output_paths (str): String containing output file path without extension
 
     Returns:
-        tuple: (mesh_nodes_table_df, mesh_nodes_gdf, catchment_polygon)
-            - mesh_nodes_table_df (pd.DataFrame): Node ID and coordinates.
+        tuple: (mesh_nodes_table_df, mesh_nodes_gdf, mesh_cells_gdf_polygons, catchment_polygon)
+            - mesh_nodes_table_df (pd.DataFrame): Node ID and coordinates (non-spatial table).
             - mesh_nodes_gdf (gpd.GeoDataFrame): Node ID, coordinates, and geometry (Point).
-            - catchment_polygon (gpd.GeoDataFrame): The processed catchment boundary.
+            - mesh_cells_gdf_polygons (gpd.GeoDataFrame): Node ID, coordinates, and geometry (Polygon).
+            - catchment_polygon (gpd.GeoDataFrame): The processed catchment boundary (GeoDataFrame).
     """
     logging.info(f"BUILD_MESH: Starting mesh construction with input: {shape_filepath} and resolution: {grid_resolution}m\n")
     
