@@ -30,7 +30,8 @@ from src.preprocessing.gwl_preprocessing import load_timeseries_to_dict, \
 from src.preprocessing.gap_imputation import handle_large_gaps
 from src.preprocessing.gwl_feature_engineering import build_lags, trim_and_save, \
     build_seasonality_features
-from src.data_ingestion.static_data_ingestion import load_land_cover_data
+from src.data_ingestion.static_data_ingestion import load_land_cover_data, \
+    load_process_elevation_data
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -278,7 +279,18 @@ try:
         
         # Elevation [DIGIMAPS (via OS Terrain 5 / Terrain 50)]
         
+        elevation_gdf_polygon = load_process_elevation_data(
+            dir_path=config[catchment]['paths']['elevation_dir_path'],
+            csv_path=config[catchment]['paths']['elevation_tif_path'],
+            catchment_gdf=catchment_polygon,
+            mesh_cells_gdf_polygons=mesh_cells_gdf_polygons,
+            catchment=catchment,
+            elev_max=config[catchment]['preprocessing']['catchment_max_elevation'],
+            elev_min=config[catchment]['preprocessing']['catchment_min_elevation'],
+            grid_resolution=config[catchment]['preprocessing']['graph_construction']['grid_resolution']
+        )
         
+        logger.info(f"Elevation data aggregated to node level for {catchment} catchment.\n")
         
         # Slope [DEMS/CAMELS-GB/DIGIMAPS]
         
@@ -321,12 +333,32 @@ try:
         # Output: Updated mesh_nodes_gdf or a separate node feature tensor/dataframe.
 
         # --- 5b. Snap other features data to mesh nodes (e.g., CAMELS-GB data, static attributes) ---
-        # Purpose: Integrate other relevant spatial and spatiotemporal features onto the mesh.
-        # Action: For CAMELS-GB (e.g., rainfall gauges, river flow sites), snap to nearest mesh nodes.
-        # Action: Assign CAMELS time series data (e.g., rainfall, temperature) and static attributes (e.g., elevation, soil type, geology) to all relevant mesh nodes.
-        # Action: Ensure all node features (GWL, CAMELS, static) are aligned by time and node ID.
-        # Output: Comprehensive node feature matrix/tensor (X).
-        # NB: INCLUDING SEASONALITY FEATURES PROPOGATED FROM STATIONS
+        
+        # Snap Land Cover to Mesh
+        
+        mesh_nodes_gdf_centroids = mesh_nodes_gdf.merge(
+            agg_land_cover_df[['easting', 'northing', 'land_cover_code']],
+            on=['easting', 'northing'],
+            how='left'  # left join to keep all centroids, even NaN
+        )
+        
+        logger.info(f"Land cover data snapped to mesh nodes (centroids).\n")
+        
+        # Snap Elevation to Mesh
+        
+        merged_gdf_nodes = merged_gdf_nodes.merge(
+            elevation_gdf_polygon[['node_id', 'mean_elevation']],
+            on='node_id',
+            how='left'  # left join to keep all centroids, even NaN
+        )
+        
+        logger.info(f"Elevation data snapped to mesh nodes (centroids).\n")
+        
+        # Snap Slope to Mesh
+        
+        # Snap Soil type to Mesh
+        
+        # etc...
 
         # --- 5c. (Optional) Visualise complete mesh map with stations and other features ---
         # Purpose: Verify final graph structure and feature distribution visually.
