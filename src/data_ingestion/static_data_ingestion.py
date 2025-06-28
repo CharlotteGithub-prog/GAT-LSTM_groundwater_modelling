@@ -358,9 +358,12 @@ def calculate_directional_edges(slope_magnitude_deg, aspect_radians, catchment, 
     assert slope_magnitude_deg.shape == (slope_magnitude_deg.sizes['y'], slope_magnitude_deg.sizes['x']), \
         "Raster shape does not match expected dimensions."
     
+    # Copy polygon geometry to create direction weight df
+    directional_edge_weights = mesh_cells_gdf_polygons[['geometry']].copy()
+    
     # Merge into directional edge reference df
     stats_dx = zonal_stats(
-        mesh_cells_gdf_polygons,
+        directional_edge_weights,
         slope_dx.values,
         affine=slope_dx.rio.transform(),
         stats="mean",
@@ -368,28 +371,32 @@ def calculate_directional_edges(slope_magnitude_deg, aspect_radians, catchment, 
     )
 
     stats_dy = zonal_stats(
-        mesh_cells_gdf_polygons,
+        directional_edge_weights,
         slope_dy.values,
         affine=slope_dy.rio.transform(),
         stats="mean",
         nodata=slope_dy.rio.nodata
     )
 
-    mesh_cells_gdf_polygons['mean_slope_dx'] = [
+    directional_edge_weights['mean_slope_dx'] = [
         dx['mean'] if dx and 'mean' in dx else np.nan for dx in stats_dx
     ]
-    mesh_cells_gdf_polygons['mean_slope_dy'] = [
+    directional_edge_weights['mean_slope_dy'] = [
         dy['mean'] if dy and 'mean' in dy else np.nan for dy in stats_dy
     ]
 
     logger.info(f"Directional slope (dx, dy) aggregated to 1km mesh for {catchment}.")
     
+    # Confirm crs
+    if directional_edge_weights.crs.to_epsg() != 27700:
+        directional_edge_weights = directional_edge_weights.to_crs(27700)
+    
     # Add easting and northing from centroid
-    mesh_cells_gdf_polygons['easting'] = mesh_cells_gdf_polygons.geometry.centroid.x
-    mesh_cells_gdf_polygons['northing'] = mesh_cells_gdf_polygons.geometry.centroid.y
+    directional_edge_weights['easting'] = directional_edge_weights.geometry.centroid.x
+    directional_edge_weights['northing'] = directional_edge_weights.geometry.centroid.y
         
     # Find lat / lon
-    directional_edge_weights = easting_northing_to_lat_long(mesh_cells_gdf_polygons)
+    directional_edge_weights = easting_northing_to_lat_long(directional_edge_weights)
             
     # final output: mean_elevation, mean_slope_deg, mean_aspect_sin, mean_aspect_cos, easting, northing
     logger.info(f"Slope and aspect derivation and preprocessing complete for {catchment} catchment.\n")
@@ -398,7 +405,7 @@ def calculate_directional_edges(slope_magnitude_deg, aspect_radians, catchment, 
 
 # Slope and Aspect 
 def derive_slope_data(high_res_raster: xr.DataArray, mesh_cells_gdf_polygons: gpd.GeoDataFrame,
-                      catchment: str):
+                      catchment: str, direction_output_path: str, slope_output_path: str):
     """
     Derives slope magnitude and aspect (transformed to sine/cosine components)
     from high-resolution DEM raster (used in elevation) and aggregate to 1km mesh cells.
@@ -443,7 +450,14 @@ def derive_slope_data(high_res_raster: xr.DataArray, mesh_cells_gdf_polygons: gp
     # --- Calculate Gradient Componenets for GNN Directional Edge Weights --
     
     directional_edge_weights = calculate_directional_edges(slope_magnitude_deg, aspect_radians,
-                                                           catchment, mesh_cells_gdf_polygons)
+                                                            catchment, mesh_cells_gdf_polygons)
+    
+    # --- Save files ---
+    directional_edge_weights.to_csv(direction_output_path, index=False)
+    logger.info(f"Direction Weights csv saved to {direction_output_path}.")
+    
+    slope_gdf.to_csv(slope_output_path, index=False)
+    logger.info(f"Slope magnitue and aspect csv saved to {slope_output_path}.")
     
     return slope_gdf, directional_edge_weights
     

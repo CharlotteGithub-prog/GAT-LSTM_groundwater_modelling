@@ -125,6 +125,8 @@ eden:
     trimmed_output_dir: "data/02_processed/eden/gwl_timeseries/"
     land_cover_csv_path: "data/02_processed/eden/static/land_cover/land_cover.csv"
     elevation_tif_path: "data/02_processed/eden/static/elevation/elevation.tif"
+    direction_edge_weights_path: "data/02_processed/eden/static/slope/direction_edge_weights.csv"
+    slope_path: "data/02_processed/eden/static/slope/slope_magnitude_aspect.csv"
   
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
