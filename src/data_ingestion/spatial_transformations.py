@@ -80,6 +80,7 @@ def _reproject_df_coords(df: pd.DataFrame, input_x_col: str, input_y_col: str,
     # Return the df with the new, requested columns
     return df_result
 
+# General Conversion
 def lat_long_to_easting_northing(input_df: pd.DataFrame, output_csv_path: str = None, lon_col_name: str = 'lon',
                                  lat_col_name: str = 'lat', output_easting_col: str = 'easting',
                                  output_northing_col: str = 'northing'):
@@ -106,6 +107,7 @@ def lat_long_to_easting_northing(input_df: pd.DataFrame, output_csv_path: str = 
     
     return reprojected_df
 
+# General Conversion
 def easting_northing_to_lat_long(input_df: pd.DataFrame, output_csv_path: str = None, easting_col: str = 'easting',
                                  northing_col: str = 'northing', output_lon_col: str = 'lon',
                                  output_lat_col: str = 'lat'):

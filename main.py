@@ -279,7 +279,7 @@ try:
         
         # Elevation [DIGIMAPS (via OS Terrain 5 / Terrain 50)]
         
-        elevation_gdf_polygon = load_process_elevation_data(
+        elevation_gdf_polygon, clipped_dtm = load_process_elevation_data(
             dir_path=config[catchment]['paths']['elevation_dir_path'],
             csv_path=config[catchment]['paths']['elevation_tif_path'],
             catchment_gdf=catchment_polygon,

@@ -6,8 +6,10 @@ import logging
 import rasterio
 import rioxarray
 import numpy as np
+import xarray as xr
 import pandas as pd
 import geopandas as gpd
+import xrspatial as xrs
 from rasterio.merge import merge
 from rasterstats import zonal_stats
 
@@ -25,7 +27,7 @@ logging.basicConfig(
 # Set up logger for file and load config file for paths and params
 logger = logging.getLogger(__name__)
 
-# TODO: Make resolution dynamic for land cover
+# TODO: Make resolution dynamic for all? Maybe not priority for this pipeline if certain.
 
 # Land Cover
 def load_land_cover_data(tif_path: str, csv_path: str, catchment: str, shape_filepath: str):
@@ -152,6 +154,8 @@ def load_mosaic_elevation(dir_path: str, mesh_cells_gdf_polygons: gpd.GeoDataFra
         # Close connection to file on disk
         for data in dtm_files_to_mosaic:
             data.close()
+    
+    return mesh_cells_gdf_polygons, dtm_files_to_mosaic
 
 # Elevation
 def calculate_polygon_zone_average(mesh_cells_gdf_polygons: gpd.GeoDataFrame, clipped_dtm: gpd.GeoDataFrame):
@@ -191,32 +195,19 @@ def preprocess_elevation_data(mesh_cells_gdf_polygons: gpd.GeoDataFrame, elev_ma
     """
     Ensure there is no outlying data and all sit within known catchment bounds
     """
-    # Define bounds
-    logging.info(f"Check {catchment} catchment elevation sits in known bounds: "
-                 f"{elev_min} mAOD - {elev_max} mAOD...")
-    
-    # Count if any averages sit outside bounds
-    capped_lower_count = (mesh_cells_gdf_polygons['mean_elevation'] < elev_min).sum()
-    capped_upper_count = (mesh_cells_gdf_polygons['mean_elevation'] > elev_max).sum()
-    
-    # Cap to catchment bounds
-    if capped_lower_count > 0 or capped_upper_count > 0:
-        logger.warning(f"WARNING: Capping {capped_lower_count} nodes below {elev_min:.2f} mAOD and "
-                       f"{capped_upper_count} nodes above {elev_max:.2f} mAOD.")
-        
-        mesh_cells_gdf_polygons['mean_elevation'] = np.clip(
-            mesh_cells_gdf_polygons['mean_elevation'],
-            a_min=elev_min,
-            a_max=elev_max
-        )
-        
-    else:
-        logger.info(f"All 'mean_elevation' values within known bounds ({elev_min:.2f} - {elev_max:.2f} mAOD). No capping performed.\n")
-        
     # Check for NaNs
     NaN_count = mesh_cells_gdf_polygons['mean_elevation'].isna().sum()
     if NaN_count > 0:
-        logging.warning(f"WARNING: {NaN_count} nodes with NaN value.")
+        logging.warning(f"WARNING: {NaN_count} nodes with NaN value. Replacing with Median.")
+        median = mesh_cells_gdf_polygons['mean_elevation'].median()
+        mesh_cells_gdf_polygons['mean_elevation'] = mesh_cells_gdf_polygons['mean_elevation'].fillna(median)
+    else:
+        logger.info(f"No NaN 'mean_elevation' value found. Continuing with Processing.\n")
+    
+    # Cap values between known catchemnt elevation limits
+    column = 'mean_elevation'
+    mesh_cells_gdf_polygons = cap_data_between_limits(mesh_cells_gdf_polygons, elev_max, elev_min,
+                                                      catchment, column)
     
     return mesh_cells_gdf_polygons
 
@@ -230,7 +221,7 @@ def load_process_elevation_data(dir_path: str, csv_path: str, catchment: str, ca
     """
     
     # Mosaic (Merge) the DTM Tiles into a single GeoTIFF using rasterio
-    load_mosaic_elevation(dir_path, mesh_cells_gdf_polygons, csv_path)
+    mesh_cells_gdf_polygons, dtm_files_to_mosaic = load_mosaic_elevation(dir_path, mesh_cells_gdf_polygons, csv_path)
 
     # Load merged DTM
     dtm_raster = rioxarray.open_rasterio(csv_path, masked=True).squeeze()
@@ -253,7 +244,206 @@ def load_process_elevation_data(dir_path: str, csv_path: str, catchment: str, ca
     mesh_cells_gdf_polygons = preprocess_elevation_data(mesh_cells_gdf_polygons, elev_max,
                                                         elev_min, catchment)
     
-    return mesh_cells_gdf_polygons
+    return mesh_cells_gdf_polygons, clipped_dtm
+
+# Various
+def cap_data_between_limits(gdf: gpd.GeoDataFrame, max_limit: float, min_limit: float, catchment: str,
+                            column_name: str):
     
-def load_slope_data():
-    pass
+    # Define bounds
+    logging.info(f"Check {catchment} catchment {column_name} sits in known bounds: "
+                 f"{min_limit} - {max_limit}...")
+    
+    # Count if any averages sit outside bounds
+    capped_lower_count = (gdf[column_name] < min_limit).sum()
+    capped_upper_count = (gdf[column_name] > max_limit).sum()
+    
+    # Cap to catchment bounds
+    if capped_lower_count > 0 or capped_upper_count > 0:
+        logger.warning(f"WARNING: Capping {capped_lower_count} nodes below {min_limit:.2f} and "
+                       f"{capped_upper_count} nodes above {max_limit:.2f}.")
+        
+        # Clipping data
+        gdf[column_name] = np.clip(gdf[column_name], a_min=min_limit, a_max=max_limit)
+        
+    else:
+        logger.info(f"All 'mean_elevation' values within known bounds ({min_limit:.2f} -"
+                    f" {max_limit:.2f}). No capping performed.\n")
+    
+    return gdf
+
+# Slope and Aspect
+def preprocess_slope_data(slope_gdf: gpd.GeoDataFrame, catchment: str):
+    """
+    Preprocess slope degrees, sine component and cosine aspect component. Check and fill NaNs and verify
+    all slope degrees are within logical bounds.
+    """
+    # Replace NaNs with average and return warning
+    logging.info(f"Check {catchment} catchment slope for NaN values.")
+    
+    for column in ['mean_slope_degrees', 'mean_aspect_sin', 'mean_aspect_cos']:
+        NaN_count = slope_gdf[column].isna().sum()
+        if NaN_count > 0:
+            logger.warning(F"WARNING: {NaN_count} rows found with NaN {column}. Replacing with Median.\n")
+            median = slope_gdf[column].median()
+            slope_gdf[column] = slope_gdf[column].fillna(median)
+        else:
+            logger.info(f"No NaN {column} value found. Continuing with Processing.\n")
+    
+    # Check all slope values sit in logical bounds (in degrees)
+    lower_cap = 0.0  # Slope is always +ve, aspect defined direction
+    upper_cap = 80.0
+    column = 'mean_slope_degrees'
+    
+    slope_gdf = cap_data_between_limits(slope_gdf, upper_cap, lower_cap, catchment, column)
+
+    return slope_gdf
+    
+# Slope and Aspect
+def aggregate_slope_and_aspect(mesh_cells_gdf_polygons: gpd.GeoDataFrame, catchment: str,
+                                slope_magnitude_deg: gpd.GeoDataFrame, aspect_sin: gpd.GeoDataFrame,
+                                aspect_cos: gpd.GeoDataFrame):
+    """
+    Aggregate the derived slope (degrees) and sine and cosine aspects to 1km grid cell
+    resolution using zonal stats to calculate means.
+    """
+    # Calculate mean slope magnitude
+    stats_slope = zonal_stats(
+        mesh_cells_gdf_polygons,
+        slope_magnitude_deg.values,
+        affine=slope_magnitude_deg.rio.transform(),
+        stats="mean",
+        nodata=slope_magnitude_deg.rio.nodata
+    )
+    
+    mesh_cells_gdf_polygons['mean_slope_degrees'] = [
+        slope['mean'] if slope and 'mean' in slope else np.nan for slope in stats_slope]
+    logging.info(f"Mean slope (degrees) 1km grid cells calculated for {catchment} catchment.")
+    
+    # Calculate mean slope aspect sine component
+    stats_sin = zonal_stats(
+        mesh_cells_gdf_polygons,
+        aspect_sin.values,
+        affine=aspect_sin.rio.transform(),
+        stats="mean",
+        nodata=aspect_sin.rio.nodata
+    )
+    
+    mesh_cells_gdf_polygons['mean_aspect_sin'] = [
+        sin['mean'] if sin and 'mean' in sin else np.nan for sin in stats_sin]
+    logging.info(f"Mean aspect (sine component) 1km grid cells calculated for {catchment} catchment.")
+    
+    # Calculate mean slope aspect cosine component
+    stats_cos = zonal_stats(
+        mesh_cells_gdf_polygons,
+        aspect_cos.values,
+        affine=aspect_cos.rio.transform(),
+        stats="mean",
+        nodata=aspect_cos.rio.nodata
+    )
+    
+    mesh_cells_gdf_polygons['mean_aspect_cos'] = [
+        cosine['mean'] if cosine and 'mean' in cosine else np.nan for cosine in stats_cos]
+    logging.info(f"Mean aspect (cosine component) 1km grid cells calculated for {catchment} catchment.")
+    
+    return mesh_cells_gdf_polygons
+
+# Slope and Aspect
+def calculate_directional_edges(slope_magnitude_deg, aspect_radians, catchment, mesh_cells_gdf_polygons):
+    slope_magnitude_rad = np.deg2rad(slope_magnitude_deg)
+    slope_dx = np.sin(aspect_radians) * np.tan(slope_magnitude_rad)
+    slope_dy = np.cos(aspect_radians) * np.tan(slope_magnitude_rad)
+    
+    # Assertion to Check Raster Shape Matches Affine Transform
+    assert slope_magnitude_deg.shape == (slope_magnitude_deg.sizes['y'], slope_magnitude_deg.sizes['x']), \
+        "Raster shape does not match expected dimensions."
+    
+    # Merge into directional edge reference df
+    stats_dx = zonal_stats(
+        mesh_cells_gdf_polygons,
+        slope_dx.values,
+        affine=slope_dx.rio.transform(),
+        stats="mean",
+        nodata=slope_dx.rio.nodata
+    )
+
+    stats_dy = zonal_stats(
+        mesh_cells_gdf_polygons,
+        slope_dy.values,
+        affine=slope_dy.rio.transform(),
+        stats="mean",
+        nodata=slope_dy.rio.nodata
+    )
+
+    mesh_cells_gdf_polygons['mean_slope_dx'] = [
+        dx['mean'] if dx and 'mean' in dx else np.nan for dx in stats_dx
+    ]
+    mesh_cells_gdf_polygons['mean_slope_dy'] = [
+        dy['mean'] if dy and 'mean' in dy else np.nan for dy in stats_dy
+    ]
+
+    logger.info(f"Directional slope (dx, dy) aggregated to 1km mesh for {catchment}.")
+    
+    # Add easting and northing from centroid
+    mesh_cells_gdf_polygons['easting'] = mesh_cells_gdf_polygons.geometry.centroid.x
+    mesh_cells_gdf_polygons['northing'] = mesh_cells_gdf_polygons.geometry.centroid.y
+        
+    # Find lat / lon
+    directional_edge_weights = easting_northing_to_lat_long(mesh_cells_gdf_polygons)
+            
+    # final output: mean_elevation, mean_slope_deg, mean_aspect_sin, mean_aspect_cos, easting, northing
+    logger.info(f"Slope and aspect derivation and preprocessing complete for {catchment} catchment.\n")
+    
+    return directional_edge_weights
+
+# Slope and Aspect 
+def derive_slope_data(high_res_raster: xr.DataArray, mesh_cells_gdf_polygons: gpd.GeoDataFrame,
+                      catchment: str):
+    """
+    Derives slope magnitude and aspect (transformed to sine/cosine components)
+    from high-resolution DEM raster (used in elevation) and aggregate to 1km mesh cells.
+    """
+    logging.info(f"Deriving slope magnitude and direction data for {catchment} catchment...\n")
+    
+    print(type(high_res_raster))
+    print(high_res_raster)
+    
+    # Ensure DataArray has no band dimension
+    if 'band' in high_res_raster.dims:
+        high_res_raster = high_res_raster.squeeze()
+        
+    # Derive slope and aspect using xarray-spatial
+    slope_magnitude_deg = xrs.slope(high_res_raster)
+    logging.info(f"Slope magnitude derived in degrees from DEM.")
+    
+    aspect_degrees = xrs.aspect(high_res_raster)
+    logging.info(f"Slope aspect derived (0–360°) from DEM.\n")
+    
+    # Transform Aspect into radians then Circularity (with both Sine and Cosine Components)
+    aspect_radians = np.deg2rad(aspect_degrees)
+    aspect_sin = np.sin(aspect_radians).rename("aspect_sin")
+    aspect_cos = np.cos(aspect_radians).rename("aspect_cos")
+    logging.info("Aspect converted from degrees to radians for sin/cos component transform.")
+    
+    # Ensure CRS match before aggregation
+    if str(mesh_cells_gdf_polygons.crs) != str(high_res_raster.rio.crs):
+        logger.warning(f"Reprojecting mesh cells from ({mesh_cells_gdf_polygons.crs}) to"
+                       f" ({high_res_raster.rio.crs}).\n")
+        mesh_cells_gdf_polygons = mesh_cells_gdf_polygons.to_crs(high_res_raster.rio.crs)
+    
+    # --- Aggregate to 1km Mesh Cells using zonal statistics lib ---
+    
+    slope_gdf = aggregate_slope_and_aspect(mesh_cells_gdf_polygons, catchment,
+                                           slope_magnitude_deg, aspect_sin, aspect_cos)
+
+    # --- Slope and Aspect Preprocessing ---
+
+    slope_gdf = preprocess_slope_data(slope_gdf, catchment)
+    
+    # --- Calculate Gradient Componenets for GNN Directional Edge Weights --
+    
+    directional_edge_weights = calculate_directional_edges(slope_magnitude_deg, aspect_radians,
+                                                           catchment, mesh_cells_gdf_polygons)
+    
+    return slope_gdf, directional_edge_weights
+    
