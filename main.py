@@ -294,6 +294,8 @@ try:
         
         # Slope [DEMS/CAMELS-GB/DIGIMAPS]
         
+        """ 1. FINISH THIS + EDGE DIRECTIONS """
+        
         # Soil type [CEH's Grid-to-Grid soil maps / HOST soil classes / CAMELS-GB / BFIHOST]
         
         # Aquifer Properties (tbd - depth? type? transmissivity? storage coefficientet?) [DEFRA/BGS]
@@ -306,7 +308,11 @@ try:
         
         # Precipitation (Daily Rainfall, mm, catchment total) [HadUK-GRID]
         
+        """ 2. ADD THIS + LAGS """
+        
         # Temperature (Daily Mean Temperature, °C, catchment average) [HadUK-GRID]
+        
+        """ 3. ADD THIS """
         
         # Evapotranspiration [CHESS-PE / EA PET, catchment total]
         
@@ -321,6 +327,9 @@ try:
         # 30/60/90 day rainfall / ET / temperature rolling averages [DERIVED]
         
         # Pour point (catchment) by node -> see notion notes (important to consider)
+        
+            # - Use flow accumulation from the DEM (e.g., richdem, whitebox, or TauDEM)
+            # - Aggregate this to mesh by zonal mean/sum (most likely sum? Decide + Justify).
         
         # ==============================================================================
         # SECTION 5: GRAPH BUILDING
@@ -356,6 +365,8 @@ try:
         
         # Snap Slope to Mesh
         
+        """ 4. SNAP ALL PRELIMINARY FEATURES TO MESH """
+        
         # Snap Soil type to Mesh
         
         # etc...
@@ -369,6 +380,8 @@ try:
         # ==============================================================================
         
         # --- 6a. Split the data temporally ---
+        
+        """ 5. THEN DO FULL FIRST ITERATION OF MODEL FOR THURSDAY """
         
         # E.g., 70/15/15 train/val/test by date -> Key:Must be segregated by time, not mixed
         # All subsequent steps must be done AFTER split to avoid data leakage
