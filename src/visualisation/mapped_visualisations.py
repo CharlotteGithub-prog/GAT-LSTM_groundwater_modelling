@@ -1,8 +1,13 @@
 import sys
+import base64
 import folium
 import logging
+import numpy as np
+import xarray as xr
 import geopandas as gpd
+import matplotlib.cm as cm
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 # Set up logger config
 logging.basicConfig(
@@ -158,4 +163,72 @@ def plot_interactive_mesh_colour_coded(mesh_nodes_gdf: gpd.geodataframe, catchme
         map.save(full_interactive_output_path)
         logger.info(f"Interactive map file saved to: {full_interactive_output_path}\n")
         return map
+
+def plot_directional_mesh(directional_edge_weights_gdf: gpd.GeoDataFrame, catchment_polygon: gpd.GeoDataFrame,
+                          output_path: str, esri: str, esri_attr: str, grid_resolution: int = 1000):
+    """
+    Plots an interactive Folium map with each node represented by an arrow indicating
+    the dominant slope direction.
+    """
+    logger.info(f"PLOT_DIRECTIONAL_MESH: Plotting catchment mesh with directional arrows.")
+
+    map_center = [directional_edge_weights_gdf['lat'].mean(), directional_edge_weights_gdf['lon'].mean()]
+    map = folium.Map(location=map_center, zoom_start=10, tiles=None)
+
+    folium.TileLayer(tiles=esri, attr=esri_attr, name='Topo', show=True).add_to(map)
+    folium.TileLayer('CartoDB positron', name='Light', show=False).add_to(map)
+    folium.TileLayer('CartoDB dark_matter', name='Dark', show=False).add_to(map)
+
+    arrow_layer = folium.FeatureGroup(name="Slope Directions")
+
+    # Define a simple SVG arrow icon (Path drawing a thin upward arrow)
+    arrow_svg_template = """
+    <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <g transform="rotate({angle}, 12, 12)">
+        <path d="M12 2 L17 8 H14 V22 H10 V8 H7 L12 2 Z" fill="{color}" />
+    </g>
+    </svg>
+    """
     
+    # Get a colormap instance
+    cmap = cm.get_cmap('hsv')
+
+    for _, row in directional_edge_weights_gdf.iterrows():
+        lat, lon = row['lat'], row['lon']
+        dx, dy = row['mean_slope_dx'], row['mean_slope_dy']
+        
+        angle_rad_for_folium_rotation = np.arctan2(dx, dy) # This is angle from +Y (North) towards +X (East).
+        angle_deg_for_folium_rotation = np.degrees(angle_rad_for_folium_rotation)
+
+        # Ensure angle is 0-360. `angle_deg_for_folium_rotation` could be negative from arctan2.
+        normalised_angle = (angle_deg_for_folium_rotation + 360) % 360
+        
+        # Map the angle (0-360) to a color in the colormap (0-1 range)
+        color_rgb = cmap(normalised_angle / 360.0) # Get RGBA tuple
+        hex_color = mcolors.rgb2hex(color_rgb) # Convert to hex string
+
+        # Create the SVG string with dynamic color and rotation
+        svg = arrow_svg_template.format(color=hex_color, angle=angle_deg_for_folium_rotation)
+        encoded_svg = base64.b64encode(svg.encode('utf-8')).decode('utf-8')
+        
+        icon = folium.CustomIcon(
+            icon_image=f"data:image/svg+xml;base64,{encoded_svg}",
+            icon_size=(12, 12),
+            icon_anchor=(6, 6)
+        )
+
+        folium.Marker(location=[lat, lon], icon=icon).add_to(arrow_layer)
+
+    folium.GeoJson(catchment_polygon, name='Catchment Boundary', 
+                   style_function=lambda x: {'color': 'black', 'weight': 2, 'fillColor': 'grey',
+                                            'fillOpacity': 0.15}).add_to(map)
+    
+    arrow_layer.add_to(map)
+    folium.LayerControl().add_to(map)
+    
+    full_interactive_output_path = output_path + f'_{grid_resolution}.html'
+    
+    map.save(full_interactive_output_path)
+    logger.info(f"Interactive directional map file saved to: {full_interactive_output_path}\n")
+    return map
+
