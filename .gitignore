@@ -13,6 +13,7 @@ __pycache__/
 .DS_Store
 .vscode/
 .venv/
+ceda_credentials.netrc
 
 # --- Output / Generated Content ---
 temp_plots/
