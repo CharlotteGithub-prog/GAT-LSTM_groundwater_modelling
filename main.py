@@ -125,6 +125,8 @@ try:
         logger.info(f"Pipeline step 'Build Mesh' complete for {catchment} catchment.\n")
         
         # --- 3b. Save interactive map of catchment mesh ---
+        
+        # TODO: ADD STATIONS AS HIGHLIGHTED NODES
 
         mesh_map = plot_interactive_mesh(
             mesh_nodes_gdf=mesh_nodes_gdf,
@@ -199,8 +201,8 @@ try:
         
         logger.info(f"Pipeline step 'Resample to Daily Timesteps' complete for {catchment} catchment.\n")
         
-        # Interpolate across small gaps in the ts data (define threshold n/o missing time steps for interpolation eligibility)
-        # + Add binary interpolation flag column
+        # Interpolate across small gaps in the ts data (define threshold n/o missing time steps for interpolation
+        # eligibility) + Add binary interpolation flag column
         
         daily_data, gaps_list, station_max_gap_lengths_calculated = handle_short_gaps(
             daily_data=daily_data,
@@ -292,7 +294,7 @@ try:
         
         logger.info(f"Elevation data aggregated to node level for {catchment} catchment.\n")
         
-        # Slope [DEMS/CAMELS-GB/DIGIMAPS]
+        # Slope [Derived from DEMS] + Edge Direction Weights (Derived from Slope -> modularise?)
         
         """ 1. FINISH THIS + EDGE DIRECTIONS """
         
@@ -335,17 +337,20 @@ try:
         # SECTION 5: GRAPH BUILDING
         # ==============================================================================
         
-        # --- 5a. Snap GWL monitoring stations to mesh nodes ---
+        # --- 5a. Snap GWL monitoring station features to mesh nodes ---
+        """ 4. Snap all Station Data to Mesh """
         # Purpose: Assign observed GWL time series and associated metadata to the closest mesh nodes.
         # Action: Develop function to find nearest mesh node for each GWL station (e.g., using spatial indexing, k-d tree).
         # Action: Attach GWL time series data (and static GWL station features) to these specific mesh nodes.
         # Output: Updated mesh_nodes_gdf or a separate node feature tensor/dataframe.
+        
+        # mesh_nodes_gdf = mesh_nodes_gdf.merge()
 
-        # --- 5b. Snap other features data to mesh nodes (e.g., CAMELS-GB data, static attributes) ---
+        # --- 5b. Snap static features to mesh nodes ---
         
         # Snap Land Cover to Mesh
         
-        mesh_nodes_gdf_centroids = mesh_nodes_gdf.merge(
+        merged_gdf_nodes_landuse = mesh_nodes_gdf.merge(
             agg_land_cover_df[['easting', 'northing', 'land_cover_code']],
             on=['easting', 'northing'],
             how='left'  # left join to keep all centroids, even NaN
@@ -355,8 +360,8 @@ try:
         
         # Snap Elevation to Mesh
         
-        merged_gdf_nodes = merged_gdf_nodes.merge(
-            elevation_gdf_polygon[['node_id', 'mean_elevation']],
+        merged_gdf_nodes_elevation = merged_gdf_nodes_landuse.merge(
+            elevation_gdf_polygon[['node_id', 'mean_elevation', 'polygon_geometry']],
             on='node_id',
             how='left'  # left join to keep all centroids, even NaN
         )
@@ -365,13 +370,21 @@ try:
         
         # Snap Slope to Mesh
         
-        """ 4. SNAP ALL PRELIMINARY FEATURES TO MESH """
+        """ 5. SNAP ALL PRELIMINARY FEATURES TO MESH """
+        
+        # Incorporate Edge Weighting? (likely move later)
         
         # Snap Soil type to Mesh
         
+        # --- 5c. Snap synamic features to mesh nodes and daily timestep ---
+        
+        # Snap Precipitation and Lags to mesh and timestep
+        
+        # Snap Temperature to mesh and timestep
+        
         # etc...
 
-        # --- 5c. (Optional) Visualise complete mesh map with stations and other features ---
+        # --- 5d. (Optional) Visualise complete mesh map with stations and other features ---
         # Purpose: Verify final graph structure and feature distribution visually.
         # Action: Create an interactive map showing the mesh, GWL stations, and other snapped data points.
         
@@ -381,7 +394,7 @@ try:
         
         # --- 6a. Split the data temporally ---
         
-        """ 5. THEN DO FULL FIRST ITERATION OF MODEL FOR THURSDAY """
+        """ 6. THEN DO FULL FIRST ITERATION OF MODEL FOR THURSDAY... """
         
         # E.g., 70/15/15 train/val/test by date -> Key:Must be segregated by time, not mixed
         # All subsequent steps must be done AFTER split to avoid data leakage
