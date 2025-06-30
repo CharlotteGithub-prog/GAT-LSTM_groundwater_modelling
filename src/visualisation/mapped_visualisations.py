@@ -190,45 +190,46 @@ def plot_directional_mesh(directional_edge_weights_gdf: gpd.GeoDataFrame, catchm
     </svg>
     """
     
-    # Get a colormap instance
+    # Get a cyclical (hue, saturation, value) colourmap instance to define using circular angle
     cmap = cm.get_cmap('hsv')
 
+    # Loop through mesh nodes in catchmend
     for _, row in directional_edge_weights_gdf.iterrows():
         lat, lon = row['lat'], row['lon']
         dx, dy = row['mean_slope_dx'], row['mean_slope_dy']
         
-        angle_rad_for_folium_rotation = np.arctan2(dx, dy) # This is angle from +Y (North) towards +X (East).
+        # ND: +Y is North, +X is East
+        angle_rad_for_folium_rotation = np.arctan2(dx, dy) # Angl efrom north to east
         angle_deg_for_folium_rotation = np.degrees(angle_rad_for_folium_rotation)
 
-        # Ensure angle is 0-360. `angle_deg_for_folium_rotation` could be negative from arctan2.
+        # Ensure angle is 0-360 (could be negative from arctan2)
         normalised_angle = (angle_deg_for_folium_rotation + 360) % 360
         
-        # Map the angle (0-360) to a color in the colormap (0-1 range)
-        color_rgb = cmap(normalised_angle / 360.0) # Get RGBA tuple
-        hex_color = mcolors.rgb2hex(color_rgb) # Convert to hex string
+        # Map the angle (0-360) to a colour in the colourmap (0-1 range)
+        color_rgb = cmap(normalised_angle / 360.0) # RGBA tuple
+        hex_color = mcolors.rgb2hex(color_rgb) # Convert to hex str
 
-        # Create the SVG string with dynamic color and rotation
+        # Create SVG string with dynamic colour and direction weighting rotation
         svg = arrow_svg_template.format(color=hex_color, angle=angle_deg_for_folium_rotation)
         encoded_svg = base64.b64encode(svg.encode('utf-8')).decode('utf-8')
         
-        icon = folium.CustomIcon(
-            icon_image=f"data:image/svg+xml;base64,{encoded_svg}",
-            icon_size=(12, 12),
-            icon_anchor=(6, 6)
-        )
+        icon = folium.CustomIcon(icon_image=f"data:image/svg+xml;base64,{encoded_svg}",
+                                 icon_size=(12, 12), icon_anchor=(6, 6))
 
         folium.Marker(location=[lat, lon], icon=icon).add_to(arrow_layer)
 
+    # Catchment Outline
     folium.GeoJson(catchment_polygon, name='Catchment Boundary', 
                    style_function=lambda x: {'color': 'black', 'weight': 2, 'fillColor': 'grey',
                                             'fillOpacity': 0.15}).add_to(map)
     
+    # Turn layer on and off to check map under clearly
     arrow_layer.add_to(map)
     folium.LayerControl().add_to(map)
     
+    # Save by mesh resolution
     full_interactive_output_path = output_path + f'_{grid_resolution}.html'
-    
     map.save(full_interactive_output_path)
     logger.info(f"Interactive directional map file saved to: {full_interactive_output_path}\n")
+    
     return map
-
