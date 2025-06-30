@@ -319,17 +319,38 @@ try:
         
         # Precipitation (Daily Rainfall, mm, catchment total) [HadUK-GRID]
         
-        """ 2. ADD THIS + LAGS """
+        """
+        TEMPORARILY SKIPPED RAINFALL AND LAGS AS CEDA CALL IS DEGRADED.
+            ADD IN ONCE CORRECTED: https://www.ceda.ac.uk/status/ 
+            SEE: 02_eda_preprocessing_hydroclimatic_data.ipynb
+        """
         
         # Temperature (Daily Mean Temperature, °C, catchment average) [HadUK-GRID]
         
-        """ 3. ADD THIS """
+        """
+        TEMPORARILY SKIPPED TEMPERATURE AS CEDA CALL IS DEGRADED.
+            ADD IN ONCE CORRECTED: https://www.ceda.ac.uk/status/
+            SEE: 02_eda_preprocessing_hydroclimatic_data.ipynb
+        """
         
-        # Evapotranspiration [CHESS-PE / EA PET, catchment total]
+        # Potential Evapotranspiration [HadUK-GRID (2022) / CHESS-PE (2019) / EA PET, catchment total]
+        
+        """
+        TEMPORARILY SKIPPED AS ERA5-Land DATA DOWN FOR MAINTENANCE WITH LINGERING ISSUES
+            (https://confluence.ecmwf.int/display/CKB/ERA5-Land%3A+data+documentation,
+            https://status.ecmwf.int/)
+            SEE: 02_eda_preprocessing_hydroclimatic_data.ipynb
+        """
         
         # River Flow / Streamflow / River Stage [DEFRA / NRFA]
         
         # Atmospheric Pressure (Daily Mean, hPa/mbar, catchment average) [HadUK-Grid]
+        
+        """
+        TEMPORARILY SKIPPED PRESSURE AS CEDA CALL IS DEGRADED.
+            ADD IN ONCE CORRECTED: https://www.ceda.ac.uk/status/
+            SEE: 02_eda_preprocessing_hydroclimatic_data.ipynb
+        """
         
         # --- 4d. Derived Hydrogeological Feature Engineering ---
         
