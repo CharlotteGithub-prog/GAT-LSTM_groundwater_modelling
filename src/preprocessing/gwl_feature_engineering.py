@@ -177,7 +177,7 @@ def trim_and_save(df_dict: dict, model_start_date: str, model_end_date: str, tri
         # Fill NaNs
         df.loc[(df['data_type'] == 'raw') & (df['quality'].isna()), 'quality'] = 'Unchecked'
         df.loc[df['quality'].isna(), 'quality'] = 'Missing'
-        logging.info(f"All missing quality markers filled for {station}.")
+        logging.info(f"All missing quality markers filled for {station}.\n")
 
     # Save trimmed dataframe dict
     save_trimmed_dict(
