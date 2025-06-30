@@ -32,6 +32,7 @@ from src.preprocessing.gwl_feature_engineering import build_lags, trim_and_save,
     build_seasonality_features
 from src.data_ingestion.static_data_ingestion import load_land_cover_data, \
     load_process_elevation_data, derive_slope_data
+from src.graph_building.data_merging import reorder_static_columns
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -383,7 +384,8 @@ try:
             on='node_id',
             how='left'  # left join to keep all centroids, even NaN
         )
-        
+
+        merged_gdf_nodes_slope = reorder_static_columns(merged_gdf_nodes_slope)
         logger.info(f"Slope degrees and sinusoidal aspect data snapped to mesh nodes (centroids).\n")
         
         # Incorporate Edge Weighting? (likely move later)
