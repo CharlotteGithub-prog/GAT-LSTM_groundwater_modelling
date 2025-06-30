@@ -31,7 +31,7 @@ from src.preprocessing.gap_imputation import handle_large_gaps
 from src.preprocessing.gwl_feature_engineering import build_lags, trim_and_save, \
     build_seasonality_features
 from src.data_ingestion.static_data_ingestion import load_land_cover_data, \
-    load_process_elevation_data
+    load_process_elevation_data, derive_slope_data
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -270,7 +270,7 @@ try:
         
         # Land Cover [UKCEH LCM2023]
         
-        agg_land_cover_df, catchment_gdf = load_land_cover_data(
+        agg_land_cover_df = load_land_cover_data(
             tif_path=config[catchment]['paths']['raw_land_cover_path'],
             csv_path=config[catchment]['paths']['land_cover_csv_path'],
             catchment=catchment,
@@ -296,7 +296,15 @@ try:
         
         # Slope [Derived from DEMS] + Edge Direction Weights (Derived from Slope -> modularise?)
         
-        """ 1. FINISH THIS + EDGE DIRECTIONS """
+        slope_gdf, directional_edge_weights = derive_slope_data(
+            high_res_raster=clipped_dtm,
+            mesh_cells_gdf_polygons=mesh_cells_gdf_polygons,
+            catchment=catchment,
+            direction_output_path=config[catchment]['paths']['direction_edge_weights_path'],
+            slope_output_path=config[catchment]['paths']['slope_path']
+        )
+        
+        logger.info(f"Slope and aspect data derived at node level for {catchment} catchment.\n")
         
         # Soil type [CEH's Grid-to-Grid soil maps / HOST soil classes / CAMELS-GB / BFIHOST]
         
@@ -370,7 +378,13 @@ try:
         
         # Snap Slope to Mesh
         
-        """ 5. SNAP ALL PRELIMINARY FEATURES TO MESH """
+        merged_gdf_nodes_slope = merged_gdf_nodes_elevation.merge(
+            slope_gdf[['node_id', 'mean_slope_degrees', 'mean_aspect_sin', 'mean_aspect_cos']],
+            on='node_id',
+            how='left'  # left join to keep all centroids, even NaN
+        )
+        
+        logger.info(f"Slope degrees and sinusoidal aspect data snapped to mesh nodes (centroids).\n")
         
         # Incorporate Edge Weighting? (likely move later)
         
