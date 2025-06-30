@@ -244,6 +244,9 @@ def load_process_elevation_data(dir_path: str, csv_path: str, catchment: str, ca
     mesh_cells_gdf_polygons = preprocess_elevation_data(mesh_cells_gdf_polygons, elev_max,
                                                         elev_min, catchment)
     
+    # Rename columns as needed for subsequent merge (geometry must be polygon not node)
+    mesh_cells_gdf_polygons = mesh_cells_gdf_polygons.rename(columns={'geometry': 'polygon_geometry'})
+    
     return mesh_cells_gdf_polygons, clipped_dtm
 
 # Various
