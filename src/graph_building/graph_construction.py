@@ -58,7 +58,7 @@ def build_mesh(shape_filepath: str, output_path: str, catchment: str, grid_resol
     logger.info(f"Aligned minx: {minx_aligned}, miny: {miny_aligned}, maxx: {maxx_aligned}, maxy: {maxy_aligned}")
     logger.info(f"Number of x-coordinates (bottom-left): {len(x_coordinates_bottomleft)}")
     logger.info(f"Number of y-coordinates (bottom-left): {len(y_coordinates_bottomleft)}\n")
-
+    
 
     # Initialise grid cell list and set up regular grid of points within the bounding box
     all_mesh_nodes_points = []
