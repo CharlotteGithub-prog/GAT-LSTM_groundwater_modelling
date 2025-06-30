@@ -14,6 +14,7 @@ __pycache__/
 .vscode/
 .venv/
 ceda_credentials.netrc
+.cdsapirc
 
 # --- Output / Generated Content ---
 temp_plots/
