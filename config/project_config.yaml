@@ -134,6 +134,7 @@ eden:
     slope_path: "data/02_processed/eden/static/slope/slope_magnitude_aspect.csv"
     aet_raw_output_dir: "data/01_raw/eden/hydroclimatic/aet/"
     aet_processed_output_dir: "data/02_processed/eden/hydroclimatic/aet/"
+    output_polygon_dir: "data/02_processed/eden/gis/"
   
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
