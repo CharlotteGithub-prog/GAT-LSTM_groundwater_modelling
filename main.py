@@ -368,11 +368,12 @@ try:
         # ==============================================================================
         
         # --- 5a. Snap GWL monitoring station features to mesh nodes ---
-        """ 4. Snap all Station Data to Mesh """
         # Purpose: Assign observed GWL time series and associated metadata to the closest mesh nodes.
         # Action: Develop function to find nearest mesh node for each GWL station (e.g., using spatial indexing, k-d tree).
         # Action: Attach GWL time series data (and static GWL station features) to these specific mesh nodes.
         # Output: Updated mesh_nodes_gdf or a separate node feature tensor/dataframe.
+        
+        """ IN PROGRESS... """
         
         # mesh_nodes_gdf = mesh_nodes_gdf.merge()
 
@@ -413,13 +414,15 @@ try:
         
         # Snap Soil type to Mesh
         
-        # --- 5c. Snap synamic features to mesh nodes and daily timestep ---
+        # --- 5c. Snap dynamic features to mesh nodes and daily timestep ---
         
         # Snap Precipitation and Lags to mesh and timestep
         
         # Snap Temperature to mesh and timestep
         
         # etc...
+        
+        # KEY: HANDLE GWL MASKS
 
         # --- 5d. (Optional) Visualise complete mesh map with stations and other features ---
         # Purpose: Verify final graph structure and feature distribution visually.
