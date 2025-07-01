@@ -254,9 +254,10 @@ def load_process_elevation_data(dir_path: str, csv_path: str, catchment: str, ca
     
     # Explicitly state which column is geometry (as it is renamed, causing a geojson issue)
     mesh_cells_gdf_polygons = mesh_cells_gdf_polygons.set_geometry('polygon_geometry')
+    mesh_gdf_polygons = mesh_cells_gdf_polygons.drop(columns='mean_elevation')
     
     try:
-        mesh_cells_gdf_polygons.to_file(output_geojson_path, driver='GeoJSON')
+        mesh_gdf_polygons.to_file(output_geojson_path, driver='GeoJSON')
         logger.info(f"Mesh cell polygons saved to: {output_geojson_path}\n")
     except Exception as e:
         logger.error(f"Failed to save mesh cell polygons to GeoJSON: {e}")
