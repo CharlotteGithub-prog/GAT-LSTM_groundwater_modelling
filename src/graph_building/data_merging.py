@@ -24,3 +24,6 @@ def reorder_static_columns(df: pd.DataFrame):
                     'mean_slope_degrees', 'mean_aspect_sin', 'mean_aspect_cos']
 
     return df[desired_order]
+
+def add_polygon_to_centroids(df: pd.DataFrame):
+    pass
