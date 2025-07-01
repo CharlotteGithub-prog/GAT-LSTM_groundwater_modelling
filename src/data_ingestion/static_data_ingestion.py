@@ -214,7 +214,7 @@ def preprocess_elevation_data(mesh_cells_gdf_polygons: gpd.GeoDataFrame, elev_ma
 # Elevation
 def load_process_elevation_data(dir_path: str, csv_path: str, catchment: str, catchment_gdf: gpd.GeoDataFrame,
                         mesh_cells_gdf_polygons: gpd.GeoDataFrame, elev_max: float, elev_min: float,
-                        grid_resolution: int = 1000):
+                        output_geojson_dir: str, grid_resolution: int = 1000):
     """
     Loads OS elevation DTM data from tile directory using rasterio, flattens it to a DataFrame,
     converts x, y coordinates to lat/lon, and saves to CSV.
@@ -246,6 +246,20 @@ def load_process_elevation_data(dir_path: str, csv_path: str, catchment: str, ca
     
     # Rename columns as needed for subsequent merge (geometry must be polygon not node)
     mesh_cells_gdf_polygons = mesh_cells_gdf_polygons.rename(columns={'geometry': 'polygon_geometry'})
+    
+    # --- Save polygons for future reference ---
+    
+    os.makedirs(output_geojson_dir, exist_ok=True)
+    output_geojson_path = os.path.join(output_geojson_dir, f"{catchment}_mesh_cells_polygons.geojson")
+    
+    # Explicitly state which column is geometry (as it is renamed, causing a geojson issue)
+    mesh_cells_gdf_polygons = mesh_cells_gdf_polygons.set_geometry('polygon_geometry')
+    
+    try:
+        mesh_cells_gdf_polygons.to_file(output_geojson_path, driver='GeoJSON')
+        logger.info(f"Mesh cell polygons saved to: {output_geojson_path}\n")
+    except Exception as e:
+        logger.error(f"Failed to save mesh cell polygons to GeoJSON: {e}")
     
     return mesh_cells_gdf_polygons, clipped_dtm
 
