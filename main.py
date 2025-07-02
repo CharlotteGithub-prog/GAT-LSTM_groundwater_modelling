@@ -33,7 +33,8 @@ from src.preprocessing.gwl_feature_engineering import build_lags, trim_and_save,
     build_seasonality_features
 from src.data_ingestion.static_data_ingestion import load_land_cover_data, \
     load_process_elevation_data, derive_slope_data
-from src.graph_building.data_merging import reorder_static_columns
+from src.graph_building.data_merging import reorder_static_columns, \
+    snap_stations_to_mesh
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -385,7 +386,13 @@ try:
         # Action: Attach GWL time series data (and static GWL station features) to these specific mesh nodes.
         # Output: Updated mesh_nodes_gdf or a separate node feature tensor/dataframe.
         
-        """ IN PROGRESS... """
+        station_node_mapping = snap_stations_to_mesh(
+            station_list_path=config[catchment]["paths"]["gwl_station_list_output"],
+            polygon_geometry_path=config[catchment]['paths']['output_polygon_dir'],
+            output_path=config[catchment]["paths"]["snapped_station_node_mapping"],
+            mesh_nodes_gdf=mesh_nodes_gdf,
+            catchment=catchment
+        )
         
         # mesh_nodes_gdf = mesh_nodes_gdf.merge()
 
@@ -411,15 +418,17 @@ try:
         
         logger.info(f"Elevation data snapped to mesh nodes (centroids).\n")
         
-        # Snap Slope to Mesh
+        # Snap Slope to Mesh [TODO: THIS IS CURRENTLY ACTING AS FINAL STATIC DF, UPDATE IN FUTURE]
         
-        merged_gdf_nodes_slope = merged_gdf_nodes_elevation.merge(
+        # merged_gdf_nodes_slope = merged_gdf_nodes_elevation.merge(
+        static_features = merged_gdf_nodes_elevation.merge(
             slope_gdf[['node_id', 'mean_slope_degrees', 'mean_aspect_sin', 'mean_aspect_cos']],
             on='node_id',
             how='left'  # left join to keep all centroids, even NaN
         )
 
-        merged_gdf_nodes_slope = reorder_static_columns(merged_gdf_nodes_slope)
+        static_features = reorder_static_columns(static_features)
+        # merged_gdf_nodes_slope = reorder_static_columns(merged_gdf_nodes_slope)
         logger.info(f"Slope degrees and sinusoidal aspect data snapped to mesh nodes (centroids).\n")
         
         # Incorporate Edge Weighting? (likely move later)
