@@ -34,13 +34,17 @@ def build_mesh(shape_filepath: str, output_path: str, catchment: str, grid_resol
             - mesh_cells_gdf_polygons (gpd.GeoDataFrame): Node ID, coordinates, and geometry (Polygon).
             - catchment_polygon (gpd.GeoDataFrame): The processed catchment boundary (GeoDataFrame).
     """
-    logging.info(f"BUILD_MESH: Starting mesh construction with input: {shape_filepath} and resolution: {grid_resolution}m\n")
+    # Derive full path
+    temp_geojson_path = f"{catchment}_combined_boundary.geojson"
+    path = shape_filepath + temp_geojson_path
+    
+    logging.info(f"BUILD_MESH: Starting mesh construction with input: {path} and resolution: {grid_resolution}m\n")
     
     ## ---- Import single geometry spatial data and find bounds ----
     
     catchment_polygon, catchment_geometry, minx, miny, maxx, maxy = find_catchment_boundary(
         catchment=catchment,
-        shape_filepath=shape_filepath,
+        shape_filepath=path,
         required_crs=27700  # Ensure the catchment boundary is in BNG
     )
 
@@ -137,3 +141,29 @@ def build_mesh(shape_filepath: str, output_path: str, catchment: str, grid_resol
     logger.info(f"Saved mesh nodes shp to: {shp_path}\n")
     
     return mesh_nodes_table, mesh_nodes_gdf, mesh_cells_gdf_polygons, catchment_polygon
+
+def define_catchment_polygon(england_catchment_gdf_path: str, target_mncat: str, catchment: str,
+                             polygon_output_path: str):
+    
+    # Read in and filter to desired catchment
+    full_management_catchments_gdf = gpd.read_file(england_catchment_gdf_path)
+    eden_esk_catchments = full_management_catchments_gdf[
+        (full_management_catchments_gdf['mncat_name'] == target_mncat)
+    ]
+    
+    logging.info(f"{target_mncat} boundary polygon(s) extracted from England data.")
+
+    # Dissolve constituent parts into one polygon
+    combined_eden_esk_polygon = eden_esk_catchments.dissolve()
+
+    # Save as a geojson (checking crs first)
+    if combined_eden_esk_polygon.crs is None or combined_eden_esk_polygon.crs != "EPSG:27700":
+        combined_eden_esk_polygon = combined_eden_esk_polygon.to_crs(epsg=27700)
+        
+    temp_geojson_path = f"{catchment}_combined_boundary.geojson"
+    path = polygon_output_path + temp_geojson_path
+    combined_eden_esk_polygon.to_file(path, driver="GeoJSON")
+    
+    print(path)
+
+    logging.info(f"Combined {target_mncat} boundary saved to: {path}")

@@ -8,7 +8,7 @@ global:
     log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
     catchments_to_process: ["eden"]  # TODO: add more in future dev
     run_defra_api: False
-    run_camels_api: False
+    run_camels_api: False 
     run_era5_land_api: True  # Long!
     run_outlier_detection: False
     run_gwl_imputation: False
@@ -114,10 +114,13 @@ global:
 # ==============================================================================
 
 eden:
+  target_mncat: "Eden and Esk"
   # --- FILE PATHS ---
   paths:
     # --- Specific INPUT files ---
-    gis_catchment_boundary: "data/01_raw/eden/gis/eden_catchment_boundary/NRFA_catchments.shp"
+    #gis_catchment_boundary: "data/01_raw/eden/gis/eden_catchment_boundary/NRFA_catchments.shp"
+    gis_catchment_boundary: "data/01_raw/eden/gis/eden_catchment_boundary/WFD_Surface_Water_Operational_Catchments_Cycle_2.shp"
+    gis_catchment_dir: "data/01_raw/eden/gis/eden_catchment_boundary/"
     gwl_station_list: "data/01_raw/eden/gwl_stations/station_list.csv"
     raw_land_cover_path: "data/01_raw/eden/static/land_cover/gb2023lcm1km_dominant_aggregate.tif"
     elevation_dir_path: "data/01_raw/eden/static/elevation/"

@@ -47,9 +47,14 @@ def load_land_cover_data(tif_path: str, csv_path: str, catchment: str, shape_fil
     land_cover_ds = land_cover_ds.squeeze()
     
     # --- Trim to catchment geometry or bounding box ---
+    
+    # Derive full path
+    temp_geojson_path = f"{catchment}_combined_boundary.geojson"
+    path = shape_filepath + temp_geojson_path
+    
     _, _, minx, miny, maxx, maxy = find_catchment_boundary(
         catchment=catchment,
-        shape_filepath=shape_filepath,
+        shape_filepath=path,
         required_crs=27700
     )
 

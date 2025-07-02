@@ -80,9 +80,13 @@ def load_aet_data(catchment: float, shape_filepath: float, required_crs: int, cd
     
     ## --- Find catchment bounding box --- 
     
+    # Derive full path
+    temp_geojson_path = f"{catchment}_combined_boundary.geojson"
+    path = shape_filepath + temp_geojson_path
+    
     _, _, minx, miny, maxx, maxy = find_catchment_boundary(
         catchment=catchment,
-        shape_filepath=shape_filepath,
+        shape_filepath=path,
         required_crs=required_crs
     )
 

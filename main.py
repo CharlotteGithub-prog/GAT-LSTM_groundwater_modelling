@@ -20,7 +20,8 @@ import pandas as pd
 
 # --- 1b. Project Imports ---
 from src.utils.config_loader import load_project_config
-from src.graph_building.graph_construction import build_mesh
+from src.graph_building.graph_construction import build_mesh, \
+    define_catchment_polygon
 from src.visualisation.mapped_visualisations import plot_interactive_mesh
 from src.data_ingestion.gwl_data_ingestion import process_station_coordinates, \
     fetch_and_process_station_data, download_and_save_station_readings
@@ -114,10 +115,18 @@ try:
         # ==============================================================================
 
         # --- 3a. Build Catchment Graph Mesh ---
+        
+        # Select Catchment area from country wide gdf
+        define_catchment_polygon(
+            england_catchment_gdf_path=config[catchment]['paths']['gis_catchment_boundary'],
+            target_mncat=config[catchment]['target_mncat'],
+            catchment=catchment,
+            polygon_output_path=config[catchment]['paths']['gis_catchment_dir']
+        )
 
         # NB: mesh_nodes_gdf are the centroid coords, mesh_cells_gdf_polygons are polygons for e.g. averaging area
         mesh_nodes_table, mesh_nodes_gdf, mesh_cells_gdf_polygons, catchment_polygon = build_mesh(
-            shape_filepath=config[catchment]['paths']['gis_catchment_boundary'],
+            shape_filepath=config[catchment]['paths']['gis_catchment_dir'],
             output_path=config[catchment]['paths']['mesh_nodes_output'],
             catchment=catchment,
             grid_resolution=config[catchment]['preprocessing']['graph_construction']['grid_resolution']
@@ -275,7 +284,7 @@ try:
             tif_path=config[catchment]['paths']['raw_land_cover_path'],
             csv_path=config[catchment]['paths']['land_cover_csv_path'],
             catchment=catchment,
-            shape_filepath=config[catchment]['paths']['gis_catchment_boundary']
+            shape_filepath=config[catchment]['paths']['gis_catchment_dir']
         )
         
         logger.info(f"1km granularity land use data processed for {catchment} catchment.\n")
@@ -290,6 +299,7 @@ try:
             catchment=catchment,
             elev_max=config[catchment]['preprocessing']['catchment_max_elevation'],
             elev_min=config[catchment]['preprocessing']['catchment_min_elevation'],
+            output_geojson_dir=config[catchment]['paths']['output_polygon_dir'],
             grid_resolution=config[catchment]['preprocessing']['graph_construction']['grid_resolution']
         )
         

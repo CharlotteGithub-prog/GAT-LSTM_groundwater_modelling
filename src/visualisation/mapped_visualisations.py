@@ -233,3 +233,94 @@ def plot_directional_mesh(directional_edge_weights_gdf: gpd.GeoDataFrame, catchm
     logger.info(f"Interactive directional map file saved to: {full_interactive_output_path}\n")
     
     return map
+
+def plot_interactive_mesh_with_stations(mesh_nodes_gdf: gpd.GeoDataFrame, catchment_polygon: gpd.GeoDataFrame,
+                          map_blue: str, esri: str, esri_attr: str, static_output_path: str,
+                          interactive_output_path: str, catchment: str, grid_resolution: int = 1000,
+                          interactive: bool = True, stations_gdf: gpd.GeoDataFrame = None,
+                          station_color: str = 'red', station_marker_icon: str = 'info-sign'):
+    """
+    Build a visualisation of the catchment mesh, as either an interactive Folium map
+    with optional base map tiles and layer toggles, or a static Matplotlib plot.
+    """
+    logger.info(f"PLOT_INTERACTIVE_MESH: Plotting catchment mesh overlaid on map.")
+
+    # Static map when select
+    if not interactive:
+        fig, ax = plt.subplots(figsize=(10, 10))
+        mesh_nodes_gdf.plot(ax=ax, color=map_blue, markersize=1.5)
+        catchment_polygon.plot(ax=ax, facecolor='none', edgecolor=map_blue, linewidth=1)
+
+        # Add stations to static map if provided
+        if stations_gdf is not None:
+            stations_gdf.plot(ax=ax, color=station_color, marker='o', markersize=20, label='Stations') # Using 'o' for circle marker
+            ax.legend() # Show legend if stations are plotted
+
+        plt.xlabel("EPSG:27700 Easting (m)")
+        plt.ylabel("EPSG:27700 Northing (m)")
+        plt.title(f"Mesh Centroids for {catchment} Catchment (Resolution: {grid_resolution}m x {grid_resolution}m)")
+        
+        full_static_output_path = static_output_path + f'_{grid_resolution}.png'
+        
+        plt.savefig(full_static_output_path, dpi=300)
+        logger.info(f"Static map file saved to: {full_static_output_path}\n")
+        return fig
+        
+    # Interactive map otherwise
+    else:
+        # Create base map centered on centre of mesh
+        # Assuming mesh_nodes_gdf has 'lat' and 'lon' columns for interactive map
+        map_center = [mesh_nodes_gdf['lat'].mean(), mesh_nodes_gdf['lon'].mean()]
+
+        # Define map tile layers
+        map_obj = folium.Map(location=map_center, zoom_start=10, tiles=None) # Renamed 'map' to 'map_obj' to avoid conflict
+
+        # Add tile layers (esri visible by default, others in toggle)
+        folium.TileLayer(tiles=esri, attr=esri_attr, name='Topo', show=True).add_to(map_obj)
+        folium.TileLayer('CartoDB positron', name='Light', show=False).add_to(map_obj)
+        folium.TileLayer('CartoDB dark_matter', name='Dark', show=False).add_to(map_obj)
+
+        # Add all node centroids as circle markers
+        mesh_layer = folium.FeatureGroup(name="Mesh Nodes")
+        for idx, row in mesh_nodes_gdf.iterrows():
+            folium.CircleMarker(location=[row['lat'], row['lon']], radius=1, color=map_blue,
+                                fill=True, fill_opacity=0.6,
+                                tooltip=f"Node ID: {row['node_id']}<br>Lat: {row['lat']:.4f}<br>Lon: {row['lon']:.4f}"
+                                ).add_to(mesh_layer)
+            
+        # --- ADD GROUND-TRUTH DATA STATIONS HERE ---
+        if stations_gdf is not None:
+            # Ensure stations_gdf has 'lat' and 'lon' or convert its geometry if needed
+            # Assuming stations_gdf has its geometry in Easting/Northing (EPSG:27700)
+            # and you need to convert it to Lat/Lon (EPSG:4326) for Folium
+            stations_gdf_wgs84 = stations_gdf.to_crs(epsg=4326) # Convert to Lat/Lon
+
+            station_layer = folium.FeatureGroup(name="Groundwater Stations")
+            for idx, row in stations_gdf_wgs84.iterrows():
+                # For points, geometry column contains Point objects. Access coordinates with .y (latitude) and .x (longitude)
+                folium.Marker(
+                    location=[row.geometry.y, row.geometry.x], # Latitude, Longitude
+                    icon=folium.Icon(color=station_color, icon=station_marker_icon), # Using a different icon/color
+                    tooltip=f"Station: {row['station_name']}<br>ID: {row['station_id']}<br>Easting: {row['easting']}<br>Northing: {row['northing']}"
+                ).add_to(station_layer)
+            station_layer.add_to(map_obj)
+
+
+        # Add solid catchment boundary polygon to the map
+        # Ensure catchment_polygon is in WGS84 or convert it for Folium
+        catchment_polygon_wgs84 = catchment_polygon.to_crs(epsg=4326)
+        folium.GeoJson(catchment_polygon_wgs84, name='Catchment Boundary',
+                    style_function=lambda x: {'color': map_blue, 'weight': 2, 'fillColor': map_blue,
+                                                'fillOpacity': 0.15}).add_to(map_obj)
+
+        # Add layer control to toggle catchment boundary, mesh and map tiles
+        folium.LayerControl().add_to(map_obj)
+
+        full_interactive_output_path = interactive_output_path + f'_{grid_resolution}.html'
+        
+        # Save to html (unique by timestamp) and display in notebook
+        # map_obj.save(full_interactive_output_path)
+        # logger.info(f"Interactive map file saved to: {full_interactive_output_path}\n")
+        
+        return map_obj
+    
