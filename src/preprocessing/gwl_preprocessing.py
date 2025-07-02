@@ -19,8 +19,8 @@ logging.basicConfig(
 # Set up logger for file and load config file for paths and params
 logger = logging.getLogger(__name__)
 
-def load_timeseries_to_dict(stations_df: pd.DataFrame, col_order: list,
-                            data_dir: str, inclusion_threshold: int):
+def load_timeseries_to_dict(stations_df: pd.DataFrame, col_order: list, data_dir: str,
+                            inclusion_threshold: int, station_list_output: str, catchment: str):
     """
     Loads and cleans groundwater level timeseries data from CSV files.
     
@@ -34,6 +34,9 @@ def load_timeseries_to_dict(stations_df: pd.DataFrame, col_order: list,
     
     # Save pandas dataframes to a dictionary by station name
     time_series_data = {}
+    
+    # Initialise list to store rows above threshold
+    included_station_metadata_rows = []
 
     for index, row in stations_df.iterrows():
         uri = row['measure_uri']
@@ -57,12 +60,23 @@ def load_timeseries_to_dict(stations_df: pd.DataFrame, col_order: list,
         # Save to dictionary if data over threshold
         if len(temp_df) > inclusion_threshold:
             time_series_data[name] = temp_df
+            included_station_metadata_rows.append(row)
             logging.info(f"{name} successfully saved to dict.")
         else:
             logging.info(f"Station {name} contained insufficient data -> dropping dataframe."
                          f"({len(temp_df)} < {inclusion_threshold})")
-    
+
     logging.info(f"{len(time_series_data)} stations saved to dict.\n")    
+    
+    # Create df from the collected rows of included stations (above threshold)
+    filtered_stations_for_output = pd.DataFrame(included_station_metadata_rows)
+
+    # Save this updated filtered df to csv
+    filtered_stations_for_output.to_csv(station_list_output, index=False)
+    logger.info(f"[{catchment}] Saved processed station list to: {station_list_output}")
+    logger.info(f"Station location reference table head:\n\n{stations_df.head()}\n")
+    logger.info(f"Total Stations: {len(stations_df)}")
+      
     return time_series_data
 
 def plot_timeseries(time_series_df: pd.DataFrame, station_name: str, output_path: str,

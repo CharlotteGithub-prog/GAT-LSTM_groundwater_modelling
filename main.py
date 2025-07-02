@@ -163,7 +163,9 @@ try:
             stations_df=stations_with_metadata_measures,
             col_order=config["global"]["data_ingestion"]["col_order"],
             data_dir=config[catchment]["paths"]["gwl_data_output_dir"],
-            inclusion_threshold=config[catchment]["preprocessing"]["inclusion_threshold"]
+            inclusion_threshold=config[catchment]["preprocessing"]["inclusion_threshold"],
+            station_list_output=config[catchment]["paths"]["gwl_station_list_output"],
+            catchment=catchment
         )
 
         logger.info(f"All timeseries data converted to dict for {catchment} catchment.\n")
