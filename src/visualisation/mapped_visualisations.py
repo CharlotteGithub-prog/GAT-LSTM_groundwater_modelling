@@ -320,8 +320,8 @@ def plot_interactive_mesh_with_stations(mesh_nodes_gdf: gpd.GeoDataFrame, catchm
         full_interactive_output_path = interactive_output_path + f'_{grid_resolution}.html'
         
         # Save to html (unique by timestamp) and display in notebook
-        # map_obj.save(full_interactive_output_path)
-        # logger.info(f"Interactive map file saved to: {full_interactive_output_path}\n")
+        map_obj.save(full_interactive_output_path)
+        logger.info(f"Interactive map file saved to: {full_interactive_output_path}\n")
         
         return map_obj
     
