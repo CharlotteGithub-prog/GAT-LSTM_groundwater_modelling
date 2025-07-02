@@ -288,26 +288,25 @@ def plot_interactive_mesh_with_stations(mesh_nodes_gdf: gpd.GeoDataFrame, catchm
                                 tooltip=f"Node ID: {row['node_id']}<br>Lat: {row['lat']:.4f}<br>Lon: {row['lon']:.4f}"
                                 ).add_to(mesh_layer)
             
-        # --- ADD GROUND-TRUTH DATA STATIONS HERE ---
+        # Add mesh to map as layer
+        mesh_layer.add_to(map_obj)
+        
+        # Add stations as clearly differentiated markers
         if stations_gdf is not None:
-            # Ensure stations_gdf has 'lat' and 'lon' or convert its geometry if needed
-            # Assuming stations_gdf has its geometry in Easting/Northing (EPSG:27700)
-            # and you need to convert it to Lat/Lon (EPSG:4326) for Folium
             stations_gdf_wgs84 = stations_gdf.to_crs(epsg=4326) # Convert to Lat/Lon
 
             station_layer = folium.FeatureGroup(name="Groundwater Stations")
             for idx, row in stations_gdf_wgs84.iterrows():
-                # For points, geometry column contains Point objects. Access coordinates with .y (latitude) and .x (longitude)
+
                 folium.Marker(
                     location=[row.geometry.y, row.geometry.x], # Latitude, Longitude
-                    icon=folium.Icon(color=station_color, icon=station_marker_icon), # Using a different icon/color
+                    icon=folium.Icon(color=station_color, icon=station_marker_icon), # Using a different icon/color from fontawesome
                     tooltip=f"Station: {row['station_name']}<br>ID: {row['station_id']}<br>Easting: {row['easting']}<br>Northing: {row['northing']}"
                 ).add_to(station_layer)
+                
             station_layer.add_to(map_obj)
 
-
         # Add solid catchment boundary polygon to the map
-        # Ensure catchment_polygon is in WGS84 or convert it for Folium
         catchment_polygon_wgs84 = catchment_polygon.to_crs(epsg=4326)
         folium.GeoJson(catchment_polygon_wgs84, name='Catchment Boundary',
                     style_function=lambda x: {'color': map_blue, 'weight': 2, 'fillColor': map_blue,
