@@ -156,6 +156,7 @@ eden:
     maps:
       static_mesh_map_output: "results/figures/eden/maps/static_mesh_map"  # ensure no specific file extension
       interactive_mesh_map_output: "results/figures/eden/maps/interactive_mesh_map"  # ensure no specific file extension
+      interactive_station_map_output: "results/figures/eden/maps/interactive_station_mesh_map"
       interactive_directional_map_output: "results/figures/eden/maps/interactive_directional_map"  # ensure no specific file extension
     ts_plots:
       time_series_gwl_output: "results/figures/eden/time_series/"
