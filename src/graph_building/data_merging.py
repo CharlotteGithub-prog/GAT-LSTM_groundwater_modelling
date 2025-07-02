@@ -27,15 +27,8 @@ def reorder_static_columns(df: pd.DataFrame):
 
     return df[desired_order]
 
-def snap_stations_to_mesh(station_list_path: str, polygon_geometry_path: str, output_path: str,
-                          mesh_nodes_gdf: gpd.GeoDataFrame, catchment: str):
-    """
-    tbd
-    """
-    logger.info(f"Snapping {catchment} catchment stations to mesh centroids...\n")
-    
-    # --- Read in data required for merges ---
-    
+# Snapping stations to centroid nodes
+def _obtain_snapping_data(polygon_geometry_path: str, catchment: str, station_list_path: str):
     # Reading in polygon geometry data
     full_path = polygon_geometry_path + f"{catchment}_mesh_cells_polygons.geojson"
     polygon_geometry_mesh = gpd.read_file(full_path)
@@ -47,18 +40,13 @@ def snap_stations_to_mesh(station_list_path: str, polygon_geometry_path: str, ou
     geometry = [Point(xy) for xy in zip(station_list_with_coords['easting'], station_list_with_coords['northing'])]
     crs_nat_grid = "EPSG:27700"
     station_list_gdf = gpd.GeoDataFrame(station_list_with_coords, geometry=geometry, crs=crs_nat_grid)
-
-    # --- Perform spatial merge for gdf ---
     
-    logger.info(f"Spatial merging catchment stations within polygon geometry.")
+    return station_list_gdf, polygon_geometry_mesh
 
-    station_node_mapping_temp = gpd.sjoin(
-        station_list_gdf,
-        polygon_geometry_mesh[['geometry', 'node_id']],
-        how='left',
-        op='within'
-    )
-
+# Snapping stations to centroid nodes
+def _perform_attribute_merges(polygon_geometry_mesh: gpd.GeoDataFrame, station_node_mapping_temp: pd.DataFrame,
+                              mesh_nodes_gdf: gpd.GeoDataFrame):
+    
     # --- Perform regular merge to retain RHS gdf polygon geometry ---
     
     logger.info(f"Merging catchment stations to retain original polygon.")
@@ -88,7 +76,12 @@ def snap_stations_to_mesh(station_list_path: str, polygon_geometry_path: str, ou
     )
     
     logger.info(f"Replacing original station geometry with nearest centroid geometry.")
+    
+    return station_node_mapping
 
+# Snapping stations to centroid nodes
+def _finalise_mapping_gdf(station_node_mapping: pd.DataFrame, crs: str = "EPSG:27700"):
+    
     # Drop original columns and replace with merged centroid columns
     station_node_mapping = station_node_mapping.drop(columns=['easting', 'northing'])
     station_node_mapping = station_node_mapping.rename(columns={
@@ -102,9 +95,50 @@ def snap_stations_to_mesh(station_list_path: str, polygon_geometry_path: str, ou
 
     # Recreate the geometry column for column with updated easting and northing and convert back to gdf
     updated_geometry = [Point(xy) for xy in zip(station_node_mapping['easting'], station_node_mapping['northing'])]
-    station_node_mapping = gpd.GeoDataFrame(station_node_mapping, geometry=updated_geometry, crs=crs_nat_grid)
+    station_node_mapping = gpd.GeoDataFrame(station_node_mapping, geometry=updated_geometry, crs=crs)
     
-    # Save snapped df
+    return station_node_mapping
+
+# Snapping stations to centroid nodes
+def snap_stations_to_mesh(station_list_path: str, polygon_geometry_path: str, output_path: str,
+                          mesh_nodes_gdf: gpd.GeoDataFrame, catchment: str):
+    """
+    tbd
+    """
+    logger.info(f"Snapping {catchment} catchment stations to mesh centroids...\n")
+    
+    # --- Read in data required for merges ---
+    
+    station_list_gdf, polygon_geometry_mesh = _obtain_snapping_data(
+        polygon_geometry_path,
+        catchment,
+        station_list_path
+    )
+
+    # --- Perform spatial merge for gdf ---
+    
+    logger.info(f"Spatial merging catchment stations within polygon geometry.")
+
+    station_node_mapping_temp = gpd.sjoin(
+        station_list_gdf,
+        polygon_geometry_mesh[['geometry', 'node_id']],
+        how='left',
+        op='within'
+    )
+
+    # --- Perform attribute merges ---
+    
+    station_node_mapping = _perform_attribute_merges(
+        polygon_geometry_mesh,
+        station_node_mapping_temp,
+        mesh_nodes_gdf
+    )
+
+    # --- Converting snapped station DataFrame to mapping GeoDataFrame ---
+    
+    station_node_mapping = _finalise_mapping_gdf(station_node_mapping)
+    
+    # Save snapped df to 02_processed dir
     logger.info(f"Saving snapped station list to {output_path}")
     station_node_mapping.to_csv(output_path, index=False)
     
