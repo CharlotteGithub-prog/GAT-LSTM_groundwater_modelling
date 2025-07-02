@@ -1,6 +1,7 @@
 import sys
 import logging
 import numpy as np
+import pandas as pd
 import geopandas as gpd
 from shapely.geometry import box, Point
 
@@ -167,3 +168,37 @@ def define_catchment_polygon(england_catchment_gdf_path: str, target_mncat: str,
     print(path)
 
     logging.info(f"Combined {target_mncat} boundary saved to: {path}")
+
+def build_main_df(start_date: str, end_date: str, mesh_nodes_gdf: gpd.GeoDataFrame, catchment: str):
+    """
+    Build a dataframe for merging features into with pairs of timestep and node_id
+    acting as multiindex pairs. Convert to df to return for easy merging.
+
+    Returns:
+        pd.DataFrame: A dataframe consisting of 'timestep' and 'node_id' for full
+                        model period.
+    """
+    logger.info(f"Building main model input dataframe for {catchment} catchment...\n")
+
+    # Get model date range
+    date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+
+    logger.info(f"Building timesteps from {start_date[0:10]} to {end_date[0:10]}")
+
+    # Get unique node id's
+    all_node_ids = mesh_nodes_gdf['node_id'].unique().tolist()
+
+    logger.info(f"Building node ID's from 0 to {len(all_node_ids)-1}")
+
+    # Create the Cartesian product of dates and node_ids (cross join for all combos)
+    multi_index = pd.MultiIndex.from_product([date_range, all_node_ids],
+                                            names=['timestep', 'node_id'])
+
+    logger.info(f"Converting multi index to data frame for feature merging")
+
+    # Convert multi index to df for merging
+    main_df = multi_index.to_frame(index=False)
+
+    print(f"\nTotal rows in main {catchment} catchment DataFrame: {len(main_df):.0e}\n")
+
+    return main_df
