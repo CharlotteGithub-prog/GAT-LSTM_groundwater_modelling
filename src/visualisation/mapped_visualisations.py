@@ -238,7 +238,7 @@ def plot_interactive_mesh_with_stations(mesh_nodes_gdf: gpd.GeoDataFrame, catchm
                           map_blue: str, esri: str, esri_attr: str, static_output_path: str,
                           interactive_output_path: str, catchment: str, grid_resolution: int = 1000,
                           interactive: bool = True, stations_gdf: gpd.GeoDataFrame = None,
-                          station_color: str = 'red', station_marker_icon: str = 'info-sign'):
+                          station_color: str = 'orange', station_marker_icon: str = 'info-sign'):
     """
     Build a visualisation of the catchment mesh, as either an interactive Folium map
     with optional base map tiles and layer toggles, or a static Matplotlib plot.
@@ -253,7 +253,7 @@ def plot_interactive_mesh_with_stations(mesh_nodes_gdf: gpd.GeoDataFrame, catchm
 
         # Add stations to static map if provided
         if stations_gdf is not None:
-            stations_gdf.plot(ax=ax, color=station_color, marker='o', markersize=20, label='Stations') # Using 'o' for circle marker
+            stations_gdf.plot(ax=ax, color=station_color, marker='o', markersize=20, label='Stations')
             ax.legend() # Show legend if stations are plotted
 
         plt.xlabel("EPSG:27700 Easting (m)")
@@ -269,7 +269,6 @@ def plot_interactive_mesh_with_stations(mesh_nodes_gdf: gpd.GeoDataFrame, catchm
     # Interactive map otherwise
     else:
         # Create base map centered on centre of mesh
-        # Assuming mesh_nodes_gdf has 'lat' and 'lon' columns for interactive map
         map_center = [mesh_nodes_gdf['lat'].mean(), mesh_nodes_gdf['lon'].mean()]
 
         # Define map tile layers
@@ -291,6 +290,9 @@ def plot_interactive_mesh_with_stations(mesh_nodes_gdf: gpd.GeoDataFrame, catchm
         # Add mesh to map as layer
         mesh_layer.add_to(map_obj)
         
+        # Select marker type
+        station_marker_icon = 'map-marker'
+        
         # Add stations as clearly differentiated markers
         if stations_gdf is not None:
             stations_gdf_wgs84 = stations_gdf.to_crs(epsg=4326) # Convert to Lat/Lon
@@ -300,7 +302,7 @@ def plot_interactive_mesh_with_stations(mesh_nodes_gdf: gpd.GeoDataFrame, catchm
 
                 folium.Marker(
                     location=[row.geometry.y, row.geometry.x], # Latitude, Longitude
-                    icon=folium.Icon(color=station_color, icon=station_marker_icon), # Using a different icon/color from fontawesome
+                    icon=folium.Icon(color=station_color, icon=station_marker_icon, prefix='fa'), # Using a different icon/color from https://fontawesome.com/v4/cheatsheet/
                     tooltip=f"Station: {row['station_name']}<br>ID: {row['station_id']}<br>Easting: {row['easting']}<br>Northing: {row['northing']}"
                 ).add_to(station_layer)
                 
