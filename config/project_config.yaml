@@ -9,7 +9,7 @@ global:
     catchments_to_process: ["eden"]  # TODO: add more in future dev
     run_defra_api: False
     run_camels_api: False 
-    run_era5_land_api: True  # Long!
+    run_era5_land_api: True  # Long! (Multiple hrs)
     run_outlier_detection: False
     run_gwl_imputation: False
 
@@ -140,6 +140,8 @@ eden:
     aet_raw_output_dir: "data/01_raw/eden/hydroclimatic/aet/"
     aet_processed_output_dir: "data/02_processed/eden/hydroclimatic/aet/"
     output_polygon_dir: "data/02_processed/eden/gis/"
+    aet_csv_path: "data/02_processed/eden/hydroclimatic/aet/aet_daily_catchment_sum.csv"
+    aet_fig_path: "results/figures/eden/time_series/hydroclimatic/aet_timeseries.png"
   
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
