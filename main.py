@@ -33,6 +33,7 @@ from src.preprocessing.gwl_feature_engineering import build_lags, trim_and_save,
     build_seasonality_features
 from src.data_ingestion.static_data_ingestion import load_land_cover_data, \
     load_process_elevation_data, derive_slope_data
+from src.data_ingestion.timeseries_data_ingestion import load_aet_data
 from src.graph_building.data_merging import reorder_static_columns, \
     snap_stations_to_mesh
 
@@ -326,6 +327,8 @@ try:
         
         # Geological Maps [DIGIMAPS (BGS data via Geology Digimap)]
         
+        # Permeability [BGS]
+        
         # Distance from River (Derived) [DEFRA/DIGIMAP]
         
         # --- 4c. Preprocess Time Series Features ---
@@ -346,14 +349,21 @@ try:
             SEE: 02_eda_preprocessing_hydroclimatic_data.ipynb
         """
         
-        # Potential Evapotranspiration [HadUK-GRID (2022) / CHESS-PE (2019) / EA PET, catchment total]
+        # Actual Evapotranspiration [ERA5-Land AET]
         
-        """
-        TEMPORARILY SKIPPED AS ERA5-Land DATA DOWN FOR MAINTENANCE WITH LINGERING ISSUES
-            (https://confluence.ecmwf.int/display/CKB/ERA5-Land%3A+data+documentation,
-            https://status.ecmwf.int/)
-            SEE: 02_eda_preprocessing_hydroclimatic_data.ipynb
-        """
+        aet_data = load_aet_data(
+            catchment=catchment,
+            shape_filepath=config[catchment]['paths']['gis_catchment_dir'],
+            required_crs=27700,
+            cdsapi_path=config["global"]["paths"]["CDSAPI_path"],
+            start_date=config["global"]["data_ingestion"]["model_start_date"],
+            end_date=config["global"]["data_ingestion"]["model_end_date"],
+            run_era5_land_api=config["global"]["pipeline_settings"]["run_era5_land_api"],
+            raw_output_dir=config[catchment]["paths"]["aet_raw_output_dir"],
+            processed_output_dir=config[catchment]["paths"]["aet_processed_output_dir"],
+            aet_csv_path=config[catchment]["paths"]["aet_csv_path"],
+            aet_fig_path=config[catchment]["paths"]["aet_fig_path"]
+        )
         
         # River Flow / Streamflow / River Stage [DEFRA / NRFA]
         
