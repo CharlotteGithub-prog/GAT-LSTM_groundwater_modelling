@@ -17,6 +17,7 @@ logging.basicConfig(
 # Set up logger for file and load config file for paths and params
 logger = logging.getLogger(__name__)
 
+# Reorder columns for more logical scanning
 def reorder_static_columns(df: pd.DataFrame):
     """ 
     Reorder columns in df to put geometry before features
@@ -61,7 +62,7 @@ def _perform_attribute_merges(polygon_geometry_mesh: gpd.GeoDataFrame, station_n
         how='left'
     )
 
-    # --- Perform regular merge to merge in centroids
+    # --- Perform regular merge to merge in centroids ---
     
     logger.info(f"Merging catchment stations with centroid geometry.")
     
@@ -107,16 +108,14 @@ def snap_stations_to_mesh(station_list_path: str, polygon_geometry_path: str, ou
     """
     logger.info(f"Snapping {catchment} catchment stations to mesh centroids...\n")
     
-    # --- Read in data required for merges ---
-    
+    # Read in data required for merges
     station_list_gdf, polygon_geometry_mesh = _obtain_snapping_data(
         polygon_geometry_path,
         catchment,
         station_list_path
     )
 
-    # --- Perform spatial merge for gdf ---
-    
+    # Perform spatial merge for gdf
     logger.info(f"Spatial merging catchment stations within polygon geometry.")
 
     station_node_mapping_temp = gpd.sjoin(
@@ -126,16 +125,14 @@ def snap_stations_to_mesh(station_list_path: str, polygon_geometry_path: str, ou
         op='within'
     )
 
-    # --- Perform attribute merges ---
-    
+    # Perform attribute merges
     station_node_mapping = _perform_attribute_merges(
         polygon_geometry_mesh,
         station_node_mapping_temp,
         mesh_nodes_gdf
     )
 
-    # --- Converting snapped station DataFrame to mapping GeoDataFrame ---
-    
+    # Converting snapped station DataFrame to mapping GeoDataFrame
     station_node_mapping = _finalise_mapping_gdf(station_node_mapping)
     
     # Save snapped df to 02_processed dir
@@ -143,5 +140,5 @@ def snap_stations_to_mesh(station_list_path: str, polygon_geometry_path: str, ou
     station_node_mapping.to_csv(output_path, index=False)
     
     logger.info(f"All {catchment} catchment stations snapped to centroids.\n")
-
+    
     return station_node_mapping
