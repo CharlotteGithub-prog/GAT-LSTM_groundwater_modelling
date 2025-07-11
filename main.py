@@ -33,7 +33,7 @@ from src.preprocessing.gwl_feature_engineering import build_lags, trim_and_save,
     build_seasonality_features
 from src.data_ingestion.static_data_ingestion import load_land_cover_data, \
     load_process_elevation_data, derive_slope_data
-from src.data_ingestion.timeseries_data_ingestion import load_aet_data
+from src.data_ingestion.timeseries_data_ingestion import load_aet_data_old
 from src.graph_building.data_merging import reorder_static_columns, \
     snap_stations_to_mesh
 
@@ -351,7 +351,7 @@ try:
         
         # Actual Evapotranspiration [ERA5-Land AET]
         
-        aet_data = load_aet_data(
+        aet_data = load_aet_data_old(
             catchment=catchment,
             shape_filepath=config[catchment]['paths']['gis_catchment_dir'],
             required_crs=27700,
@@ -378,7 +378,6 @@ try:
         # Others from HAD-UK (CEDA)
         
         """
-            - sun: Daily total sunshine duration
             - snowLying: snow depth / presence
             - tas: temperature at surface
             - rainfall: total rainfall [DONE]

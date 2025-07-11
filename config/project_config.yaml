@@ -139,10 +139,19 @@ eden:
     direction_edge_weights_path: "data/02_processed/eden/static/slope/direction_edge_weights.csv"
     slope_path: "data/02_processed/eden/static/slope/slope_magnitude_aspect.csv"
     aet_raw_output_dir: "data/01_raw/eden/hydroclimatic/aet/"
-    aet_processed_output_dir: "data/02_processed/eden/hydroclimatic/aet/"
     output_polygon_dir: "data/02_processed/eden/gis/"
+    # --- ERA5-Land API Ingestion ---
+    aet_processed_output_dir: "data/02_processed/eden/hydroclimatic/aet/"
+    2t_raw_output_dir: "data/01_raw/eden/hydroclimatic/2meter_temp/"
+    2t_processed_output_dir: "data/02_processed/eden/hydroclimatic/2meter_temp/"
+    sp_raw_output_dir: "data/01_raw/eden/hydroclimatic/surface_pressure/"
+    sp_processed_output_dir: "data/02_processed/eden/hydroclimatic/surface_pressure/"
     aet_csv_path: "data/02_processed/eden/hydroclimatic/aet/aet_daily_catchment_sum.csv"
     aet_fig_path: "results/figures/eden/time_series/hydroclimatic/aet_timeseries.png"
+    2t_csv_path: "data/02_processed/eden/hydroclimatic/2meter_temp/2m_temp_daily_catchment_mean.csv"
+    2t_fig_path: "results/figures/eden/time_series/hydroclimatic/2m_temp_timeseries.png"
+    sp_csv_path: "data/02_processed/eden/hydroclimatic/surface_pressure/surface_pressure_daily_catchment_mean.csv"
+    sp_fig_path: "results/figures/eden/time_series/hydroclimatic/surface_pressure_timeseries.png"
   
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
