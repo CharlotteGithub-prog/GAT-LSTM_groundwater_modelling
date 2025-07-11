@@ -375,6 +375,15 @@ try:
             SEE: 02_eda_preprocessing_hydroclimatic_data.ipynb
         """
         
+        # Others from HAD-UK (CEDA)
+        
+        """
+            - sun: Daily total sunshine duration
+            - snowLying: snow depth / presence
+            - tas: temperature at surface
+            - rainfall: total rainfall [DONE]
+        """
+        
         # --- 4d. Derived Hydrogeological Feature Engineering ---
         
         # 7 day rainfall lags [DERIVED]

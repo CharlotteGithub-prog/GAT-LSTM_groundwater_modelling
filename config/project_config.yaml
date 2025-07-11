@@ -124,6 +124,7 @@ eden:
     gwl_station_list: "data/01_raw/eden/gwl_stations/station_list.csv"
     raw_land_cover_path: "data/01_raw/eden/static/land_cover/gb2023lcm1km_dominant_aggregate.tif"
     elevation_dir_path: "data/01_raw/eden/static/elevation/"
+    rainfall_filename_path: "data/01_raw/eden/hydroclimatic/rainfall/filepaths.txt"
     # --- Specific OUPUT (processed) files ---
     mesh_nodes_output: "data/02_processed/eden/gis_and_mesh/catchment_mesh_nodes"  # ensure no specific file extension
     gwl_station_list_with_coords: "data/02_processed/eden/gwl_station_data/station_list_with_coords.csv"
