@@ -145,7 +145,7 @@ def _compute_weighted_aggregation(full_da, feat_name, aggregation_type):
 
     # Convert mm to m^3 (as standard for sum total for area) for pre-masked (polygon) area
     if aggregation_type == 'sum':
-        weighted_data = full_da * area_da / 1000
+        weighted_data = full_da * area_da
         catchment_aggregated_data = weighted_data.sum(dim=["latitude", "longitude"])
         catchment_aggregated_data.name = f"{feat_name}_total_volume_m3"
         
@@ -360,7 +360,7 @@ def _resample_by_time_and_step(ds, era5_feat, aggregation_type):
     
     # Apply transformation for data to standard units and range for AET data
     if era5_feat == 'e':  # AET
-        transformed_data = -1 * feat_flat * 1000  # m to mm
+        transformed_data = -1 * feat_flat  # Invert only
         transformed_data = transformed_data.where(transformed_data >= 0, 0)
     elif era5_feat == '2t':  # 2m temperature
         transformed_data = feat_flat - 273.15  # Convert from ºK to ºC
