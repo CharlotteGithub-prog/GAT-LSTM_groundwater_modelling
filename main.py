@@ -341,9 +341,9 @@ try:
             SEE: 02_eda_preprocessing_hydroclimatic_data.ipynb
         """
         
-        # 2m Surface Temperature (Daily Mean Temperature, °C, catchment average) [HadUK-GRID]
+        # Surface Pressure (Daily Mean, hPa, catchment average) [HadUK-Grid]
         
-        temp_data = load_era5_land_data(
+        pressure_data = load_era5_land_data(
             catchment=catchment,
             shape_filepath=config[catchment]['paths']['gis_catchment_dir'],
             required_crs=27700,
@@ -351,16 +351,16 @@ try:
             start_date=config["global"]["data_ingestion"]["model_start_date"],
             end_date=config["global"]["data_ingestion"]["model_end_date"],
             run_era5_land_api=config["global"]["pipeline_settings"]["run_era5_land_api"],
-            raw_output_dir=config[catchment]["paths"]["2t_raw_output_dir"],
-            processed_output_dir=config[catchment]["paths"]["2t_processed_output_dir"],
-            csv_path=config[catchment]["paths"]["2t_csv_path"],
-            fig_path=config[catchment]["paths"]["2t_fig_path"],
-            era5_feat='2t',
-            era5_long='2m_temperature',
-            feat_name='2m_temp',
+            raw_output_dir=config[catchment]["paths"]["sp_raw_output_dir"],
+            processed_output_dir=config[catchment]["paths"]["sp_processed_output_dir"],
+            csv_path=config[catchment]["paths"]["sp_csv_path"],
+            fig_path=config[catchment]["paths"]["sp_fig_path"],
+            era5_feat='sp',
+            era5_long='surface_pressure',
+            feat_name='surface_pressure',
             aggregation_type='mean'
         )
-                
+        
         # Actual Evapotranspiration [ERA5-Land AET]
         
         aet_data = load_era5_land_data(
@@ -381,11 +381,9 @@ try:
             aggregation_type='sum'
         )
         
-        # River Flow / Streamflow / River Stage [DEFRA / NRFA]
+        # 2m Surface Temperature (Daily Mean Temperature, °C, catchment average) [HadUK-GRID]
         
-        # Surface Pressure (Daily Mean, hPa, catchment average) [HadUK-Grid]
-        
-        pressure_data = load_era5_land_data(
+        temp_data = load_era5_land_data(
             catchment=catchment,
             shape_filepath=config[catchment]['paths']['gis_catchment_dir'],
             required_crs=27700,
@@ -393,15 +391,18 @@ try:
             start_date=config["global"]["data_ingestion"]["model_start_date"],
             end_date=config["global"]["data_ingestion"]["model_end_date"],
             run_era5_land_api=config["global"]["pipeline_settings"]["run_era5_land_api"],
-            raw_output_dir=config[catchment]["paths"]["sp_raw_output_dir"],
-            processed_output_dir=config[catchment]["paths"]["sp_processed_output_dir"],
-            csv_path=config[catchment]["paths"]["sp_csv_path"],
-            fig_path=config[catchment]["paths"]["sp_fig_path"],
-            era5_feat='sp',
-            era5_long='surface_pressure',
-            feat_name='surface_pressure',
+            raw_output_dir=config[catchment]["paths"]["2t_raw_output_dir"],
+            processed_output_dir=config[catchment]["paths"]["2t_processed_output_dir"],
+            csv_path=config[catchment]["paths"]["2t_csv_path"],
+            fig_path=config[catchment]["paths"]["2t_fig_path"],
+            era5_feat='2t',
+            era5_long='2m_temperature',
+            feat_name='2m_temp',
             aggregation_type='mean'
         )
+        
+        # River Flow / Streamflow / River Stage [DEFRA / NRFA]
+        
         
         # Others from HAD-UK (CEDA)?
         
