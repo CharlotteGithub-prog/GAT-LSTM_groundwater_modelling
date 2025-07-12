@@ -9,7 +9,7 @@ global:
     catchments_to_process: ["eden"]  # TODO: add more in future dev
     run_defra_api: False
     run_camels_api: False 
-    run_era5_land_api: True  # Long! (Multiple hrs)
+    run_era5_land_api: False  # Long!
     run_outlier_detection: False
     run_gwl_imputation: False
 
@@ -164,6 +164,21 @@ eden:
     catchment_max_elevation: 945.40  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     catchment_min_elevation: 8.00  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
   
+  # --- ERA5-Land Preprocessing ---
+  era5_land_grids:
+    lat_0_1_start: 55.15
+    lat_0_1_stop: 54.34
+    lat_0_1_step: -0.1
+    lon_0_1_start: -3.15
+    lon_0_1_stop: -2.24
+    lon_0_1_step: 0.1
+    lat_0_05_start: 54.3
+    lat_0_05_stop: 55.21
+    lat_0_05_step: 0.05
+    lon_0_05_start: -3.2
+    lon_0_05_stop: -2.19
+    lon_0_05_step: 0.05
+
   visualisations:
     maps:
       static_mesh_map_output: "results/figures/eden/maps/static_mesh_map"  # ensure no specific file extension

@@ -33,7 +33,7 @@ from src.preprocessing.gwl_feature_engineering import build_lags, trim_and_save,
     build_seasonality_features
 from src.data_ingestion.static_data_ingestion import load_land_cover_data, \
     load_process_elevation_data, derive_slope_data
-from src.data_ingestion.timeseries_data_ingestion import load_aet_data_old
+from src.data_ingestion.timeseries_data_ingestion import load_era5_land_data
 from src.graph_building.data_merging import reorder_static_columns, \
     snap_stations_to_mesh
 
@@ -325,7 +325,7 @@ try:
         
         # Aquifer Properties (tbd - depth? type? transmissivity? storage coefficientet?) [DEFRA/BGS]
         
-        # Geological Maps [DIGIMAPS (BGS data via Geology Digimap)]
+        # Geological Maps [DIGIMAPS (BGS data via Geology Digimap / Direct)]
         
         # Permeability [BGS]
         
@@ -341,17 +341,29 @@ try:
             SEE: 02_eda_preprocessing_hydroclimatic_data.ipynb
         """
         
-        # Temperature (Daily Mean Temperature, °C, catchment average) [HadUK-GRID]
+        # 2m Surface Temperature (Daily Mean Temperature, °C, catchment average) [HadUK-GRID]
         
-        """
-        TEMPORARILY SKIPPED TEMPERATURE AS CEDA CALL IS DEGRADED.
-            ADD IN ONCE CORRECTED: https://www.ceda.ac.uk/status/
-            SEE: 02_eda_preprocessing_hydroclimatic_data.ipynb
-        """
-        
+        temp_data = load_era5_land_data(
+            catchment=catchment,
+            shape_filepath=config[catchment]['paths']['gis_catchment_dir'],
+            required_crs=27700,
+            cdsapi_path=config["global"]["paths"]["CDSAPI_path"],
+            start_date=config["global"]["data_ingestion"]["model_start_date"],
+            end_date=config["global"]["data_ingestion"]["model_end_date"],
+            run_era5_land_api=config["global"]["pipeline_settings"]["run_era5_land_api"],
+            raw_output_dir=config[catchment]["paths"]["2t_raw_output_dir"],
+            processed_output_dir=config[catchment]["paths"]["2t_processed_output_dir"],
+            csv_path=config[catchment]["paths"]["2t_csv_path"],
+            fig_path=config[catchment]["paths"]["2t_fig_path"],
+            era5_feat='2t',
+            era5_long='2m_temperature',
+            feat_name='2m_temp',
+            aggregation_type='mean'
+        )
+                
         # Actual Evapotranspiration [ERA5-Land AET]
         
-        aet_data = load_aet_data_old(
+        aet_data = load_era5_land_data(
             catchment=catchment,
             shape_filepath=config[catchment]['paths']['gis_catchment_dir'],
             required_crs=27700,
@@ -361,26 +373,41 @@ try:
             run_era5_land_api=config["global"]["pipeline_settings"]["run_era5_land_api"],
             raw_output_dir=config[catchment]["paths"]["aet_raw_output_dir"],
             processed_output_dir=config[catchment]["paths"]["aet_processed_output_dir"],
-            aet_csv_path=config[catchment]["paths"]["aet_csv_path"],
-            aet_fig_path=config[catchment]["paths"]["aet_fig_path"]
+            csv_path=config[catchment]["paths"]["aet_csv_path"],
+            fig_path=config[catchment]["paths"]["aet_fig_path"],
+            era5_feat='e',
+            era5_long='total_evaporation',
+            feat_name='aet',
+            aggregation_type='sum'
         )
         
         # River Flow / Streamflow / River Stage [DEFRA / NRFA]
         
-        # Atmospheric Pressure (Daily Mean, hPa/mbar, catchment average) [HadUK-Grid]
+        # Surface Pressure (Daily Mean, hPa, catchment average) [HadUK-Grid]
+        
+        pressure_data = load_era5_land_data(
+            catchment=catchment,
+            shape_filepath=config[catchment]['paths']['gis_catchment_dir'],
+            required_crs=27700,
+            cdsapi_path=config["global"]["paths"]["CDSAPI_path"],
+            start_date=config["global"]["data_ingestion"]["model_start_date"],
+            end_date=config["global"]["data_ingestion"]["model_end_date"],
+            run_era5_land_api=config["global"]["pipeline_settings"]["run_era5_land_api"],
+            raw_output_dir=config[catchment]["paths"]["sp_raw_output_dir"],
+            processed_output_dir=config[catchment]["paths"]["sp_processed_output_dir"],
+            csv_path=config[catchment]["paths"]["sp_csv_path"],
+            fig_path=config[catchment]["paths"]["sp_fig_path"],
+            era5_feat='sp',
+            era5_long='surface_pressure',
+            feat_name='surface_pressure',
+            aggregation_type='mean'
+        )
+        
+        # Others from HAD-UK (CEDA)?
         
         """
-        TEMPORARILY SKIPPED PRESSURE AS CEDA CALL IS DEGRADED.
-            ADD IN ONCE CORRECTED: https://www.ceda.ac.uk/status/
-            SEE: 02_eda_preprocessing_hydroclimatic_data.ipynb
-        """
-        
-        # Others from HAD-UK (CEDA)
-        
-        """
+        ERA5-Land:
             - snowLying: snow depth / presence
-            - tas: temperature at surface
-            - rainfall: total rainfall [DONE]
         """
         
         # --- 4d. Derived Hydrogeological Feature Engineering ---
