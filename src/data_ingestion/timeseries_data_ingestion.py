@@ -56,15 +56,28 @@ def find_haduk_file_names(start_date: str, end_date: str, base_url: str):
     
     return urls
 
+"""
+NOTE: HADUK Data should be ingested through API, but ongoing credential issues
+necessitated manual download for current pipeline. This should be adjusted back
+to use the API when these CEDA issues are resoled.
+"""
 # HADUK Gridded Rainfall
-# def load_main_rainfall_data(HAD_UK_rainfall_url):
+# def load_main_rainfall_data(haduk_urls):
 #     """
-#     Loads rainfall data from...
+#     Loads rainfall data from CEDA API...
 #     """
-#     logger.info(f"Loading HADUK rainfall data via CEDA OPeNDAP service...")
+#     url = haduk_urls[0]
+#     try:
+#         ds = xr.open_dataset(url, engine="netcdf4")
+#         print(ds)
+#     except OSError as e:
+#         print("Failed to open dataset. This may be due to CEDA login issues. Check https://www.ceda.ac.uk/status/")
+#         print(e)
 
-#     ds = xr.open_dataset(url)
-#     print(ds)
+#     os.environ["NETRC"] = os.path.abspath("ceda_credentials.netrc")
+
+def load_rainfall_data(rainfall_data_path):
+    pass NEXT!!!!!!!
 
 def _get_bbox_and_polygon(catchment, shape_filepath, required_crs):
     # Derive full path
