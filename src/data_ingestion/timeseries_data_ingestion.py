@@ -169,7 +169,7 @@ def _compute_weighted_aggregation(full_da, feat_name, aggregation_type):
     return catchment_aggregated_data
 
 def _combine_and_aggregate_daily_data(all_daily_dataarrays, processed_output_dir,start_year, end_year,
-                                      feat_name, aggregation_type):
+                                      feat_name, aggregation_type, catchment):
     # Concatenate all monthly DataArrays into a single xarray.DataArray along the time dimension
     full_da = xr.concat(all_daily_dataarrays, dim='time')
 
@@ -180,6 +180,7 @@ def _combine_and_aggregate_daily_data(all_daily_dataarrays, processed_output_dir
     full_da.to_netcdf(final_nc_path)
     
     logging.info(f"ERA5-Land {feat_name} data retrieval and processing complete.")
+    
 
     # --- Save processed data as csv ---
 
@@ -189,6 +190,10 @@ def _combine_and_aggregate_daily_data(all_daily_dataarrays, processed_output_dir
     
     # Compute total volume loss for area using weighted area per grid cell (not uniform)
     catchment_sum_data = _compute_weighted_aggregation(full_da, feat_name, aggregation_type)
+    
+    # Handle outlying values if needed (manual confirmation)
+    if feat_name == 'surface_pressure' and catchment == 'eden':
+        catchment_sum_data = _handle_outlying_values(catchment_sum_data, catchment)
     
     # Drop duplicate (overlapping) timestamps before saving
     time_index = catchment_sum_data.indexes["time"]
@@ -449,8 +454,19 @@ def _process_local_grib_files(raw_output_dir, catchment_polygon, all_daily_dataa
             except Exception as e:
                 logging.error(f"Error processing {fname}: {e}")
 
-def _handle_outlying_values():
-    pass
+def _handle_outlying_values(catchment_agg, catchment):
+    """
+    Adjust misaligned surface pressure values (manual not generalised outlier detection).
+    """
+    logging.info(f"Adjusting outlying values in {catchment} catchment.")
+    catchment_clean = catchment_agg.copy()
+    
+    n_adjusted = int((catchment_clean > 1100).sum())
+    logging.info(f"Adjusted {n_adjusted} values over 1100 hPa in surface pressure.")
+
+    # Adjust value (hard coded to correct surface_pressure)
+    catchment_clean = xr.where(catchment_clean > 1100, catchment_clean - 175, catchment_clean)
+    return catchment_clean
 
 def load_era5_land_data(catchment: str, shape_filepath: float, required_crs: int, cdsapi_path: str,
                   start_date: str, end_date: str, run_era5_land_api: bool, raw_output_dir: str,
@@ -508,15 +524,12 @@ def load_era5_land_data(catchment: str, shape_filepath: float, required_crs: int
         # --- Aggregate to daily values for catchment ---
         catchment_agg = _combine_and_aggregate_daily_data(
             all_daily_dataarrays, processed_output_dir,start_year, end_year,
-            feat_name, aggregation_type)
-        
-        # --- Handle outlying values ---
-        catchment_clean = _handle_outlying_values(catchment_agg)
+            feat_name, aggregation_type, catchment)
         
         # --- Save time series data to results ---
         _save_era5_graph(csv_path, fig_path, feat_name, catchment, aggregation_type)
         
-        return catchment_clean
+        return catchment_agg
 
     else:
         
