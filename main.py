@@ -3,7 +3,7 @@
 
 ### FULL PIPELINE ###
 
-# Expected Processing Time: ## hrs ## minutes
+# Expected Processing Time (with API calls = False): ## hrs ## minutes
 
 # ==============================================================================
 # SECTION 1: IMPORTS & CONFIGURATION
@@ -33,7 +33,8 @@ from src.preprocessing.gwl_feature_engineering import build_lags, trim_and_save,
     build_seasonality_features
 from src.data_ingestion.static_data_ingestion import load_land_cover_data, \
     load_process_elevation_data, derive_slope_data
-from src.data_ingestion.timeseries_data_ingestion import load_era5_land_data
+from src.data_ingestion.timeseries_data_ingestion import load_era5_land_data, \
+    load_rainfall_data
 from src.graph_building.data_merging import reorder_static_columns, \
     snap_stations_to_mesh
 
@@ -335,15 +336,18 @@ try:
         
         # Precipitation (Daily Rainfall, mm, catchment total) [HadUK-GRID]
         
-        """
-        TEMPORARILY SKIPPED RAINFALL AND LAGS AS CEDA CALL IS DEGRADED.
-            ADD IN ONCE CORRECTED: https://www.ceda.ac.uk/status/ 
-            SEE: 02_eda_preprocessing_hydroclimatic_data.ipynb
-        """
+        load_rainfall_data(
+            rainfall_dir=config[catchment]["paths"]["rainfall_filename_dir"],
+            shape_filepath=config[catchment]["paths"]["gis_catchment_dir"],
+            processed_output_dir=config[catchment]["paths"]["rainfall_processed_output_dir"],
+            fig_path=config[catchment]["paths"]["rainfall_fig_path"],
+            required_crs=27700,
+            catchment=catchment
+        )
         
         # Surface Pressure (Daily Mean, hPa, catchment average) [HadUK-Grid]
         
-        pressure_data = load_era5_land_data(
+        load_era5_land_data(
             catchment=catchment,
             shape_filepath=config[catchment]['paths']['gis_catchment_dir'],
             required_crs=27700,
@@ -363,7 +367,7 @@ try:
         
         # Actual Evapotranspiration [ERA5-Land AET]
         
-        aet_data = load_era5_land_data(
+        load_era5_land_data(
             catchment=catchment,
             shape_filepath=config[catchment]['paths']['gis_catchment_dir'],
             required_crs=27700,
@@ -383,7 +387,7 @@ try:
         
         # 2m Surface Temperature (Daily Mean Temperature, °C, catchment average) [HadUK-GRID]
         
-        temp_data = load_era5_land_data(
+        load_era5_land_data(
             catchment=catchment,
             shape_filepath=config[catchment]['paths']['gis_catchment_dir'],
             required_crs=27700,
