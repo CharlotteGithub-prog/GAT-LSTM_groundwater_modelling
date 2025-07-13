@@ -78,7 +78,7 @@ def _save_haduk_graph(csv_path, fig_path, catchment):
     # Save figure to results
     plt.savefig(fig_path)
 
-def _slice_and_mask_data(north, south, east, west, rainfall_data_all, polygon_4326, catchment):
+def _slice_and_mask_data(ds, north, south, east, west, catchment, mask_da):
     # --- slice data to bounding box ---
             
     # Generate boolean mask for lat/lon bounds
@@ -102,20 +102,6 @@ def _slice_and_mask_data(north, south, east, west, rainfall_data_all, polygon_43
                 projection_x_coordinate=slice(min_x, max_x + 1))
     
     # --- mask to polygon bounds ---
-
-    # Only generate mask first time to reduce computation
-    if not rainfall_data_all:
-        logging.info("Generating regionmask for first file...")
-        
-        mask_da = regionmask.mask_geopandas(
-            polygon_4326,
-            ds.longitude.copy(),
-            ds.latitude.copy()
-        )
-        
-        # Ensure consistent naming ('latitude', 'longitude') before applying the mask
-        if 'lat' in mask_da.dims and 'lon' in mask_da.dims:
-            mask_da = mask_da.rename({'lat': 'latitude', 'lon': 'longitude'})
             
     # Apply the 2D mask to ds (xarray handles broadcasting)
     logging.info(f'    Masking rainfall data to {catchment} catchment.')
@@ -153,7 +139,23 @@ def _process_rainfall_files(rainfall_dir, catchment, shape_filepath, required_cr
             month = filename[-7:-5]
             logging.info(f'Processing rainfall data for month {month} year {year}...')
             
-            masked_data = _slice_and_mask_data()
+            # --- mask to polygon bounds ---
+
+            # Only generate mask first time to reduce computation
+            if not rainfall_data_all:
+                logging.info("Generating regionmask for first file...")
+                
+                mask_da = regionmask.mask_geopandas(
+                    polygon_4326,
+                    ds.longitude.copy(),
+                    ds.latitude.copy()
+                )
+                
+                # Ensure consistent naming ('latitude', 'longitude') before applying the mask
+                if 'lat' in mask_da.dims and 'lon' in mask_da.dims:
+                    mask_da = mask_da.rename({'lat': 'latitude', 'lon': 'longitude'})
+            
+            masked_data = _slice_and_mask_data(ds, north, south, east, west, catchment, mask_da)
             
             # Drop uneeded vars to reduce computation
             masked_data = masked_data.drop_vars(['projection', 'crs'], errors='ignore')
