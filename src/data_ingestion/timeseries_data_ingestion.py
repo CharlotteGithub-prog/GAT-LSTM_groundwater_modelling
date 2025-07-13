@@ -76,9 +76,157 @@ to use the API when these CEDA issues are resoled.
 
 #     os.environ["NETRC"] = os.path.abspath("ceda_credentials.netrc")
 
-def load_rainfall_data(rainfall_data_path):
-    pass NEXT!!!!!!!
+# Load in HAD-UK 1km gridded rainfall Data
+def _save_haduk_graph(csv_path, fig_path, catchment):
+    # Load the processed CSV
+    df = pd.read_csv(csv_path, index_col=0, parse_dates=True)
+    
+    print(f"Max value in dataset: {df.max().values}")
+    print(f"Min value in dataset: {df.min().values}")
 
+    # Plot time series
+    plt.figure(figsize=(12, 5))
+    plt.plot(df.index, df.values, label="Catchment Rainfall Volume", color='tab:blue')
+    plt.title(f"Daily {catchment} Catchment - Total Rainfall Volume")
+    plt.xlabel("Date")
+    plt.ylabel("Volume (m³)")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.legend()
+    
+    # Save figure to results
+    plt.savefig(fig_path)
+
+def _slice_and_mask_data(north, south, east, west, rainfall_data_all, polygon_4326, catchment):
+    # --- slice data to bounding box ---
+            
+    # Generate boolean mask for lat/lon bounds
+    lat2d = ds.latitude
+    lon2d = ds.longitude
+
+    within_bbox = (lat2d >= south) & (lat2d <= north) & (lon2d >= west) & (lon2d <= east)
+
+    # Get bounding indices of valid region
+    valid_y, valid_x = np.where(within_bbox)
+
+    if valid_y.size == 0 or valid_x.size == 0:
+        raise ValueError("No valid points found within bounding box — check bounding box or data grid.")
+
+    # Get index bounds to slice projection coords
+    min_y, max_y = valid_y.min(), valid_y.max()
+    min_x, max_x = valid_x.min(), valid_x.max()
+
+    # Slice using projection coordinate dimensions
+    ds = ds.isel(projection_y_coordinate=slice(min_y, max_y + 1), 
+                projection_x_coordinate=slice(min_x, max_x + 1))
+    
+    # --- mask to polygon bounds ---
+
+    # Only generate mask first time to reduce computation
+    if not rainfall_data_all:
+        logging.info("Generating regionmask for first file...")
+        
+        mask_da = regionmask.mask_geopandas(
+            polygon_4326,
+            ds.longitude.copy(),
+            ds.latitude.copy()
+        )
+        
+        # Ensure consistent naming ('latitude', 'longitude') before applying the mask
+        if 'lat' in mask_da.dims and 'lon' in mask_da.dims:
+            mask_da = mask_da.rename({'lat': 'latitude', 'lon': 'longitude'})
+            
+    # Apply the 2D mask to ds (xarray handles broadcasting)
+    logging.info(f'    Masking rainfall data to {catchment} catchment.')
+    masked_data = ds.where(~np.isnan(mask_da))
+    
+    return masked_data
+
+def _process_rainfall_files(rainfall_dir, catchment, shape_filepath, required_crs):
+    """
+    Provess raw rainfall data files in directory. Slice data to bounding box and mask to
+    catchment polygon bounds. Append masked data to list of all files and return.
+    """
+    # --- Get bounding box for catchment
+
+    north, south, east, west, catchment_polygon =  _get_bbox_and_polygon(
+        catchment, shape_filepath, required_crs)
+        
+    logging.info(f"Catchment BBox (lat/lon): {north, south, east, west}")
+    logging.info(f"Catchment polygon CRS: {catchment_polygon.crs}")
+    logging.info(f'Catchment polygon area (approx.): {catchment_polygon.to_crs("EPSG:3857").area.sum()/1e6} km^2')
+    
+    # -- Loop through raw data files ---
+    
+    # Initialise data list and catchment polygon
+    rainfall_data_all = []
+    polygon_4326 = catchment_polygon.to_crs("EPSG:4326").copy()
+
+    # Loop through file in directory and append file to full data list
+    for filename in sorted(os.listdir(rainfall_dir)):
+        # if filename.startswith("rainfall_hadukgrid_uk_1km_day_"):
+        if filename.startswith("rainfall_hadukgrid_uk_1km_day_"):
+            ds = xr.open_dataset(os.path.join(rainfall_dir, filename))
+            
+            year = filename[-11:-7]
+            month = filename[-7:-5]
+            logging.info(f'Processing rainfall data for month {month} year {year}...')
+            
+            masked_data = _slice_and_mask_data()
+            
+            # Drop uneeded vars to reduce computation
+            masked_data = masked_data.drop_vars(['projection', 'crs'], errors='ignore')
+            
+            # Check for nan
+            if 'rainfall' in masked_data:
+                nan_count = masked_data['rainfall'].isnull().sum().item()
+                logging.info(f"    Total NaN values in 'rainfall': {nan_count}")
+            else:
+                logging.warning("'rainfall' variable not found in dataset!")
+            
+            logging.info(f'    Appending rainfall data to rainfall_data_all list.\n')
+            rainfall_data_all.append(masked_data)
+    
+    return rainfall_data_all
+
+def load_rainfall_data(rainfall_dir, shape_filepath, processed_output_dir, fig_path, required_crs, catchment):
+
+    # --- open rainfall files across file time period ---
+
+    rainfall_data_all = _process_rainfall_files(rainfall_dir, catchment,
+                                                shape_filepath, required_crs)
+        
+    # Concatenate all monthly DataArrays into a single xarray.DataArray along the time dimension
+    logging.info(f'Concatenating rainfall data along time dimension.')
+    full_da = xr.concat(rainfall_data_all, dim='time')
+
+    # Ensure no duplicates
+    full_da = full_da.sortby('time')
+    if full_da.indexes['time'].has_duplicates:
+        logging.warning("Duplicate timestamps found — dropping duplicates.")
+        full_da = full_da.sel(time=~full_da.indexes['time'].duplicated())
+        
+    # --- Aggregate grid data to catchment totals by timestep ---
+    logging.info(f"Summing depth per unit area to total {catchment} catchment volume rainfall.")
+    total_volume_m3 = (full_da["rainfall"] / 1000 * 1_000_000).sum(
+            dim=["projection_y_coordinate", "projection_x_coordinate"])
+
+    # Clarify column name for merging
+    total_volume_m3.name = "rainfall_volume_m3"
+
+    # --- Save processed data as csv ---
+
+    # Save as csv
+    final_csv_path = f"{processed_output_dir}rainfall_daily_catchment_sum.csv"
+    logging.info(f"Saving catchment-summed daily rainfall to CSV: {final_csv_path}")
+
+    # Save as ties series graph to view
+    _save_haduk_graph(final_csv_path, fig_path, catchment)
+
+    # Save as csv merge into main model df -> No return, just saved to csv file to access later  
+    total_volume_m3.to_dataframe().to_csv(final_csv_path)
+
+# Load in various ERA5-Land API features
 def _get_bbox_and_polygon(catchment, shape_filepath, required_crs):
     # Derive full path
     temp_geojson_path = f"{catchment}_combined_boundary.geojson"
@@ -122,9 +270,12 @@ def _estimate_cell_area(lat, lon, dlat, dlon, g):
     area, _ = g.polygon_area_perimeter(lons, lats)
     return abs(area)
 
-def _compute_weighted_aggregation(full_da, feat_name, aggregation_type):
+def _compute_weighted_aggregation_1D(full_da, feat_name, aggregation_type):
+    """
+    Aggregate 1D grid data from ERA5-Land datasets by sum or mean average.
+    """
     # Debug prints:
-    logging.info(f"DEBUG: Entering _compute_weighted_aggregation for {feat_name}")
+    logging.info(f"DEBUG: Entering _compute_weighted_aggregation_1D for {feat_name}")
     logging.info(f"DEBUG: full_da dims: {full_da.dims}, coords: {list(full_da.coords.keys())}")
     logging.info(f"DEBUG: full_da latitude: {full_da.latitude.values}")
     logging.info(f"DEBUG: full_da longitude: {full_da.longitude.values}")
@@ -189,11 +340,9 @@ def _combine_and_aggregate_daily_data(all_daily_dataarrays, processed_output_dir
     # Save the combined data to a single NetCDF file for the entire period
     final_nc_path = f"{processed_output_dir}{feat_name}_daily_{start_year}-{end_year}_era5land.nc"
     logging.info(f"Saving combined daily {feat_name} from {start_year}-{end_year} to: {final_nc_path}")
-    
     full_da.to_netcdf(final_nc_path)
     
     logging.info(f"ERA5-Land {feat_name} data retrieval and processing complete.")
-    
 
     # --- Save processed data as csv ---
 
@@ -202,7 +351,7 @@ def _combine_and_aggregate_daily_data(all_daily_dataarrays, processed_output_dir
     logging.info(f"Saving catchment-summed daily {feat_name} to CSV: {final_csv_path}")
     
     # Compute total volume loss for area using weighted area per grid cell (not uniform)
-    catchment_sum_data = _compute_weighted_aggregation(full_da, feat_name, aggregation_type)
+    catchment_sum_data = _compute_weighted_aggregation_1D(full_da, feat_name, aggregation_type)
     
     # Handle outlying values if needed (manual confirmation)
     if feat_name == 'surface_pressure' and catchment == 'eden':
@@ -247,14 +396,11 @@ def _extract_zip_file(zip_filename, raw_output_dir, year, month, feat_name):
 
     return None
 
-def _apply_catchment_mask(catchment_polygon, ds, daily_data_sliced):
+def _apply_catchment_mask(catchment_polygon, daily_data_sliced):
     """
     Mask from whole bounding box to catchment polygon before aggregating to catchment
     totals to avoid external bounding box data leaking into polygon.
     """
-    # Reset catchment mask to avoid leakage between features causing issues
-    # regionmask.defined_regions.clear()
-    
     # Ensure the polygon is in the correct CRS for masking against lon/lat data
     polygon_4326 = catchment_polygon.to_crs("EPSG:4326").copy()
     
@@ -453,9 +599,9 @@ def _process_local_grib_files(raw_output_dir, catchment_polygon, all_daily_dataa
                 month_start_date = datetime.datetime(current_year, current_month, 1)
                 month_end_date = datetime.datetime(current_year, current_month, last_day_of_month)
                 
-                # Slice daily_data using these dates
+                # Slice daily_data using these dates and mask
                 daily_data_sliced = daily_data.sel(valid_time=slice(month_start_date, month_end_date))
-                masked = _apply_catchment_mask(catchment_polygon, ds, daily_data_sliced)
+                masked = _apply_catchment_mask(catchment_polygon, daily_data_sliced)
                 
                 # Clean and ensure consistent structure before appending to all_daily_aet_dataarrays
                 masked = masked.drop_vars(['number', 'surface'], errors='ignore')
@@ -541,10 +687,7 @@ def load_era5_land_data(catchment: str, shape_filepath: float, required_crs: int
         
         # --- Save time series data to results ---
         _save_era5_graph(csv_path, fig_path, feat_name, catchment, aggregation_type)
-        
-        return catchment_agg
 
     else:
         
         logging.info(f"No {feat_name} data was retrieved or processed.\n")
-        return None
