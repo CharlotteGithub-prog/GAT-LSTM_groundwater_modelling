@@ -20,27 +20,12 @@ import pandas as pd
 
 # --- 1b. Project Imports ---
 from src.utils.config_loader import load_project_config
-from src.graph_building.graph_construction import build_mesh, \
-    define_catchment_polygon
-from src.graph_building.data_merging import reorder_static_columns, \
-    snap_stations_to_mesh
 from src.visualisation.mapped_visualisations import plot_interactive_mesh
-from src.data_ingestion.gwl_data_ingestion import process_station_coordinates, \
-    fetch_and_process_station_data, download_and_save_station_readings
-from src.data_ingestion.static_data_ingestion import load_land_cover_data, \
-    load_process_elevation_data, derive_slope_data
-from src.data_ingestion.timeseries_data_ingestion import load_era5_land_data, \
-    load_rainfall_data
-from src.preprocessing.gwl_preprocessing import load_timeseries_to_dict, \
-    outlier_detection, resample_daily_average, remove_spurious_data, \
-    handle_short_gaps
-from src.preprocessing.gap_imputation import handle_large_gaps
-from src.preprocessing.gwl_feature_engineering import build_lags, trim_and_save, \
-    build_seasonality_features
-from src.preprocessing.hydroclimatic_feature_engineering import derive_rainfall_features
-
-# from src.preprocessing import gwl_preprocessing, gap_imputation, gwl_feature_engineering, \
-#     hydroclimatic_feature_engineering
+from src.preprocessing import gwl_preprocessing, gap_imputation, gwl_feature_engineering, \
+    hydroclimatic_feature_engineering
+from src.data_ingestion import gwl_data_ingestion, static_data_ingestion, \
+    timeseries_data_ingestion
+from src.graph_building import graph_construction, data_merging
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -79,7 +64,7 @@ try:
 
         # --- 2a. Load and convert gwl station location data (DEFRA) ---
         
-        stations_with_coords_df = process_station_coordinates(
+        stations_with_coords_df = gwl_data_ingestion.process_station_coordinates(
             os_grid_squares=config["global"]["paths"]["gis_os_grid_squares"],
             station_list_input=config[catchment]["paths"]["gwl_station_list"],
             station_list_output=config[catchment]["paths"]["gwl_station_list_with_coords"],
@@ -93,7 +78,7 @@ try:
 
             # --- 2b. Retrieve station measures and metadata from DEFRA API ---
 
-            stations_with_metadata_measures = fetch_and_process_station_data(
+            stations_with_metadata_measures = gwl_data_ingestion.fetch_and_process_station_data(
                 stations_df=stations_with_coords_df,
                 base_url=config["global"]["paths"]["defra_station_base_url"],
                 output_path=config[catchment]["paths"]["gwl_station_metadata_measures"]
@@ -103,7 +88,7 @@ try:
             
             # --- 2c. Retrieve raw gwl timeseris data by station from DEFRA API ---
 
-            download_and_save_station_readings(
+            gwl_data_ingestion.download_and_save_station_readings(
                 stations_df=stations_with_metadata_measures,
                 start_date=config["global"]["data_ingestion"]["api_start_date"],
                 end_date=config["global"]["data_ingestion"]["api_end_date"],
@@ -124,7 +109,7 @@ try:
         # --- 3a. Build Catchment Graph Mesh ---
         
         # Select Catchment area from country wide gdf
-        define_catchment_polygon(
+        graph_construction.define_catchment_polygon(
             england_catchment_gdf_path=config[catchment]['paths']['gis_catchment_boundary'],
             target_mncat=config[catchment]['target_mncat'],
             catchment=catchment,
@@ -132,7 +117,8 @@ try:
         )
 
         # NB: mesh_nodes_gdf are the centroid coords, mesh_cells_gdf_polygons are polygons for e.g. averaging area
-        mesh_nodes_table, mesh_nodes_gdf, mesh_cells_gdf_polygons, catchment_polygon = build_mesh(
+        (mesh_nodes_table, mesh_nodes_gdf, mesh_cells_gdf_polygons,
+         catchment_polygon) = graph_construction.build_mesh(
             shape_filepath=config[catchment]['paths']['gis_catchment_dir'],
             output_path=config[catchment]['paths']['mesh_nodes_output'],
             catchment=catchment,
@@ -166,7 +152,7 @@ try:
         # --- 4a. gwl preprocessing ---
         
         # Load timeseries CSVs from API into reference dict, dropping stations with insuffient data
-        gwl_time_series_dict = load_timeseries_to_dict(
+        gwl_time_series_dict = gwl_preprocessing.load_timeseries_to_dict(
             stations_df=stations_with_metadata_measures,
             col_order=config["global"]["data_ingestion"]["col_order"],
             data_dir=config[catchment]["paths"]["gwl_data_output_dir"],
@@ -180,7 +166,7 @@ try:
         # Remove outlying and incorrect (user defined: spurious) data points
         
         for station_name, df in gwl_time_series_dict.items():
-            gwl_time_series_dict[station_name] = remove_spurious_data(
+            gwl_time_series_dict[station_name] = gwl_preprocessing.remove_spurious_data(
                 target_df=df,
                 station_name=station_name,
                 path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
@@ -192,7 +178,7 @@ try:
         # Run initial outlier detection and removal
         
         if run_outlier_detection:   
-            processed_gwl_time_series_dict = outlier_detection(
+            processed_gwl_time_series_dict = gwl_preprocessing.outlier_detection(
                 gwl_time_series_dict=gwl_time_series_dict,
                 output_path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
                 dpi=config[catchment]["visualisations"]["ts_plots"]["dpi_save"],
@@ -210,7 +196,7 @@ try:
         
         # Aggregate to daily time 
         
-        daily_data = resample_daily_average(
+        daily_data = gwl_preprocessing.resample_daily_average(
             dict=processed_gwl_time_series_dict,
             start_date=config["global"]["data_ingestion"]["api_start_date"],
             end_date=config["global"]["data_ingestion"]["api_end_date"],
@@ -223,7 +209,7 @@ try:
         # Interpolate across small gaps in the ts data (define threshold n/o missing time steps for interpolation
         # eligibility) + Add binary interpolation flag column
         
-        daily_data, gaps_list, station_max_gap_lengths_calculated = handle_short_gaps(
+        daily_data, gaps_list, station_max_gap_lengths_calculated = gwl_preprocessing.handle_short_gaps(
             daily_data=daily_data,
             path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
             max_steps=config["global"]["data_ingestion"]["max_interp_length"],
@@ -236,7 +222,7 @@ try:
 
         # Resolve larger gaps in data through a more considered donor imputation process
         
-        synthetic_imputation_performace, cleaned_df_dict = handle_large_gaps(
+        synthetic_imputation_performace, cleaned_df_dict = gap_imputation.handle_large_gaps(
             df_dict=daily_data,
             gaps_list=gaps_list,
             catchment=catchment,
@@ -258,14 +244,14 @@ try:
         
         # Add lagged ground water measurement features (1-7 days, lagged before trimming for full coverage)
         
-        df_with_lags = build_lags(
+        df_with_lags = gwl_feature_engineering.build_lags(
             df_dict=cleaned_df_dict,
             catchment=catchment
         )
 
         # define sinusoidal features for seasonality (both sine and cosine for performance)
         
-        df_with_seasons = build_seasonality_features(
+        df_with_seasons = gwl_feature_engineering.build_seasonality_features(
             df_dict=df_with_lags,
             catchment=catchment
         )
@@ -274,7 +260,7 @@ try:
         
         # Clean up final dataframes and trim to the temporal bounds of the GAT-LSTM model
         
-        trimmed_df_dict = trim_and_save(
+        trimmed_df_dict = gwl_feature_engineering.trim_and_save(
             df_dict=df_with_seasons,
             model_start_date=config['global']['data_ingestion']['model_start_date'],
             model_end_date=config['global']['data_ingestion']['model_end_date'],
@@ -289,7 +275,7 @@ try:
         
         # Land Cover [UKCEH LCM2023]
         
-        agg_land_cover_df = load_land_cover_data(
+        agg_land_cover_df = static_data_ingestion.load_land_cover_data(
             tif_path=config[catchment]['paths']['raw_land_cover_path'],
             csv_path=config[catchment]['paths']['land_cover_csv_path'],
             catchment=catchment,
@@ -300,7 +286,7 @@ try:
         
         # Elevation [DIGIMAPS (via OS Terrain 5 / Terrain 50)]
         
-        elevation_gdf_polygon, clipped_dtm = load_process_elevation_data(
+        elevation_gdf_polygon, clipped_dtm = static_data_ingestion.load_process_elevation_data(
             dir_path=config[catchment]['paths']['elevation_dir_path'],
             csv_path=config[catchment]['paths']['elevation_tif_path'],
             catchment_gdf=catchment_polygon,
@@ -316,7 +302,7 @@ try:
         
         # Slope [Derived from DEMS] + Edge Direction Weights (Derived from Slope -> modularise?)
         
-        slope_gdf, directional_edge_weights = derive_slope_data(
+        slope_gdf, directional_edge_weights = static_data_ingestion.derive_slope_data(
             high_res_raster=clipped_dtm,
             mesh_cells_gdf_polygons=mesh_cells_gdf_polygons,
             catchment=catchment,
@@ -340,7 +326,7 @@ try:
         
         # Precipitation (Daily Rainfall, mm, catchment total) [HadUK-GRID]
         
-        load_rainfall_data(
+        timeseries_data_ingestion.load_rainfall_data(
             rainfall_dir=config[catchment]["paths"]["rainfall_filename_dir"],
             shape_filepath=config[catchment]["paths"]["gis_catchment_dir"],
             processed_output_dir=config[catchment]["paths"]["rainfall_processed_output_dir"],
@@ -351,7 +337,7 @@ try:
         
         # Surface Pressure (Daily Mean, hPa, catchment average) [HadUK-Grid]
         
-        load_era5_land_data(
+        timeseries_data_ingestion.load_era5_land_data(
             catchment=catchment,
             shape_filepath=config[catchment]['paths']['gis_catchment_dir'],
             required_crs=27700,
@@ -371,7 +357,7 @@ try:
         
         # Actual Evapotranspiration [ERA5-Land AET]
         
-        load_era5_land_data(
+        timeseries_data_ingestion.load_era5_land_data(
             catchment=catchment,
             shape_filepath=config[catchment]['paths']['gis_catchment_dir'],
             required_crs=27700,
@@ -391,7 +377,7 @@ try:
         
         # 2m Surface Temperature (Daily Mean Temperature, °C, catchment average) [HadUK-GRID]
         
-        load_era5_land_data(
+        timeseries_data_ingestion.load_era5_land_data(
             catchment=catchment,
             shape_filepath=config[catchment]['paths']['gis_catchment_dir'],
             required_crs=27700,
@@ -423,7 +409,7 @@ try:
 
         # 30/60 day rainfall rolling average + 7 day rainfall lags [DERIVED]
         
-        rainfall_df = derive_rainfall_features(
+        rainfall_df = hydroclimatic_feature_engineering.derive_rainfall_features(
             csv_dir=config[catchment]["paths"]["rainfall_processed_output_dir"],
             start_date=config["global"]["data_ingestion"]["model_start_date"],
             end_date=config["global"]["data_ingestion"]["model_end_date"],
@@ -447,7 +433,7 @@ try:
         # Action: Attach GWL time series data (and static GWL station features) to these specific mesh nodes.
         # Output: Updated mesh_nodes_gdf or a separate node feature tensor/dataframe.
         
-        station_node_mapping = snap_stations_to_mesh(
+        station_node_mapping = data_merging.snap_stations_to_mesh(
             station_list_path=config[catchment]["paths"]["gwl_station_list_output"],
             polygon_geometry_path=config[catchment]['paths']['output_polygon_dir'],
             output_path=config[catchment]["paths"]["snapped_station_node_mapping"],
@@ -488,8 +474,8 @@ try:
             how='left'  # left join to keep all centroids, even NaN
         )
 
-        static_features = reorder_static_columns(static_features)
-        # merged_gdf_nodes_slope = reorder_static_columns(merged_gdf_nodes_slope)
+        static_features = data_merging.reorder_static_columns(static_features)
+        # merged_gdf_nodes_slope = data_merging.reorder_static_columns(merged_gdf_nodes_slope)
         logger.info(f"Slope degrees and sinusoidal aspect data snapped to mesh nodes (centroids).\n")
         
         # Incorporate Edge Weighting? (likely move later)
