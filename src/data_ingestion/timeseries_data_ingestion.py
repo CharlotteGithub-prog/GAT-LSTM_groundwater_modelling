@@ -12,7 +12,6 @@ import numpy as np
 import xarray as xr
 import pandas as pd
 from pyproj import Geod
-import geopandas as gpd
 import concurrent.futures
 import matplotlib.pyplot as plt
 
@@ -30,11 +29,13 @@ logging.basicConfig(
 # Set up logger for file and load config file for paths and params
 logger = logging.getLogger(__name__)
 
-HAD_UK_rainfall_url = "https://dap.ceda.ac.uk/thredds/dodsC/badc/ukmo-hadobs/data/insitu/MOHC/HadOBS/HadUK-Grid/v1.3.0.ceda/1km/rainfall/day/v20240514/rainfall_hadukgrid_uk_1km_day_20230101-20230131.nc"
-
 # Find HADUK file names
 def find_haduk_file_names(start_date: str, end_date: str, base_url: str):
-    
+    """
+    NOTE: HADUK Data should be ingested through API, but ongoing credential issues
+    necessitated manual download for current pipeline. This should be adjusted back
+    to use the API when these CEDA issues are resoled.
+    """
     start_year = int(start_date[0:4])
     end_year = int(end_date[0:4])
 
@@ -55,26 +56,6 @@ def find_haduk_file_names(start_date: str, end_date: str, base_url: str):
         urls.extend(months)
     
     return urls
-
-"""
-NOTE: HADUK Data should be ingested through API, but ongoing credential issues
-necessitated manual download for current pipeline. This should be adjusted back
-to use the API when these CEDA issues are resoled.
-"""
-# HADUK Gridded Rainfall
-# def load_main_rainfall_data(haduk_urls):
-#     """
-#     Loads rainfall data from CEDA API...
-#     """
-#     url = haduk_urls[0]
-#     try:
-#         ds = xr.open_dataset(url, engine="netcdf4")
-#         print(ds)
-#     except OSError as e:
-#         print("Failed to open dataset. This may be due to CEDA login issues. Check https://www.ceda.ac.uk/status/")
-#         print(e)
-
-#     os.environ["NETRC"] = os.path.abspath("ceda_credentials.netrc")
 
 # Load in HAD-UK 1km gridded rainfall Data
 def _save_haduk_graph(csv_path, fig_path, catchment):
