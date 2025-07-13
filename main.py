@@ -22,21 +22,25 @@ import pandas as pd
 from src.utils.config_loader import load_project_config
 from src.graph_building.graph_construction import build_mesh, \
     define_catchment_polygon
+from src.graph_building.data_merging import reorder_static_columns, \
+    snap_stations_to_mesh
 from src.visualisation.mapped_visualisations import plot_interactive_mesh
 from src.data_ingestion.gwl_data_ingestion import process_station_coordinates, \
     fetch_and_process_station_data, download_and_save_station_readings
+from src.data_ingestion.static_data_ingestion import load_land_cover_data, \
+    load_process_elevation_data, derive_slope_data
+from src.data_ingestion.timeseries_data_ingestion import load_era5_land_data, \
+    load_rainfall_data
 from src.preprocessing.gwl_preprocessing import load_timeseries_to_dict, \
     outlier_detection, resample_daily_average, remove_spurious_data, \
     handle_short_gaps
 from src.preprocessing.gap_imputation import handle_large_gaps
 from src.preprocessing.gwl_feature_engineering import build_lags, trim_and_save, \
     build_seasonality_features
-from src.data_ingestion.static_data_ingestion import load_land_cover_data, \
-    load_process_elevation_data, derive_slope_data
-from src.data_ingestion.timeseries_data_ingestion import load_era5_land_data, \
-    load_rainfall_data
-from src.graph_building.data_merging import reorder_static_columns, \
-    snap_stations_to_mesh
+from src.preprocessing.hydroclimatic_feature_engineering import derive_rainfall_features
+
+# from src.preprocessing import gwl_preprocessing, gap_imputation, gwl_feature_engineering, \
+#     hydroclimatic_feature_engineering
 
 # --- 1c. Logging Config ---
 logging.basicConfig(
@@ -416,10 +420,17 @@ try:
         """
         
         # --- 4d. Derived Hydrogeological Feature Engineering ---
-        
-        # 7 day rainfall lags [DERIVED]
 
-        # 30/60/90 day rainfall / ET / temperature rolling averages [DERIVED]
+        # 30/60 day rainfall rolling average + 7 day rainfall lags [DERIVED]
+        
+        rainfall_df = derive_rainfall_features(
+            csv_dir=config[catchment]["paths"]["rainfall_processed_output_dir"],
+            start_date=config["global"]["data_ingestion"]["model_start_date"],
+            end_date=config["global"]["data_ingestion"]["model_end_date"],
+            catchment=catchment
+        )
+        
+        # Calculate ET / temperature rolling averages? [DERIVED]
         
         # Pour point (catchment) by node -> see notion notes (important to consider)
         
@@ -511,6 +522,7 @@ try:
         # All subsequent steps must be done AFTER split to avoid data leakage
         
         # --- 6b. Standardisation of all numeric features and round all numeric to 3-4dp ---
+        
         
         # Using from sklearn.preprocessing import StandardScaler
         
