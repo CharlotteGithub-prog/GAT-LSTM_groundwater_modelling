@@ -7,11 +7,11 @@ global:
     random_seed: 55  # Smooth operation
     log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
     catchments_to_process: ["eden"]  # TODO: can easily add more in future dev
-    run_defra_api: False
-    run_camels_api: False 
-    run_era5_land_api: False  # Long!
-    run_outlier_detection: False
-    run_gwl_imputation: False
+    run_defra_api: false
+    run_camels_api: false
+    run_era5_land_api: false  # Long!
+    run_outlier_detection: false
+    run_gwl_imputation: false
 
   # --- FILE PATHS ---
   paths:
@@ -46,7 +46,7 @@ global:
     # model_end_date: "2014-03-31T23:59:59"  # FOR TESTING API CALLS
     col_order: ['station_name', 'date', 'dateTime', 'value', 'quality', 'measure']
     max_interp_length: 25
-  
+
   # --- PROPROCESSING SETTING ---
   preprocessing:
     radius: 6371000.0
@@ -57,11 +57,11 @@ global:
   # --- VISUALISATION SETTINGS ---
   visualisations:
     maps:
-      display_interactive_map: True
+      display_interactive_map: true
       esri: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
       esri_attr: "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ"
       map_blue: "#354c7c"
-    
+
   # --- GRAPH CONSTRUCTION SETTINGS ---
   graph:
     data_point_quantity_threshold: 5000
@@ -109,6 +109,7 @@ global:
 
 eden:
   target_mncat: "Eden and Esk"
+
   # --- FILE PATHS ---
   paths:
     # --- Specific INPUT files ---
@@ -149,10 +150,14 @@ eden:
     sp_csv_path: "data/02_processed/eden/hydroclimatic/surface_pressure/surface_pressure_daily_catchment_mean.csv"
     sp_fig_path: "results/figures/eden/time_series/hydroclimatic/surface_pressure_timeseries.png"
 
-    # --- HAD-UK data ingestion
+    # --- HAD-UK data ingestion ---
     rainfall_processed_output_dir: "data/02_processed/eden/hydroclimatic/rainfall/"
     rainfall_fig_path: "results/figures/eden/time_series/hydroclimatic/rainfall_volume_timeseries.png"
-  
+    rainfall_csv_path: "data/02_processed/eden/hydroclimatic/rainfall/rainfall_daily_catchment_sum_log_transform.csv"
+
+    # --- Graph Paths ---
+    final_df_path: "data/02_processed/eden/final_df/"
+
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
     inclusion_threshold: 5000
@@ -163,6 +168,7 @@ eden:
       grid_resolution: 1000  # Could change to 500m grid in future for performance. Will require pipeline adjustments.
     catchment_max_elevation: 945.40  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     catchment_min_elevation: 8.00  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
+    rainfall_boxcox_lambda: 0.1701496697839992
 
   visualisations:
     maps:  # ensure no specific file extensions here
