@@ -19,12 +19,13 @@ logging.basicConfig(
 # Set up logger for file and load config file for paths and params
 logger = logging.getLogger(__name__)
 
-def derive_rainfall_features(csv_dir: str, start_date: str, end_date: str, catchment: str):
+def derive_rainfall_features(csv_dir: str, processed_output_dir: str, start_date: str,
+                             end_date: str, catchment: str):
     """
     Derive lags and rolling averages (right aligned) from rainfall data and clip
     data to final model bounds
     """
-    # Build 7 days of lags for rainfall data
+    # Read in aggregated rainfall data
     input_csv_path = f"{csv_dir}rainfall_daily_catchment_sum.csv"
     rainfall_df = pd.read_csv(input_csv_path)
     
@@ -60,4 +61,12 @@ def derive_rainfall_features(csv_dir: str, start_date: str, end_date: str, catch
     rainfall_trimmed = rainfall_df.loc[start_date:end_date].copy()
     logging.info(f'{len(rainfall_df)-len(rainfall_trimmed)} dates trimmed')
     
+    # Save as csv
+    final_csv_path = f"{processed_output_dir}rainfall_daily_catchment_sum_log_transform.csv"
+    logging.info(f"Saving catchment-summed log-transformed daily rainfall to CSV: {final_csv_path}")
+
+    # Save log transformed df as csv to merge into main model df
+    rainfall_trimmed.to_csv(final_csv_path)
+    
     return rainfall_trimmed
+
