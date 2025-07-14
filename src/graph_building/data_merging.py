@@ -30,6 +30,14 @@ def reorder_static_columns(df: pd.DataFrame):
 
 # Snapping stations to centroid nodes
 def _obtain_snapping_data(polygon_geometry_path: str, catchment: str, station_list_path: str):
+    """
+    Loads spatial polygon geometry data and station coordinates, converting them to GeoDataFrames.
+    
+    Returns:
+        tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+            - station_list_gdf (gpd.GeoDataFrame): GeoDataFrame of stations with point geometry.
+            - polygon_geometry_mesh (gpd.GeoDataFrame): GeoDataFrame of mesh cell polygons.
+    """
     # Reading in polygon geometry data
     full_path = polygon_geometry_path + f"{catchment}_mesh_cells_polygons.geojson"
     polygon_geometry_mesh = gpd.read_file(full_path)
@@ -44,10 +52,14 @@ def _obtain_snapping_data(polygon_geometry_path: str, catchment: str, station_li
     
     return station_list_gdf, polygon_geometry_mesh
 
-# Snapping stations to centroid nodes
 def _perform_attribute_merges(polygon_geometry_mesh: gpd.GeoDataFrame, station_node_mapping_temp: pd.DataFrame,
                               mesh_nodes_gdf: gpd.GeoDataFrame):
+    """
+    Merges polygon geometry and centroid coordinates into the station-node mapping DataFrame.
     
+    Returns:
+        pd.DataFrame: DataFrame with original polygon geometry and centroid coordinates merged in.
+    """
     # --- Perform regular merge to retain RHS gdf polygon geometry ---
     
     logger.info(f"Merging catchment stations to retain original polygon.")
@@ -80,9 +92,13 @@ def _perform_attribute_merges(polygon_geometry_mesh: gpd.GeoDataFrame, station_n
     
     return station_node_mapping
 
-# Snapping stations to centroid nodes
 def _finalise_mapping_gdf(station_node_mapping: pd.DataFrame, crs: str = "EPSG:27700"):
+    """
+    Finalises the station-node mapping DataFrame, selecting relevant columns and recreating geometry.
     
+    Returns:
+        gpd.GeoDataFrame: Final GeoDataFrame with stations mapped to mesh centroids.
+    """
     # Drop original columns and replace with merged centroid columns
     station_node_mapping = station_node_mapping.drop(columns=['easting', 'northing'])
     station_node_mapping = station_node_mapping.rename(columns={
@@ -100,11 +116,16 @@ def _finalise_mapping_gdf(station_node_mapping: pd.DataFrame, crs: str = "EPSG:2
     
     return station_node_mapping
 
-# Snapping stations to centroid nodes
 def snap_stations_to_mesh(station_list_path: str, polygon_geometry_path: str, output_path: str,
                           mesh_nodes_gdf: gpd.GeoDataFrame, catchment: str):
     """
-    tbd
+    Snaps groundwater level stations to the nearest mesh centroid nodes within a catchment.
+    Orchestrates the process of loading station and mesh data, performing spatial and attribute
+    merges, and finalising the mapping.
+
+    Returns:
+        gpd.GeoDataFrame: A GeoDataFrame mapping each station to its snapped mesh node_id,
+                          with updated centroid coordinates.
     """
     logger.info(f"Snapping {catchment} catchment stations to mesh centroids...\n")
     
