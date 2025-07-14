@@ -133,7 +133,7 @@ def _process_rainfall_files(rainfall_dir, catchment, shape_filepath, required_cr
     for filename in sorted(os.listdir(rainfall_dir)):
         # if filename.startswith("rainfall_hadukgrid_uk_1km_day_"):
         if filename.startswith("rainfall_hadukgrid_uk_1km_day_"):
-            ds = xr.open_dataset(os.path.join(rainfall_dir, filename))
+            ds = xr.open_dataset(os.path.join(rainfall_dir, filename), backend_kwargs={"decode_timedelta": True})
             
             year = filename[-11:-7]
             month = filename[-7:-5]
@@ -569,7 +569,7 @@ def _process_local_grib_files(raw_output_dir, catchment_polygon, all_daily_dataa
             
             # Aggregate to daily totals and mask to polygon boundings not bbox
             try:
-                ds = xr.open_dataset(grib_path, engine='cfgrib')
+                ds = xr.open_dataset(grib_path, engine='cfgrib', backend_kwargs={"decode_timedelta": True})
                 daily_data = _resample_by_time_and_step(ds, era5_feat, aggregation_type)
                 
                 # Extract year and month from the filename (e.g., aet_2024_04_era5land.grib)
