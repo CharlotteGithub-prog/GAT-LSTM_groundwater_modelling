@@ -334,6 +334,8 @@ try:
             required_crs=27700,
             catchment=catchment
         )
+            
+        logger.info(f"Pipeline step 'Load Rainfall Data' complete for {catchment} catchment.\n")
         
         # Surface Pressure (Daily Mean, hPa, catchment average) [HadUK-Grid]
         
@@ -354,6 +356,8 @@ try:
             feat_name='surface_pressure',
             aggregation_type='mean'
         )
+            
+        logger.info(f"Pipeline step 'Load Surface Pressure Data' complete for {catchment} catchment.\n")
         
         # Actual Evapotranspiration [ERA5-Land AET]
         
@@ -374,6 +378,8 @@ try:
             feat_name='aet',
             aggregation_type='sum'
         )
+            
+        logger.info(f"Pipeline step 'Load Actual Evapotranspiration Data' complete for {catchment} catchment.\n")
         
         # 2m Surface Temperature (Daily Mean Temperature, °C, catchment average) [HadUK-GRID]
         
@@ -394,6 +400,8 @@ try:
             feat_name='2m_temp',
             aggregation_type='mean'
         )
+            
+        logger.info(f"Pipeline step 'Load 2m Surface Temp Data' complete for {catchment} catchment.\n")
         
         # River Flow / Streamflow / River Stage [DEFRA / NRFA]
         
@@ -411,10 +419,13 @@ try:
         
         rainfall_df = hydroclimatic_feature_engineering.derive_rainfall_features(
             csv_dir=config[catchment]["paths"]["rainfall_processed_output_dir"],
+            processed_output_dir=config[catchment]["paths"]["rainfall_processed_output_dir"],
             start_date=config["global"]["data_ingestion"]["model_start_date"],
             end_date=config["global"]["data_ingestion"]["model_end_date"],
             catchment=catchment
         )
+            
+        logger.info(f"Pipeline step 'Derive Rainfall Lag and Averages' complete for {catchment} catchment.\n")
         
         # Calculate ET / temperature rolling averages? [DERIVED]
         
