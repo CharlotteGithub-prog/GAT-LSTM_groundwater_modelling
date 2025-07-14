@@ -163,3 +163,42 @@ def snap_stations_to_mesh(station_list_path: str, polygon_geometry_path: str, ou
     logger.info(f"All {catchment} catchment stations snapped to centroids.\n")
     
     return station_node_mapping
+
+# Merging timeseries data into full timeseries df
+def merge_timeseries_data_to_df(model_start_date: str, model_end_date: str, feature_csv: str,
+                                feature: str, timeseries_df: pd.DataFrame = None):
+    # Log feature being processed
+    logging.info(f"Merging {feature} data into main timeseries dataframe...")
+
+    # Initialise timeseries df on first run
+    if timeseries_df is None:
+        date_range = pd.date_range(start=model_start_date, end=model_end_date, freq='D')
+        timeseries_df = pd.DataFrame(index=date_range)
+        timeseries_df.index.name = 'time'
+
+    # Read in timeseries feature data (parse date objs to convert to datetime as they are read in)
+    feature_df = pd.read_csv(feature_csv, parse_dates=['time'])
+
+    # Normalise the 'time' column to remove raw time components (which would cause mismatch with main df)
+    feature_df['time'] = feature_df['time'].dt.normalize() 
+
+    # Merge timeseries feature data into timeseries df by timestep
+    merged_ts_df = timeseries_df.merge(
+        feature_df,
+        left_index=True,  # Use the index of timeseries_df
+        right_on='time',  # Match it to the 'time' column of precipitation_df
+        how='left'
+    )
+    
+    # Ensure the 'time' column becomes the index after merge and is named correctly
+    if 'time' in merged_ts_df.columns:
+        merged_ts_df = merged_ts_df.set_index('time') 
+    merged_ts_df.index.name = 'time'
+    
+    return merged_ts_df
+
+# Merging static data into full static df
+
+# Merging static and timeseries data into main df
+
+# Merging station data into main df
