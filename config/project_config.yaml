@@ -169,6 +169,7 @@ eden:
     catchment_max_elevation: 945.40  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     catchment_min_elevation: 8.00  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     rainfall_boxcox_lambda: 0.1701496697839992
+    aet_boxcox_lambda: 0.4961788333798819
 
   visualisations:
     maps:  # ensure no specific file extensions here
