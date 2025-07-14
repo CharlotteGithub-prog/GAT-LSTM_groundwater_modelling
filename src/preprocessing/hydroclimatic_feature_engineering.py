@@ -21,10 +21,10 @@ logging.basicConfig(
 # Set up logger for file and load config file for paths and params
 logger = logging.getLogger(__name__)
 
-def _save_lambda_to_config(lambda_val, config_path, catchment):
+def _save_lambda_to_config(lambda_val, config_path, catchment, feature):
     """
     Save calculated lambda value to config for later inversion of transformations for
-    interpretability.
+    interpretability (by feature).
     """
     yaml = YAML()
     yaml.preserve_quotes = True
@@ -38,15 +38,15 @@ def _save_lambda_to_config(lambda_val, config_path, catchment):
             config[catchment]['preprocessing'] = {}
 
         # Save lambda to yaml
-        config[catchment]["preprocessing"]["rainfall_boxcox_lambda"] = float(lambda_val)
+        config[catchment]["preprocessing"][f"{feature}_boxcox_lambda"] = float(lambda_val)
 
         with open(config_path, 'w') as f:
             yaml.dump(config, f)
         
-        logging.info(f"Saved rainfall_boxcox_lambda to {config_path}")
+        logging.info(f"Saved {feature}_boxcox_lambda to {config_path}")
 
     except Exception as e:
-        logging.error(f"Failed to save lambda to config.yaml: {e}")
+        logging.error(f"Failed to save {feature} lambda to config.yaml: {e}")
 
 def derive_rainfall_features(csv_dir: str, processed_output_dir: str, start_date: str,
                              end_date: str, config_path: str, catchment: str):
@@ -65,10 +65,11 @@ def derive_rainfall_features(csv_dir: str, processed_output_dir: str, start_date
     # Apply box cox transform to raw data column
     transformed_rainfall_volume, lambda_val = boxcox(rainfall_df['rainfall_volume_m3'] + 1)
     rainfall_df['rainfall_volume_m3'] = transformed_rainfall_volume
-    logging.info(f"    Transformed Rainfall Skewness (Box-Cox, lambda={lambda_val:.4f}): {skew(rainfall_df['rainfall_volume_m3']):.4f}\n")
+    logging.info(f"    Transformed Rainfall Skewness (Box-Cox, lambda={lambda_val:.4f}):"
+                 f" {skew(rainfall_df['rainfall_volume_m3']):.4f}\n")
 
     # Save lambda for mathematical inversion after modelling
-    _save_lambda_to_config(lambda_val, config_path, catchment)
+    _save_lambda_to_config(lambda_val, config_path, catchment, 'rainfall')
 
     # Build lags (of transformed data)
     logging.info(f'Building 7 days of rainfall data lags for {catchment} catchment...')
@@ -102,3 +103,25 @@ def derive_rainfall_features(csv_dir: str, processed_output_dir: str, start_date
     rainfall_trimmed.to_csv(final_csv_path)
     
     return rainfall_trimmed
+
+def transform_aet_data(merged_ts_aet: pd.DataFrame, catchment: str):
+    """
+    Transform skew of AET data.
+    """
+    # Define config path
+    config_path = "config/project_config.yaml"
+    
+    # Log transform the raw rainfall and lagged data to reduce skew
+    logging.info(f"Tranforming rainfall data for {catchment} catchment...\n")
+    logging.info(f"    Initial Rainfall Skewness: {skew(merged_ts_aet['aet_total_volume_m3']):.4f}")
+    
+    # Apply box cox transform to raw data column
+    transformed_rainfall_volume, lambda_val = boxcox(merged_ts_aet['aet_total_volume_m3'] + 1)
+    merged_ts_aet['aet_total_volume_m3'] = transformed_rainfall_volume
+    logging.info(f"    Transformed Rainfall Skewness (Box-Cox, lambda={lambda_val:.4f}):"
+                 f" {skew(merged_ts_aet['aet_total_volume_m3']):.4f}\n")
+
+    # Save lambda for mathematical inversion after modelling
+    _save_lambda_to_config(lambda_val, config_path, catchment, 'aet')
+    
+    return merged_ts_aet

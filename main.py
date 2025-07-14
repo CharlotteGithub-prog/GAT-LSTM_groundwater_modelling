@@ -540,6 +540,8 @@ try:
             timeseries_df=merged_ts_tsm
         )
         
+        merged_ts_aet = hydroclimatic_feature_engineering.transform_aet_data(merged_ts_aet, catchment)
+        
         logger.info(f"Actual evapotranspiration data snapped to graph timesteps (daily aggregate).\n")
         
         # Snap Surface Pressure to timestep
