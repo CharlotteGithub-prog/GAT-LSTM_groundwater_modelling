@@ -6,7 +6,7 @@ global:
     project_name: "Catchment_Based_Groundwater_Forecasting"
     random_seed: 55  # Smooth operation
     log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
-    catchments_to_process: ["eden"]  # TODO: add more in future dev
+    catchments_to_process: ["eden"]  # TODO: can easily add more in future dev
     run_defra_api: False
     run_camels_api: False 
     run_era5_land_api: False  # Long!
@@ -66,15 +66,9 @@ global:
   graph:
     data_point_quantity_threshold: 5000
 
-  #   time_series_cleaning:
-  #     interpolation_method: "linear"
-  #     max_gap_to_interpolate_days: 7
-  #   spatial_alignment:
-  #     mesh_resolution_km: 5
-  #     snapping_tolerance_m: 20
   #   graph_construction:
   #     graph_type: "k_nearest_neighbors" # Options: "k_nearest_neighbors", "delaunay_triangulation", etc.
-  #     k_neighbors: 5
+  #     k_neighbors: 8  # Surrounding Grid
   #     edge_features_to_add: ["distance", "elevation_difference"]
   #   feature_engineering:
   #     add_time_of_year: true
@@ -125,6 +119,7 @@ eden:
     raw_land_cover_path: "data/01_raw/eden/static/land_cover/gb2023lcm1km_dominant_aggregate.tif"
     elevation_dir_path: "data/01_raw/eden/static/elevation/"
     rainfall_filename_dir: "data/01_raw/eden/hydroclimatic/rainfall/"
+
     # --- Specific OUPUT (processed) files ---
     mesh_nodes_output: "data/02_processed/eden/gis_and_mesh/catchment_mesh_nodes"  # ensure no specific file extension
     gwl_station_list_with_coords: "data/02_processed/eden/gwl_station_data/station_list_with_coords.csv"
@@ -140,6 +135,7 @@ eden:
     slope_path: "data/02_processed/eden/static/slope/slope_magnitude_aspect.csv"
     aet_raw_output_dir: "data/01_raw/eden/hydroclimatic/aet/"
     output_polygon_dir: "data/02_processed/eden/gis/"
+
     # --- ERA5-Land API Ingestion ---
     aet_processed_output_dir: "data/02_processed/eden/hydroclimatic/aet/"
     2t_raw_output_dir: "data/01_raw/eden/hydroclimatic/2meter_temp/"
@@ -152,6 +148,7 @@ eden:
     2t_fig_path: "results/figures/eden/time_series/hydroclimatic/2m_temp_timeseries.png"
     sp_csv_path: "data/02_processed/eden/hydroclimatic/surface_pressure/surface_pressure_daily_catchment_mean.csv"
     sp_fig_path: "results/figures/eden/time_series/hydroclimatic/surface_pressure_timeseries.png"
+
     # --- HAD-UK data ingestion
     rainfall_processed_output_dir: "data/02_processed/eden/hydroclimatic/rainfall/"
     rainfall_fig_path: "results/figures/eden/time_series/hydroclimatic/rainfall_volume_timeseries.png"
@@ -163,19 +160,19 @@ eden:
     dist_corr_score_k_decay: 0.05
     dist_corr_score_threshold: 0.3
     graph_construction:
-      grid_resolution: 1000  # Potentially change to 500m grid
+      grid_resolution: 1000  # Could change to 500m grid in future for performance. Will require pipeline adjustments.
     catchment_max_elevation: 945.40  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     catchment_min_elevation: 8.00  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
 
   visualisations:
-    maps:
-      static_mesh_map_output: "results/figures/eden/maps/static_mesh_map"  # ensure no specific file extension
-      interactive_mesh_map_output: "results/figures/eden/maps/interactive_mesh_map"  # ensure no specific file extension
+    maps:  # ensure no specific file extensions here
+      static_mesh_map_output: "results/figures/eden/maps/static_mesh_map"
+      interactive_mesh_map_output: "results/figures/eden/maps/interactive_mesh_map"
       interactive_station_map_output: "results/figures/eden/maps/interactive_station_mesh_map"
-      interactive_directional_map_output: "results/figures/eden/maps/interactive_directional_map"  # ensure no specific file extension
+      interactive_directional_map_output: "results/figures/eden/maps/interactive_directional_map"
     ts_plots:
       time_series_gwl_output: "results/figures/eden/time_series/"
-      dpi_save: 300  # Adjust to 300 for final output run
+      dpi_save: 300  # Always adjust to 300 for final output run
       extension: "svg"
     corr_dist_score_scatters: "results/figures/eden/scatter/"
 
@@ -183,4 +180,4 @@ eden:
 # FUTURE CATCHMENT CONFIG SETTINGS
 # ==============================================================================
 
-# Copy eden structure for full pipeline and adapt
+# Copy eden structure for full pipeline and adapt. Most Important: Handle data inputs (some API, some require download)
