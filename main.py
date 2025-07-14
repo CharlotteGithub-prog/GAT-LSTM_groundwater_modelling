@@ -28,6 +28,9 @@ from src.data_ingestion import gwl_data_ingestion, static_data_ingestion, \
 from src.graph_building import graph_construction, data_merging
 
 # --- 1c. Logging Config ---
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)  # Ensure logging config is respected (override any module logs)
+    
 logging.basicConfig(
     level=logging.INFO,
     # format='%(levelname)s - %(message)s',  # Uncomment for short logging
@@ -439,10 +442,6 @@ try:
         # ==============================================================================
         
         # --- 5a. Snap GWL monitoring station features to mesh nodes ---
-        # Purpose: Assign observed GWL time series and associated metadata to the closest mesh nodes.
-        # Action: Develop function to find nearest mesh node for each GWL station (e.g., using spatial indexing, k-d tree).
-        # Action: Attach GWL time series data (and static GWL station features) to these specific mesh nodes.
-        # Output: Updated mesh_nodes_gdf or a separate node feature tensor/dataframe.
         
         station_node_mapping = data_merging.snap_stations_to_mesh(
             station_list_path=config[catchment]["paths"]["gwl_station_list_output"],
@@ -452,7 +451,10 @@ try:
             catchment=catchment
         )
         
-        # mesh_nodes_gdf = mesh_nodes_gdf.merge()
+        # mesh_nodes_gdf = mesh_nodes_gdf.merge(
+        #     # Merge in all gwl data (from: data/02_processed/eden/gwl_timeseries/{station_name}_trimmed.csv)
+        #     # Will only merge in with nodes wiht a station (approx. 15/2750), rest will be NaN
+        # )
 
         # --- 5b. Snap static features to mesh nodes ---
         
@@ -489,21 +491,23 @@ try:
         # merged_gdf_nodes_slope = data_merging.reorder_static_columns(merged_gdf_nodes_slope)
         logger.info(f"Slope degrees and sinusoidal aspect data snapped to mesh nodes (centroids).\n")
         
-        # Incorporate Edge Weighting? (likely move later)
-        
         # Snap Soil type to Mesh
         
-        # --- 5c. Snap dynamic features to mesh nodes and daily timestep ---
+        # --- 5c. Snap dynamic (timeseries) features to mesh nodes (equal across all for catchment) and daily timestep ---
         
-        # Snap Precipitation and Lags to mesh and timestep
+        # Snap Precipitation, Lags and Averages to mesh and timestep
         
-        # Snap Temperature to mesh and timestep
+        # Snap 2m Temperature to mesh and timestep
         
-        # etc...
+        # Snap AET to mesh and timestep
         
-        # KEY: HANDLE GWL MASKS
+        # Snap Surface Pressure to mesh and timestep
 
-        # --- 5d. (Optional) Visualise complete mesh map with stations and other features ---
+        # --- 5d. KEY: HANDLE GWL MASKS ---
+        
+        # --- 5e. Incorporate Edge Weighting? (maybe move later) ---
+
+        # --- 5f. (Optional) Visualise complete mesh map with stations and other features ---
         # Purpose: Verify final graph structure and feature distribution visually.
         # Action: Create an interactive map showing the mesh, GWL stations, and other snapped data points.
         
@@ -513,7 +517,7 @@ try:
         
         # --- 6a. Split the data temporally ---
         
-        """ 6. THEN DO FULL FIRST ITERATION OF MODEL FOR THURSDAY... """
+        """ 6. THEN DO FULL FIRST ITERATION OF MODEL FOR WEDNESDAY... """
         
         # E.g., 70/15/15 train/val/test by date -> Key:Must be segregated by time, not mixed
         # All subsequent steps must be done AFTER split to avoid data leakage
@@ -531,7 +535,7 @@ try:
         
         # Using from sklearn.utils.class_weight import compute_class_weight
 
-        # --- 6e. Define Graph Adjacency Matrix (Edges) ---
+        # --- 6e. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) ---
         # Purpose: Establish connections between mesh nodes.
         # Action: Define criteria for edges (e.g., k-nearest neighbors, distance threshold, hydrological connectivity).
         # Action: Construct the adjacency matrix (A) for the graph.
@@ -547,7 +551,9 @@ try:
         # SECTION 7: MODEL
         # ==============================================================================
         
-        # --- 7. Goal: GAT-LSTM ---
+        # --- 7. Goal: GAT-LSTM (using PyTorch Geometric) ---
+        # When constructing the PyTorch Geometric Data objects (one per timestep), pass edge_index and edge_attr as separate arguments to the Data
+        # constructor, alongside the x (node features) and y (targets).
         
         # --- 7a. Define Graph Neural Network Architecture ---
         # Goal: Implement a GAT-LSTM (Graph Attention Network + Long Short-Term Memory).
