@@ -425,6 +425,7 @@ try:
             processed_output_dir=config[catchment]["paths"]["rainfall_processed_output_dir"],
             start_date=config["global"]["data_ingestion"]["model_start_date"],
             end_date=config["global"]["data_ingestion"]["model_end_date"],
+            config_path="config/project_config.yaml",
             catchment=catchment
         )
             
@@ -487,27 +488,85 @@ try:
             how='left'  # left join to keep all centroids, even NaN
         )
 
-        static_features = data_merging.reorder_static_columns(static_features)
-        # merged_gdf_nodes_slope = data_merging.reorder_static_columns(merged_gdf_nodes_slope)
         logger.info(f"Slope degrees and sinusoidal aspect data snapped to mesh nodes (centroids).\n")
         
-        # Snap Soil type to Mesh
+        # [FUTURE] Snap Soil type to Mesh
+        
+        # [FUTURE] Snap Aquifer Properties to Mesh
+        
+        # [FUTURE] Snap Geology Maps to Mesh
+        
+        # [FUTURE] Snap Permeability to Mesh
+        
+        # [FUTURE] Snap Distance from River to Mesh
+        
+        # Finalise final_static_df for merge
+        
+        final_static_df = data_merging.reorder_static_columns(static_features)
+        logger.info(f"Full static feature dataframe finalised and ready to merge into main model dataframe.\n")
         
         # --- 5c. Snap dynamic (timeseries) features to mesh nodes (equal across all for catchment) and daily timestep ---
         
-        # Snap Precipitation, Lags and Averages to mesh and timestep
-        
-        # Snap 2m Temperature to mesh and timestep
-        
-        # Snap AET to mesh and timestep
-        
-        # Snap Surface Pressure to mesh and timestep
+        # Snap Precipitation, Lags and Averages to timestep
 
-        # --- 5d. KEY: HANDLE GWL MASKS ---
+        merged_ts_precipitation = data_merging.merge_timeseries_data_to_df(
+            model_start_date=config["global"]["data_ingestion"]["model_start_date"],
+            model_end_date=config["global"]["data_ingestion"]["model_end_date"],
+            feature_csv=config[catchment]["paths"]["rainfall_csv_path"],
+            feature='all_precipitation'
+        )
         
-        # --- 5e. Incorporate Edge Weighting? (maybe move later) ---
+        logger.info(f"Precipitation and derived data snapped to graph timesteps (daily aggregates).\n")
+        
+        # Snap 2m Temperature to timestep
 
-        # --- 5f. (Optional) Visualise complete mesh map with stations and other features ---
+        merged_ts_tsm = data_merging.merge_timeseries_data_to_df(
+            model_start_date=config["global"]["data_ingestion"]["model_start_date"],
+            model_end_date=config["global"]["data_ingestion"]["model_end_date"],
+            feature_csv=config[catchment]["paths"]["2t_csv_path"],
+            feature='2m_temperature',
+            timeseries_df=merged_ts_precipitation
+        )
+        
+        logger.info(f"2m Temperature Data snapped to graph timesteps (daily aggregate).\n")
+        
+        # Snap AET to timestep
+
+        merged_ts_aet = data_merging.merge_timeseries_data_to_df(
+            model_start_date=config["global"]["data_ingestion"]["model_start_date"],
+            model_end_date=config["global"]["data_ingestion"]["model_end_date"],
+            feature_csv=config[catchment]["paths"]["aet_csv_path"],
+            feature='aet',
+            timeseries_df=merged_ts_tsm
+        )
+        
+        logger.info(f"Actual evapotranspiration data snapped to graph timesteps (daily aggregate).\n")
+        
+        # Snap Surface Pressure to timestep
+
+        final_merged_ts_df = data_merging.merge_timeseries_data_to_df(
+            model_start_date=config["global"]["data_ingestion"]["model_start_date"],
+            model_end_date=config["global"]["data_ingestion"]["model_end_date"],
+            feature_csv=config[catchment]["paths"]["sp_csv_path"],
+            feature='surface_pressure',
+            timeseries_df=merged_ts_aet
+        )
+        
+        logger.info(f"Surface pressure data snapped to graph timesteps (daily aggregate).\n")
+        
+        # --- 5d. Merge static and timeseries df's into main df ---
+        
+        save_path = config[catchment]["paths"]["final_df_path"] + 'final_timeseries_df.csv'
+        final_merged_ts_df.to_csv(save_path)
+        
+        logger.info(f"Final merged time series dataframe saved to {save_path}")
+        logger.info(f"Full timeseries feature dataframe finalised and ready to merge into main model dataframe.\n")
+
+        # --- 5e. KEY: HANDLE GWL MASKS ---
+        
+        # --- 5f. Incorporate Edge Weighting? (maybe move later) ---
+
+        # --- 5g. (Optional) Visualise complete mesh map with stations and other features ---
         # Purpose: Verify final graph structure and feature distribution visually.
         # Action: Create an interactive map showing the mesh, GWL stations, and other snapped data points.
         
