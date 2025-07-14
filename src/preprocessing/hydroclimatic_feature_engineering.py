@@ -3,9 +3,11 @@ import sys
 import logging
 import numpy as np
 import pandas as pd
+from ruamel.yaml import YAML
 from scipy.stats import skew
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from scipy.stats import skew, boxcox
 from feature_engine.timeseries.forecasting import LagFeatures
 
 # Set up logger config
@@ -19,8 +21,35 @@ logging.basicConfig(
 # Set up logger for file and load config file for paths and params
 logger = logging.getLogger(__name__)
 
+def _save_lambda_to_config(lambda_val, config_path, catchment):
+    """
+    Save calculated lambda value to config for later inversion of transformations for
+    interpretability.
+    """
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.load(f)
+
+        # Ensure the 'preprocessing' key exists under the specific catchment
+        if 'preprocessing' not in config[catchment]:
+            config[catchment]['preprocessing'] = {}
+
+        # Save lambda to yaml
+        config[catchment]["preprocessing"]["rainfall_boxcox_lambda"] = float(lambda_val)
+
+        with open(config_path, 'w') as f:
+            yaml.dump(config, f)
+        
+        logging.info(f"Saved rainfall_boxcox_lambda to {config_path}")
+
+    except Exception as e:
+        logging.error(f"Failed to save lambda to config.yaml: {e}")
+
 def derive_rainfall_features(csv_dir: str, processed_output_dir: str, start_date: str,
-                             end_date: str, catchment: str):
+                             end_date: str, config_path: str, catchment: str):
     """
     Derive lags and rolling averages (right aligned) from rainfall data and clip
     data to final model bounds
@@ -33,9 +62,13 @@ def derive_rainfall_features(csv_dir: str, processed_output_dir: str, start_date
     logging.info(f"Tranforming rainfall data for {catchment} catchment...\n")
     logging.info(f"    Initial Rainfall Skewness: {skew(rainfall_df['rainfall_volume_m3']):.4f}")
     
-    # Apply log1p transform to raw data column
-    rainfall_df['rainfall_volume_m3'] = np.log1p(rainfall_df['rainfall_volume_m3'])
-    logging.info(f"    Transformed Rainfall Skewness: {skew(rainfall_df['rainfall_volume_m3']):.4f}\n")
+    # Apply box cox transform to raw data column
+    transformed_rainfall_volume, lambda_val = boxcox(rainfall_df['rainfall_volume_m3'] + 1)
+    rainfall_df['rainfall_volume_m3'] = transformed_rainfall_volume
+    logging.info(f"    Transformed Rainfall Skewness (Box-Cox, lambda={lambda_val:.4f}): {skew(rainfall_df['rainfall_volume_m3']):.4f}\n")
+
+    # Save lambda for mathematical inversion after modelling
+    _save_lambda_to_config(lambda_val, config_path, catchment)
 
     # Build lags (of transformed data)
     logging.info(f'Building 7 days of rainfall data lags for {catchment} catchment...')
@@ -69,4 +102,3 @@ def derive_rainfall_features(csv_dir: str, processed_output_dir: str, start_date
     rainfall_trimmed.to_csv(final_csv_path)
     
     return rainfall_trimmed
-
