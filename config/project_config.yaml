@@ -67,6 +67,7 @@ global:
       graph_type: "grid_adjacency"  # Otherwise: "k_nearest_neighbors", "delaunay_triangulation", etc.
       k_neighbors: 8  # Basic Surrounding Grid
     sentinel_value: -999.0  # Float to match col dtypes
+    epsilon: 1e-6
   #     edge_features_to_add: ["distance", "elevation_difference"]
   #   feature_engineering:
   #     add_time_of_year: true
@@ -156,6 +157,7 @@ eden:
 
     # --- Graph Paths ---
     final_df_path: "data/02_processed/eden/final_df/"
+    graph_data_output_dir: "data/03_graph/eden/tensors/"
 
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
