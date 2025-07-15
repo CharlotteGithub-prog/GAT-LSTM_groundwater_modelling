@@ -42,8 +42,6 @@ global:
     api_end_date: "2025-02-28T23:59:59"
     model_start_date: "2014-01-01T00:00:00"
     model_end_date: "2024-12-31T23:59:59"
-    # model_start_date: "2014-02-01T00:00:00"  # FOR TESTING API CALLS
-    # model_end_date: "2014-03-31T23:59:59"  # FOR TESTING API CALLS
     col_order: ['station_name', 'date', 'dateTime', 'value', 'quality', 'measure']
     max_interp_length: 25
 
@@ -65,12 +63,10 @@ global:
   # --- GRAPH CONSTRUCTION SETTINGS ---
   graph:
     data_point_quantity_threshold: 5000
-    cols_to_mask: ['station_name', 'value', 'quality', 'data_type', 'masked', 'gwl_lag1',
-      'gwl_lag2', 'gwl_lag3', 'gwl_lag4', 'gwl_lag5', 'gwl_lag6', 'gwl_lag7']
-
-  #   graph_construction:
-  #     graph_type: "k_nearest_neighbors" # Options: "k_nearest_neighbors", "delaunay_triangulation", etc.
-  #     k_neighbors: 8  # Surrounding Grid
+    graph_construction:
+      graph_type: "grid_adjacency"  # Otherwise: "k_nearest_neighbors", "delaunay_triangulation", etc.
+      k_neighbors: 8  # Basic Surrounding Grid
+    sentinel_value: -999.0  # Float to match col dtypes
   #     edge_features_to_add: ["distance", "elevation_difference"]
   #   feature_engineering:
   #     add_time_of_year: true
