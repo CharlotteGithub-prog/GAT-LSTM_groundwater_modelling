@@ -10,6 +10,7 @@
 # ==============================================================================
 
 # --- 1a. Library Imports ---
+import os
 import sys
 import torch
 import random
@@ -298,6 +299,7 @@ try:
             elev_max=config[catchment]['preprocessing']['catchment_max_elevation'],
             elev_min=config[catchment]['preprocessing']['catchment_min_elevation'],
             output_geojson_dir=config[catchment]['paths']['output_polygon_dir'],
+            elevation_geojson_path=config[catchment]['paths']['elevation_geojson_path'],
             grid_resolution=config[catchment]['preprocessing']['graph_construction']['grid_resolution']
         )
         
@@ -452,10 +454,17 @@ try:
             catchment=catchment
         )
         
-        # mesh_nodes_gdf = mesh_nodes_gdf.merge(
-        #     # Merge in all gwl data (from: data/02_processed/eden/gwl_timeseries/{station_name}_trimmed.csv)
-        #     # Will only merge in with nodes wiht a station (approx. 15/2750), rest will be NaN
-        # )
+        # Load station and final df directories
+        
+        station_dir = config[catchment]["paths"]["trimmed_output_dir"]
+        node_mapping_dir = config[catchment]["paths"]["snapped_station_node_mapping"]
+        
+        # Load and process gwl data for subsequent merge
+        
+        gwl_data = data_merging.load_gwl_data_for_merge(
+            station_dir=station_dir,
+            node_mapping_dir=node_mapping_dir
+        )
 
         # --- 5b. Snap static features to mesh nodes ---
         
@@ -491,18 +500,19 @@ try:
         logger.info(f"Slope degrees and sinusoidal aspect data snapped to mesh nodes (centroids).\n")
         
         # [FUTURE] Snap Soil type to Mesh
-        
         # [FUTURE] Snap Aquifer Properties to Mesh
-        
         # [FUTURE] Snap Geology Maps to Mesh
-        
         # [FUTURE] Snap Permeability to Mesh
-        
         # [FUTURE] Snap Distance from River to Mesh
         
         # Finalise final_static_df for merge
         
-        final_static_df = data_merging.reorder_static_columns(static_features)
+        final_static_df = data_merging.reorder_static_columns(static_features)  # Update as more features added
+        static_data_ingestion.save_final_static_data(
+            static_features=final_static_df,
+            dir_path=config[catchment]["paths"]["final_df_path"]
+        )
+        
         logger.info(f"Full static feature dataframe finalised and ready to merge into main model dataframe.\n")
         
         # --- 5c. Snap dynamic (timeseries) features to mesh nodes (equal across all for catchment) and daily timestep ---
@@ -556,13 +566,63 @@ try:
         
         logger.info(f"Surface pressure data snapped to graph timesteps (daily aggregate).\n")
         
-        # --- 5d. Merge static and timeseries df's into main df ---
-        
         save_path = config[catchment]["paths"]["final_df_path"] + 'final_timeseries_df.csv'
         final_merged_ts_df.to_csv(save_path)
         
         logger.info(f"Final merged time series dataframe saved to {save_path}")
         logger.info(f"Full timeseries feature dataframe finalised and ready to merge into main model dataframe.\n")
+        
+        # --- 5d. Merge static, timeseries and gwl df's into main df ---
+        
+        main_df = graph_construction.build_main_df(
+            start_date=config["global"]["data_ingestion"]["model_start_date"],
+            end_date=config["global"]["data_ingestion"]["model_end_date"],
+            mesh_nodes_gdf=mesh_nodes_gdf,
+            catchment=catchment
+        )
+
+        # Merge static data into main_df
+        
+        static_df = pd.read_csv(os.path.join(final_dir, 'final_static_df.csv'))
+        main_df_static = main_df.merge(
+            static_df,
+            left_on='node_id',
+            right_on='node_id',
+            how='left'
+        )
+        
+        logger.info(f"Static data successfully merged into main_df for {catchment} catchment.\n")
+
+        # Merge timeseries data into main_df
+        
+        timeseries_df = pd.read_csv(os.path.join(final_dir, 'final_timeseries_df.csv'))
+        timeseries_df['time'] = pd.to_datetime(timeseries_df['time'])
+        main_df_timeseries = main_df_static.merge(
+            timeseries_df,
+            left_on='timestep',
+            right_on='time',
+            how='left'
+        ).drop(columns='time')
+
+        logger.info(f"Timeseries data successfully merged into main_df for {catchment} catchment.\n")
+            
+        # Load GWL station data in
+        
+        main_df_full = main_df_timeseries.merge(
+            gwl_data,
+            on=['node_id', 'timestep'],
+            how='left'
+        )
+
+        logger.info(f"Groundwater Level data successfully merged into main_df for {catchment} catchment.\n")
+        
+        # Save final dataframe to file
+        
+        final_dir = config[catchment]["paths"]["final_df_path"]
+        final_save_path = os.path.join(final_dir, 'final_df.csv')
+        main_df_full.to_csv(final_save_path)
+        
+        logger.info(f"Final merged dataframe saved to {final_save_path}")
 
         # --- 5e. KEY: HANDLE GWL MASKS ---
         

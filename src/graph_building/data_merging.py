@@ -197,8 +197,69 @@ def merge_timeseries_data_to_df(model_start_date: str, model_end_date: str, feat
     
     return merged_ts_df
 
-# Merging static data into full static df
+# Merge GWL data into full time series df
+def _move_masked_cols_to_end(gwl_data):
+    
+    # Drop unneeded columns and rename as needed for merging clarity
+    gwl_data = gwl_data.rename(columns={
+        "data_type": "gwl_data_type",
+        "quality": "gwl_data_quality",
+        "masked": "gwl_masked",
+        "value": "gwl_value"
+    })
+    
+    # Define remaining column order
+    cols_order = ['timestep', 'season_sin',  'season_cos', 'station_name', 'gwl_value',
+                  'gwl_data_quality', 'gwl_data_type', 'gwl_masked', 'gwl_lag1', 'gwl_lag2',
+                  'gwl_lag3', 'gwl_lag4', 'gwl_lag5', 'gwl_lag6', 'gwl_lag7']
 
-# Merging static and timeseries data into main df
+    # Reindex the DataFrame with the new column order
+    gwl_data = gwl_data[cols_order]
+    
+    return gwl_data
 
-# Merging station data into main df
+def _assign_station_node_ids(gwl_data, node_mapping_dir):
+    logger.info(f"Mapping node ID's to station data.")
+    node_mapping = pd.read_csv(node_mapping_dir)
+    
+    # Ensure station name formatting map in both dataframe
+    node_mapping['station_name'] = node_mapping['station_name'].astype(str).str.lower().str.replace(" ", "_")
+    gwl_data['station_name'] = gwl_data['station_name'].astype(str).str.lower().str.replace(" ", "_")
+    node_mapping = node_mapping[node_mapping['station_name'] != 'cliburn_town_bridge_1']
+    
+    # Ensure all cols that will require gwl are together at end of main_df
+    gwl_data = _move_masked_cols_to_end(gwl_data)
+    
+    # Merge mappings into gwl df
+    mapped_gwl_data = gwl_data.merge(
+        node_mapping,
+        on='station_name',
+        how='left'
+    )
+    
+    return mapped_gwl_data
+
+def load_gwl_data_for_merge(station_dir, node_mapping_dir):
+    station_data = []
+    station_files = os.listdir(station_dir)
+
+    # Loop through files and append to main list
+    logger.info(f"Reading in final trimmed gwl dataframe by station...")
+    for filename in station_files:
+        if filename.endswith("trimmed.csv"):
+            logger.info(f"    Processing {filename}")
+            file_path = os.path.join(station_dir, filename)
+            df = pd.read_csv(file_path, index_col=0, parse_dates=True, encoding='latin1').reset_index()
+            df = df.rename(columns={df.index.name or 'index': 'timestep'})
+            station_data.append(df)
+
+    # Combine all station data wiht concat and confirm timestep dtype
+    logger.info(f"Combining station list into final df for merge.")
+    gwl_data = pd.concat(station_data, ignore_index=True)
+    gwl_data['timestep'] = pd.to_datetime(gwl_data['timestep'])
+    
+    # Map station data to node_id's to facilitate main df merge
+    gwl_data = _assign_station_node_ids(gwl_data, node_mapping_dir)
+    gwl_data = gwl_data.drop(columns=['station_id', 'easting', 'northing', 'geometry'])
+    
+    return gwl_data
