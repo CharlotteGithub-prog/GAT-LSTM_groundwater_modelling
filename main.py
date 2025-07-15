@@ -600,10 +600,11 @@ try:
             
         # Load GWL station data in
         
-        main_df_full = main_df_timeseries.merge(
-            gwl_data,
-            on=['node_id', 'timestep'],
-            how='left'
+        seasonal_df = gwl_data[['timestep', 'season_sin', 'season_cos']].drop_duplicates('timestep')
+        main_df_full = (
+            main_df_timeseries
+            .merge(seasonal_df, on='timestep', how='left')
+            .merge(gwl_data.drop(columns=['season_sin', 'season_cos']), on=['node_id', 'timestep'], how='left')
         )
 
         logger.info(f"Groundwater Level data successfully merged into main_df for {catchment} catchment.\n")
