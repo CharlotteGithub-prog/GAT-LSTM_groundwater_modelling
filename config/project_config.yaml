@@ -65,6 +65,8 @@ global:
   # --- GRAPH CONSTRUCTION SETTINGS ---
   graph:
     data_point_quantity_threshold: 5000
+    cols_to_mask: ['station_name', 'value', 'quality', 'data_type', 'masked', 'gwl_lag1',
+      'gwl_lag2', 'gwl_lag3', 'gwl_lag4', 'gwl_lag5', 'gwl_lag6', 'gwl_lag7']
 
   #   graph_construction:
   #     graph_type: "k_nearest_neighbors" # Options: "k_nearest_neighbors", "delaunay_triangulation", etc.
@@ -136,6 +138,7 @@ eden:
     slope_path: "data/02_processed/eden/static/slope/slope_magnitude_aspect.csv"
     aet_raw_output_dir: "data/01_raw/eden/hydroclimatic/aet/"
     output_polygon_dir: "data/02_processed/eden/gis/"
+    elevation_geojson_path: "data/02_processed/eden/static/elevation/elevation.geojson"
 
     # --- ERA5-Land API Ingestion ---
     aet_processed_output_dir: "data/02_processed/eden/hydroclimatic/aet/"
@@ -169,7 +172,7 @@ eden:
     catchment_max_elevation: 945.40  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     catchment_min_elevation: 8.00  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     rainfall_boxcox_lambda: 0.1701496697839992
-    aet_boxcox_lambda: 0.4961788333798819
+    aet_boxcox_lambda: 0.4931417208883217
 
   visualisations:
     maps:  # ensure no specific file extensions here
