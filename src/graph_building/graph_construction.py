@@ -1,4 +1,6 @@
+import os
 import sys
+import torch
 import logging
 import numpy as np
 import pandas as pd
@@ -18,6 +20,7 @@ logging.basicConfig(
 # Set up logger for file and load config file for paths and params
 logger = logging.getLogger(__name__)
 
+# Build initial graph mesh
 def build_mesh(shape_filepath: str, output_path: str, catchment: str, grid_resolution: int = 1000):
     """
     Builds a spatial mesh of nodes (centroids of grid cells) within the input catchment boundary
@@ -202,3 +205,163 @@ def build_main_df(start_date: str, end_date: str, mesh_nodes_gdf: gpd.GeoDataFra
     print(f"\nTotal rows in main {catchment} catchment DataFrame: {len(main_df):.0e}\n")
 
     return main_df
+
+# Define graph directional edge weightings
+def _define_graph_adjacency_idx(mesh_cells_gdf_polygons: gpd.GeoDataFrame):
+    # --- Define Graph Adjacency (Simple Grid Adjacency using spatial touches) ---
+    
+    logger.info("Building graph adjacency based on 'touches' spatial predicate...")
+    mesh_cells_gdf_polygons.sindex  # Use explicit spatial index for efficiency.
+
+    # Spatially join the df with itself to return new gdf with duplicated rows (one for each adjacency)
+    adjacency_df = gpd.sjoin(
+        mesh_cells_gdf_polygons,
+        mesh_cells_gdf_polygons,
+        how="inner",
+        predicate="touches",
+        lsuffix="source",
+        rsuffix="destination"
+    )
+
+    # Filter out self-loops incase they were made during sjoin
+    adjacency_df = adjacency_df[adjacency_df['node_id_source'] != adjacency_df['node_id_destination']]
+
+    # Extract source and destination node IDs to create edge_index_df
+    edge_index_df = pd.DataFrame({
+        'source': adjacency_df['node_id_source'].values,
+        'destination': adjacency_df['node_id_destination'].values
+    })
+
+    # Wrap value pairs in 2D NumPy array to reduce tensor computation reqs
+    edge_index_np = np.array([
+        edge_index_df['source'].values,
+        edge_index_df['destination'].values
+    ])
+
+    # Convert to PyTorch tensor (directly as node_id's 0-indexed and sequential)
+    edge_index_tensor = torch.tensor(edge_index_np, dtype=torch.long)
+    logger.info(f"{edge_index_tensor.shape[1]} edges generated for the graph.\n")
+    
+    return edge_index_df, edge_index_tensor
+
+def _calculate_edge_attrs(source_data: pd.DataFrame, dest_data: pd.DataFrame, epsilon_path: str):
+    """
+    Calculate and return the attributes for this edge.
+    """
+    # Distance Attribute (pythagorean)
+    dist_x = dest_data['easting'] - source_data['easting']
+    dist_y = dest_data['northing'] - source_data['northing']
+    distance = np.sqrt(dist_x**2 + dist_y**2)
+    
+    # Elevation Difference Attr (to indicate potential flow direction)
+    elevation_difference = source_data['mean_elevation'] - dest_data['mean_elevation']
+    
+    # Source Node Slope Components (calculated during initial slope derivations)
+    source_slope_dx = float(source_data['mean_slope_dx'])
+    source_slope_dy = float(source_data['mean_slope_dy'])
+    
+    # Magnitude of source slope vector (adding epsilon to prevent div by zero err when flat)
+    epsilon = epsilon_path
+    source_slope_magnitude = np.sqrt(source_slope_dx**2 + source_slope_dy**2) + float(epsilon)
+    
+    # Directionality score: Cosine similarity between source's slope vector and vector from source to dest
+    # Where: Cosine similarity = dot_product / (magnitude1 * magnitude2)
+    dot_product = (source_slope_dx * dist_x) + (source_slope_dy * dist_y)
+    directionality = dot_product / (source_slope_magnitude * distance)
+    
+    # Clip score to [-1, 1] range to ensure valid cosine similarity
+    directional_score = np.clip(directionality, -1.0, 1.0)
+    
+    return distance, elevation_difference, source_slope_dx, source_slope_dy, directional_score
+   
+def _save_tensor_attrs(edge_index_tensor: torch, edge_attr_tensor: torch,
+                       graph_output_dir: str, catchment: str):
+    """
+    Save tensors to access in subsequent notebooks
+    """
+    # Create save dir if it doesn't exist
+    os.makedirs(graph_output_dir, exist_ok=True)
+
+    edge_index_path = os.path.join(graph_output_dir, f"edge_index_tensor.pt")
+    edge_attr_path = os.path.join(graph_output_dir, f"edge_attr_tensor.pt")
+
+    torch.save(edge_index_tensor, edge_index_path)
+    torch.save(edge_attr_tensor, edge_attr_path)
+
+    logger.info(f"Graph components saved for {catchment} catchment:")
+    logger.info(f"    - Edge Index: {edge_index_path}")
+    logger.info(f"    - Edge Attributes: {edge_attr_path}\n")
+     
+def define_graph_adjacency(directional_edge_weights: pd.DataFrame, elevation_geojson_path: str, graph_output_dir: str,
+                           mesh_cells_gdf_polygons: gpd.GeoDataFrame, epsilon_path: str, catchment: str):
+    
+    # --- Load required data points and initialise static node feature df ---
+    logging.info(f"Determining graph adjacency for {catchment} catchment...\n")
+    
+    # Create specific node_id column to merge and initialise combined edge feat df
+    directional_edge_weights["node_id"] = range(0, len(directional_edge_weights))
+    node_static_features_df = mesh_cells_gdf_polygons[['geometry', 'node_id']].copy()
+    
+    # Assign node_id to mean_elevation from elevation_gdf (assuming same order)
+    elevation_gdf = gpd.read_file(elevation_geojson_path)
+    if 'node_id' not in elevation_gdf.columns:
+        elevation_gdf['node_id'] = mesh_cells_gdf_polygons['node_id']
+        logger.warning("Added 'node_id' to elevation_gdf assuming positional alignment.")
+    
+    # Merge elevation feat into static features df using node_id col
+    node_static_features_df = node_static_features_df.merge(
+        elevation_gdf[['mean_elevation', 'node_id']],
+        on='node_id',
+        how='left'
+    )
+
+    # Join the slope components (dx, dy) and coordinates from directional_edge_weights_indexed
+    node_static_features_df = node_static_features_df.merge(
+        directional_edge_weights[['mean_slope_dx', 'mean_slope_dy', 'easting', 'northing', 'node_id']],
+        on='node_id',
+        how='left'
+    )
+
+    # Check no NaNs introduced from the join (meaning indexes correctly aligned)
+    if node_static_features_df[['mean_slope_dx', 'mean_slope_dy', 'easting', 'northing']].isnull().any().any():
+        logger.warning("NaNs found in joined static features. Check node_id alignment.")
+    
+    edge_index_df, edge_index_tensor = _define_graph_adjacency_idx(mesh_cells_gdf_polygons)
+
+    # --- Define Edge Features (edge_attr) ---
+
+    logger.info("Calculating edge features...")
+    edge_features = []
+
+    # Iterate through each edge to calculate its attributes
+    for index, row in edge_index_df.iterrows():
+        source_node_id = row['source']
+        dest_node_id = row['destination']
+        
+        source_data = node_static_features_df.loc[source_node_id]
+        dest_data = node_static_features_df.loc[dest_node_id]
+    
+        (distance, elevation_difference, source_slope_dx, source_slope_dy,
+         directional_score) = _calculate_edge_attrs(source_data, dest_data, epsilon_path)
+        
+        # Group all features for this edge
+        edge_features.append([
+            distance,
+            elevation_difference,
+            source_slope_dx,
+            source_slope_dy,
+            directional_score
+        ])
+        
+    # Convert features list to PyTorch tensor
+    edge_attr_tensor = torch.tensor(edge_features, dtype=torch.float)
+
+    # Assert final attribut tensor is equal length to edge index tensor
+    assert edge_attr_tensor.shape[0] == edge_index_tensor.shape[1], \
+        f"Mismatch: {edge_attr_tensor.shape[0]} attrs vs {edge_index_tensor.shape[1]} edges"
+    logger.info(f"Edge attributes tensor created with shape: {edge_attr_tensor.shape}\n")
+    
+    # Save tensors for direct access
+    _save_tensor_attrs(edge_index_tensor, edge_attr_tensor, graph_output_dir, catchment)
+    
+    return edge_attr_tensor, edge_index_tensor
