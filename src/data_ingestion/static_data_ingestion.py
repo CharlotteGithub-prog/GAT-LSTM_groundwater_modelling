@@ -88,7 +88,6 @@ def load_land_cover_data(tif_path: str, csv_path: str, catchment: str, shape_fil
     
     return agg_land_cover_df
 
-# Land Cover
 def aggregate_land_cover_categories(land_use_df: pd.DataFrame):
     """
     Map land use categories from full detail to primary categories to reduce dimensionality
@@ -109,7 +108,7 @@ def aggregate_land_cover_categories(land_use_df: pd.DataFrame):
     return land_use_df
 
 # Elevation
-def load_mosaic_elevation(dir_path: str, mesh_cells_gdf_polygons: gpd.GeoDataFrame, csv_path: str):
+def _load_mosaic_elevation(dir_path: str, mesh_cells_gdf_polygons: gpd.GeoDataFrame, csv_path: str):
 
     logger.info(f"Loading Elevation Data: Starting DTM processing from {dir_path} directory...")
     
@@ -162,8 +161,7 @@ def load_mosaic_elevation(dir_path: str, mesh_cells_gdf_polygons: gpd.GeoDataFra
     
     return mesh_cells_gdf_polygons, dtm_files_to_mosaic
 
-# Elevation
-def calculate_polygon_zone_average(mesh_cells_gdf_polygons: gpd.GeoDataFrame, clipped_dtm: gpd.GeoDataFrame):
+def _calculate_polygon_zone_average(mesh_cells_gdf_polygons: gpd.GeoDataFrame, clipped_dtm: gpd.GeoDataFrame):
     """
     Perform Zonal Statistics (rasterstats) to calculate mean elevation for each 1km mesh polygon.
     
@@ -194,8 +192,7 @@ def calculate_polygon_zone_average(mesh_cells_gdf_polygons: gpd.GeoDataFrame, cl
     
     return mesh_cells_gdf_polygons
 
-# Elevation
-def preprocess_elevation_data(mesh_cells_gdf_polygons: gpd.GeoDataFrame, elev_max: float, elev_min: float,
+def _preprocess_elevation_data(mesh_cells_gdf_polygons: gpd.GeoDataFrame, elev_max: float, elev_min: float,
                               catchment: str):
     """
     Ensure there is no outlying data and all sit within known catchment bounds
@@ -216,17 +213,16 @@ def preprocess_elevation_data(mesh_cells_gdf_polygons: gpd.GeoDataFrame, elev_ma
     
     return mesh_cells_gdf_polygons
 
-# Elevation
 def load_process_elevation_data(dir_path: str, csv_path: str, catchment: str, catchment_gdf: gpd.GeoDataFrame,
                         mesh_cells_gdf_polygons: gpd.GeoDataFrame, elev_max: float, elev_min: float,
-                        output_geojson_dir: str, grid_resolution: int = 1000):
+                        output_geojson_dir: str, elevation_geojson_path: str, grid_resolution: int = 1000):
     """
     Loads OS elevation DTM data from tile directory using rasterio, flattens it to a DataFrame,
     converts x, y coordinates to lat/lon, and saves to CSV.
     """
     
     # Mosaic (Merge) the DTM Tiles into a single GeoTIFF using rasterio
-    mesh_cells_gdf_polygons, dtm_files_to_mosaic = load_mosaic_elevation(dir_path, mesh_cells_gdf_polygons, csv_path)
+    mesh_cells_gdf_polygons, dtm_files_to_mosaic = _load_mosaic_elevation(dir_path, mesh_cells_gdf_polygons, csv_path)
 
     # Load merged DTM
     dtm_raster = rioxarray.open_rasterio(csv_path, masked=True).squeeze()
@@ -241,12 +237,12 @@ def load_process_elevation_data(dir_path: str, csv_path: str, catchment: str, ca
     logger.info("DTM raster clipped to catchment bounding box.")
     
     # Aggregate polygon data to averages using rasterstats lib  
-    mesh_cells_gdf_polygons = calculate_polygon_zone_average(mesh_cells_gdf_polygons, clipped_dtm)
+    mesh_cells_gdf_polygons = _calculate_polygon_zone_average(mesh_cells_gdf_polygons, clipped_dtm)
     logger.info(f"Loading, merging and aggregating DTM elevation data complete "
                 f"for {catchment} catchment.\n")
     
     # Check for outliers and inconsistencies
-    mesh_cells_gdf_polygons = preprocess_elevation_data(mesh_cells_gdf_polygons, elev_max,
+    mesh_cells_gdf_polygons = _preprocess_elevation_data(mesh_cells_gdf_polygons, elev_max,
                                                         elev_min, catchment)
     
     # Rename columns as needed for subsequent merge (geometry must be polygon not node)
@@ -261,9 +257,20 @@ def load_process_elevation_data(dir_path: str, csv_path: str, catchment: str, ca
     mesh_cells_gdf_polygons = mesh_cells_gdf_polygons.set_geometry('polygon_geometry')
     mesh_gdf_polygons = mesh_cells_gdf_polygons.drop(columns='mean_elevation')
     
+     # Save polygons only
     try:
         mesh_gdf_polygons.to_file(output_geojson_path, driver='GeoJSON')
         logger.info(f"Mesh cell polygons saved to: {output_geojson_path}\n")
+    except Exception as e:
+        logger.error(f"Failed to save mesh cell polygons to GeoJSON: {e}")
+        
+    # Save polygons and elevation gdf to access for merge
+
+    mesh_gdf_polygons_to_save = mesh_cells_gdf_polygons[['node_id', 'mean_elevation', 'polygon_geometry']].copy()
+    
+    try:
+        mesh_gdf_polygons_to_save.to_file(elevation_geojson_path, driver='GeoJSON')
+        logger.info(f"Mesh cell polygons saved to: {elevation_geojson_path}\n")
     except Exception as e:
         logger.error(f"Failed to save mesh cell polygons to GeoJSON: {e}")
     
@@ -321,8 +328,7 @@ def preprocess_slope_data(slope_gdf: gpd.GeoDataFrame, catchment: str):
     slope_gdf = cap_data_between_limits(slope_gdf, upper_cap, lower_cap, catchment, column)
 
     return slope_gdf
-    
-# Slope and Aspect
+
 def aggregate_slope_and_aspect(mesh_cells_gdf_polygons: gpd.GeoDataFrame, catchment: str,
                                 slope_magnitude_deg: gpd.GeoDataFrame, aspect_sin: gpd.GeoDataFrame,
                                 aspect_cos: gpd.GeoDataFrame):
@@ -371,7 +377,6 @@ def aggregate_slope_and_aspect(mesh_cells_gdf_polygons: gpd.GeoDataFrame, catchm
     
     return mesh_cells_gdf_polygons
 
-# Slope and Aspect
 def calculate_directional_edges(slope_magnitude_deg, aspect_radians, catchment, mesh_cells_gdf_polygons):
     slope_magnitude_rad = np.deg2rad(slope_magnitude_deg)
     slope_dx = np.sin(aspect_radians) * np.tan(slope_magnitude_rad)
@@ -426,7 +431,6 @@ def calculate_directional_edges(slope_magnitude_deg, aspect_radians, catchment, 
     
     return directional_edge_weights
 
-# Slope and Aspect 
 def derive_slope_data(high_res_raster: xr.DataArray, mesh_cells_gdf_polygons: gpd.GeoDataFrame,
                       catchment: str, direction_output_path: str, slope_output_path: str):
     """
@@ -483,4 +487,21 @@ def derive_slope_data(high_res_raster: xr.DataArray, mesh_cells_gdf_polygons: gp
     logger.info(f"Slope magnitue and aspect csv saved to {slope_output_path}.")
     
     return slope_gdf, directional_edge_weights
+
+# Save final static data csv
+def save_final_static_data(static_features: pd.DataFrame, dir_path: str):
+    # Define columns to drop
+    if 'geometry_x' in static_features.columns:
+        cols = ['geometry_x', 'geometry_y', 'easting', 'northing', 'lon', 'lat']
+    else:
+        cols = ['geometry', 'polygon_geometry', 'easting', 'northing', 'lon', 'lat']
     
+    # Drop unneeded features and set index
+    static_features = static_features.drop(columns=cols)
+    static_features = static_features.set_index('node_id')
+    
+    # Save static df to csv
+    save_path = dir_path + 'final_static_df.csv'
+    static_features.to_csv(save_path)
+
+    logger.info(f"Final merged static dataframe saved to {save_path}")
