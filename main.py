@@ -317,15 +317,11 @@ try:
         
         logger.info(f"Slope and aspect data derived at node level for {catchment} catchment.\n")
         
-        # Soil type [CEH's Grid-to-Grid soil maps / HOST soil classes / CAMELS-GB / BFIHOST]
-        
-        # Aquifer Properties (tbd - depth? type? transmissivity? storage coefficientet?) [DEFRA/BGS]
-        
-        # Geological Maps [DIGIMAPS (BGS data via Geology Digimap / Direct)]
-        
-        # Permeability [BGS]
-        
-        # Distance from River (Derived) [DEFRA/DIGIMAP]
+        # [FUTURE] Soil type [CEH's Grid-to-Grid soil maps / HOST soil classes / CAMELS-GB / BFIHOST]
+        # [FUTURE] Aquifer Properties (tbd - depth? type? transmissivity? storage coefficientet?) [DEFRA/BGS]
+        # [FUTURE] Geological Maps [DIGIMAPS (BGS data via Geology Digimap / Direct)]
+        # [FUTURE] Permeability [BGS]
+        # [FUTURE] Distance from River (Derived) [DEFRA/DIGIMAP]
         
         # --- 4c. Preprocess Time Series Features ---
         
@@ -408,10 +404,8 @@ try:
             
         logger.info(f"Pipeline step 'Load 2m Surface Temp Data' complete for {catchment} catchment.\n")
         
-        # River Flow / Streamflow / River Stage [DEFRA / NRFA]
-        
-        
-        # Others from HAD-UK (CEDA)?
+        # [FUTURE] River Flow / Streamflow / River Stage [DEFRA / NRFA]
+        # [FUTURE] Others from HAD-UK (CEDA) / ERA5-Land?
         
         """
         ERA5-Land:
@@ -433,10 +427,8 @@ try:
             
         logger.info(f"Pipeline step 'Derive Rainfall Lag and Averages' complete for {catchment} catchment.\n")
         
-        # Calculate ET / temperature rolling averages? [DERIVED]
-        
-        # Pour point (catchment) by node -> see notion notes (important to consider)
-        
+        # [Future] Calculate ET / temperature rolling averages? [DERIVED]
+        # [Future] Pour point (catchment) by node -> see notion notes (important to consider)
             # - Use flow accumulation from the DEM (e.g., richdem, whitebox, or TauDEM)
             # - Aggregate this to mesh by zonal mean/sum (most likely sum? Decide + Justify).
         
@@ -623,14 +615,22 @@ try:
         main_df_full.to_csv(final_save_path)
         
         logger.info(f"Final merged dataframe saved to {final_save_path}")
-
-        # --- 5e. KEY: HANDLE GWL MASKS ---
         
-        # --- 5f. Incorporate Edge Weighting? (maybe move later) ---
+        # --- 5e. Incorporate Edge Weighting (edge_weight if simple or only edge_att, using adjacency grid) ---
+        
+        edge_attr_tensor, edge_index_tensor = graph_construction.define_graph_adjacency(
+            directional_edge_weights=directional_edge_weights,
+            elevation_geojson_path=config[catchment]['paths']['elevation_geojson_path'],
+            graph_output_dir=config[catchment]["paths"]["graph_data_output_dir"],
+            mesh_cells_gdf_polygons=mesh_cells_gdf_polygons,
+            epsilon_path=config["global"]["graph"]["epsilon"],
+            catchment=catchment
+        )
 
-        # --- 5g. (Optional) Visualise complete mesh map with stations and other features ---
-        # Purpose: Verify final graph structure and feature distribution visually.
-        # Action: Create an interactive map showing the mesh, GWL stations, and other snapped data points.
+        logger.info(f"Pipeline step 'Define Graph Adjacency' complete for {catchment} catchment.\n")
+
+        # --- 5f. Visualise complete mesh map with stations and other features ---
+        # [FUTURE] Create an interactive map showing the mesh, GWL stations, and other snapped data points.
         
         # ==============================================================================
         # SECTION 6: TRAINING/TESTING SPLIT
@@ -638,13 +638,10 @@ try:
         
         # --- 6a. Split the data temporally ---
         
-        """ 6. THEN DO FULL FIRST ITERATION OF MODEL FOR WEDNESDAY... """
-        
         # E.g., 70/15/15 train/val/test by date -> Key:Must be segregated by time, not mixed
         # All subsequent steps must be done AFTER split to avoid data leakage
         
         # --- 6b. Standardisation of all numeric features and round all numeric to 3-4dp ---
-        
         
         # Using from sklearn.preprocessing import StandardScaler
         
@@ -655,14 +652,17 @@ try:
         # --- 6d. Weight imbalanced classes (land_use) ---
         
         # Using from sklearn.utils.class_weight import compute_class_weight
+        
+        # --- 6e. Pass NaN's in tensor to the GNN layers as sentinel value (-999) ---
+        # df_train[gwl_derived_cols_with_nans].fillna(sentinel_value, inplace=True)
 
-        # --- 6e. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) ---
+        # --- 6f. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) ---
         # Purpose: Establish connections between mesh nodes.
         # Action: Define criteria for edges (e.g., k-nearest neighbors, distance threshold, hydrological connectivity).
         # Action: Construct the adjacency matrix (A) for the graph.
         # Output: Adjacency matrix or edge_index for PyTorch Geometric.
 
-        # --- 6f. Create Graph Data Object / Input Tensors ---
+        # --- 6g. Create Graph Data Object / Input Tensors ---
         # Purpose: Assemble all graph components (nodes, edges, features, targets) into a format suitable for the GNN framework.
         # Action: Split data into training, validation, and test sets based on time (e.g., 70/15/15 chronological split).
         # Action: Generate graph snapshots/sequences for the GNN's input.
