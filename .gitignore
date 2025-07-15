@@ -26,5 +26,5 @@ notebooks/00_archive/
 !/data/01_raw/.gitkeep
 /data/02_processed/*
 !/data/02_processed/.gitkeep
-/data/03_external/*
-!/data/03_external/.gitkeep
+/data/03_graph/*
+!/data/03_graph/.gitkeep
