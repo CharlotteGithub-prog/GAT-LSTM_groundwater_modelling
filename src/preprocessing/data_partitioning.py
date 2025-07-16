@@ -85,41 +85,54 @@ def _get_split_count(main_df_full, perc_train, perc_val, perc_test):
     return (num_train_target, num_val_target, num_test_target, station_name_to_id,all_observed_node_ids_set,
             all_observed_station_names_set)
 
-def _check_split_success(train_station_ids, val_station_ids, test_station_ids, observed_nodes_list):
+def _check_split_success(train_station_ids, val_station_ids, test_station_ids, all_observed_node_ids_set):
     """
     Verify split results add up to total station ID list length and asset that no station
     IDs are overlapping (causing leakage and bloating model performance).
     """
-    # Confirm all stations are assigned
-    if len(observed_nodes_list) != (len(train_station_ids) + len(val_station_ids) + len(test_station_ids)):
-        logging.warning(f"Warning: Total number of assigned IDs does not match total catchment IDs.")
-        raise ValueError("Overlapping station assignments detected.")
-    
-    # Final validation of disjoint sets
-    assert len(set(train_station_ids).intersection(val_station_ids)) == 0, \
-        "ERROR after assignment: Train and Val station sets overlap!"
-    assert len(set(train_station_ids).intersection(test_station_ids)) == 0, \
-        "ERROR after assignment: Train and Test station sets overlap!"
-    assert len(set(val_station_ids).intersection(test_station_ids)) == 0, \
-        "ERROR after assignment: Val and Test station sets overlap!"
-    assert len(train_station_ids) + len(val_station_ids) + len(test_station_ids) == len(observed_nodes_list), \
-        "Total assigned stations does not match total observed stations!"
+    train_ids_set = set(train_station_ids)
+    val_ids_set = set(val_station_ids)
+    test_ids_set = set(test_station_ids)
 
-def _random_fill_remaining_reqs(num_target, station_ids, unassigned_ids_pool):
+    # Final validation of disjoint sets (these asserts are great)
+    if len(train_ids_set.intersection(val_ids_set)) > 0:
+        logger.error(f"ERROR: Train and Val station sets overlap! Overlapping IDs: {sorted(list(train_ids_set.intersection(val_ids_set)))}")
+        raise ValueError("Overlapping station assignments detected.")
+    if len(train_ids_set.intersection(test_ids_set)) > 0:
+        logger.error(f"ERROR: Train and Test station sets overlap! Overlapping IDs: {sorted(list(train_ids_set.intersection(test_ids_set)))}")
+        raise ValueError("Overlapping station assignments detected.")
+    if len(val_ids_set.intersection(test_ids_set)) > 0:
+        logger.error(f"ERROR: Val and Test station sets overlap! Overlapping IDs: {sorted(list(val_ids_set.intersection(test_ids_set)))}")
+        raise ValueError("Overlapping station assignments detected.")
+
+    # Confirm total assigned stations matches total observed stations
+    combined_ids_set = train_ids_set.union(val_ids_set).union(test_ids_set)
+    if len(combined_ids_set) != len(all_observed_node_ids_set):
+        missing_ids = all_observed_node_ids_set - combined_ids_set
+        extra_ids_in_splits = combined_ids_set - all_observed_node_ids_set
+
+        if missing_ids:
+            logger.error(f"ERROR: Not all observed stations ({len(all_observed_node_ids_set)}) were assigned. Missing IDs: {sorted(list(missing_ids))}")
+        if extra_ids_in_splits:
+            logger.error(f"ERROR: Some assigned IDs are not in the observed station list. Extra IDs: {sorted(list(extra_ids_in_splits))}")
+
+        raise ValueError("Total assigned stations does not match total observed stations!")
+
+def _random_fill_remaining_reqs(num_target, station_ids, unassigned_ids_pool, split_name):
     """
     Randomly fill remaining station count targets, reproducible due to random seed initialised in
     execution function.
     """
     num_to_add = num_target - len(station_ids)
-    added_val_count = 0
+    added_count = 0
     
-    while added_val_count < num_to_add and unassigned_ids_pool:
+    while added_count < num_to_add and unassigned_ids_pool:
         node_id_to_add = unassigned_ids_pool.pop(0) # Take from the shuffled pool
         station_ids.add(node_id_to_add)
-        added_val_count += 1
+        added_count += 1
         
-    if added_val_count > 0:
-        logger.info(f"Randomly added {added_val_count} stations to validation set to meet target.")
+    if added_count > 0:
+        logger.info(f"Randomly added {added_count} stations to '{split_name}' set to meet target.")
         
     return station_ids
             
@@ -181,14 +194,14 @@ def define_station_id_splits(main_df_full: pd.DataFrame, catchment: str, test_st
         
         # Check validation set
         if len(val_station_ids) < num_val_target:
-            val_station_ids = _random_fill_remaining_reqs(num_val_target, val_station_ids, unassigned_ids_pool)
+            val_station_ids = _random_fill_remaining_reqs(num_val_target, val_station_ids, unassigned_ids_pool, "validation")
         elif len(val_station_ids) > num_val_target:
             logger.warning(f"Warning: Validation set from shortlist ({len(val_station_ids)}) exceeds target "
                            f"({num_val_target}). All short-listed stations kept -> may affect final split distribution.")
 
         # Check test set
         if len(test_station_ids) < num_test_target:
-            test_station_ids = _random_fill_remaining_reqs(num_test_target, test_station_ids, unassigned_ids_pool)
+            test_station_ids = _random_fill_remaining_reqs(num_test_target, test_station_ids, unassigned_ids_pool, "testing")
         elif len(test_station_ids) > num_test_target:
             logger.warning(f"Warning: Test set from shortlist ({len(test_station_ids)}) exceeds target "
                            f"({num_test_target}). All short-listed stations kept -> may affect final split distribution.")
@@ -207,8 +220,7 @@ def define_station_id_splits(main_df_full: pd.DataFrame, catchment: str, test_st
     logger.info(f"Testing Nodes:  NODE COUNT = {len(test_station_ids_output)}, NODE_IDs: {test_station_ids_output}\n")
     
     # --- Confirm all stations are assigned and validate assignments ---
-    _check_split_success(train_station_ids_output, val_station_ids_output, test_station_ids_output,
-                         all_observed_node_ids_set)
+    _check_split_success(train_station_ids, val_station_ids, test_station_ids, all_observed_node_ids_set)
 
     return train_station_ids_output, val_station_ids_output, test_station_ids_output
 
