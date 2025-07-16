@@ -23,7 +23,7 @@ import pandas as pd
 from src.utils.config_loader import load_project_config
 from src.visualisation.mapped_visualisations import plot_interactive_mesh
 from src.preprocessing import gwl_preprocessing, gap_imputation, gwl_feature_engineering, \
-    hydroclimatic_feature_engineering
+    hydroclimatic_feature_engineering, data_partitioning, model_feature_engineering
 from src.data_ingestion import gwl_data_ingestion, static_data_ingestion, \
     timeseries_data_ingestion
 from src.graph_building import graph_construction, data_merging
@@ -132,8 +132,6 @@ try:
         logger.info(f"Pipeline step 'Build Mesh' complete for {catchment} catchment.\n")
         
         # --- 3b. Save interactive map of catchment mesh ---
-        
-        # TODO: ADD STATIONS AS HIGHLIGHTED NODES
 
         mesh_map = plot_interactive_mesh(
             mesh_nodes_gdf=mesh_nodes_gdf,
@@ -637,16 +635,36 @@ try:
         # SECTION 6: TRAINING/TESTING SPLIT
         # ==============================================================================
         
-        # --- 6a. Split the data temporally ---
+        # [VERIFIED TO HERE!]
         
-        # E.g., 70/15/15 train/val/test by date -> Key:Must be segregated by time, not mixed
-        # All subsequent steps must be done AFTER split to avoid data leakage
+        # --- 6a. Define Spatial Split for Observed Stations ---
+                
+        train_station_ids, val_station_ids, test_station_ids = data_partitioning.define_station_id_splits(
+            main_df_full=main_df_full,
+            catchment=catchment,
+            test_station_shortlist=config[catchment]["model"]["data_partioning"]["test_station_shortlist"],
+            val_station_shortlist=config[catchment]["model"]["data_partioning"]["val_station_shortlist"],
+            random_seed=config["global"]["pipeline_settings"]["random_seed"],
+            perc_train=config[catchment]["model"]["data_partioning"]["percentage_train"],
+            perc_val=config[catchment]["model"]["data_partioning"]["percentage_val"],
+            perc_test=config[catchment]["model"]["data_partioning"]["percentage_test"]
+        )
+
+        logger.info(f"Pipeline Step 'define station splits' complete for {catchment} catchment.")
         
         # --- 6b. Standardisation of all numeric features and round all numeric to 3-4dp ---
+        
+        # processed_df, input_feature_columns = model_feature_engineering.standardise_df(
+        #     main_df_full,
+        # )
         
         # Using from sklearn.preprocessing import StandardScaler
         
         # --- 6c. One-Hot Encode Categorical Features ---
+        
+        # processed_df, input_feature_columns = model_feature_engineering.one_hot_encode_df(
+        #     main_df_full
+        # )
         
         # Using from sklearn.preprocessing import OneHotEncoder
         
