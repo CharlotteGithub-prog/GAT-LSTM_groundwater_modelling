@@ -45,7 +45,7 @@ global:
     col_order: ['station_name', 'date', 'dateTime', 'value', 'quality', 'measure']
     max_interp_length: 25
 
-  # --- PROPROCESSING SETTING ---
+  # --- PROPROCESSING SETTINGS ---
   preprocessing:
     radius: 6371000.0
     gap_lengths_days: [30, 60, 90, 120, 150]
@@ -183,6 +183,14 @@ eden:
       dpi_save: 300  # Always adjust to 300 for final output run
       extension: "svg"
     corr_dist_score_scatters: "results/figures/eden/scatter/"
+  
+  model:
+    data_partioning:
+      test_station_shortlist: ["ainstable", "coupland", "scaleby"]
+      val_station_shortlist: ["castle_carrock", "skirwith", "great_musgrave"]
+      percentage_train: 70
+      percentage_val: 15
+      percentage_test: 15
 
 # ==============================================================================
 # FUTURE CATCHMENT CONFIG SETTINGS
