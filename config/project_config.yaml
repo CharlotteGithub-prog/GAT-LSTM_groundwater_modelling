@@ -186,8 +186,8 @@ eden:
   
   model:
     data_partioning:
-      test_station_shortlist: ["ainstable", "coupland", "scaleby"]
-      val_station_shortlist: ["castle_carrock", "skirwith", "great_musgrave"]
+      test_station_shortlist: ["ainstable", "coupland", "scaleby"]  # Length ideally >= minimum station req count
+      val_station_shortlist: ["castle_carrock", "skirwith", "great_musgrave"]  # Length ideally >= minimum station req count
       percentage_train: 70
       percentage_val: 15
       percentage_test: 15
