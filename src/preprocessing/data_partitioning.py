@@ -156,7 +156,7 @@ def define_station_id_splits(main_df_full: pd.DataFrame, catchment: str, test_st
                                                                                    perc_val, perc_test)
     
     logger.info(f"Target split counts: Train={num_train_target}, Val={num_val_target}, Test={num_test_target} "
-                f"(Total Observed: {len(all_observed_node_ids_set)}).\n")
+                f"(Total Observed: {len(all_observed_node_ids_set)}).")
         
     # --- Get training station name list ---
     
@@ -179,9 +179,8 @@ def define_station_id_splits(main_df_full: pd.DataFrame, catchment: str, test_st
         raise ValueError("Overlapping station assignments detected in shortlists.")
     
     # Log initial assignment
-    logger.info(f"Initial assignment from sliced shortlists: "
-                f"Val={len(val_station_ids)} (Target={num_val_target}), "
-                f"Test={len(test_station_ids)} (Target={num_test_target}).")
+    logger.info(f"Initial assignment from sliced shortlists: Val={len(val_station_ids)} (Target={num_val_target}), "
+                f"Test={len(test_station_ids)} (Target={num_test_target}).\n")
     
     # --- Randomly fill any unfulfilled requirements from remaining stations (if required) ---
     
