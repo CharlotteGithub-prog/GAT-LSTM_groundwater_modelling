@@ -1,9 +1,8 @@
-# Copyright (c) 2025 Charlotte Wayment
 # This file is part of the Dissertation project and is licensed under the MIT License.
 
 ### FULL PIPELINE ###
-
-# Expected Processing Time (with API calls = False): ## hrs ## minutes
+# Expected Processing Time for Eden Catchment (with API calls = False): ## hrs ## minutes
+#        - 00 hrs 05 minutes 58 seconds -> to end of section 6b
 
 # ==============================================================================
 # SECTION 1: IMPORTS & CONFIGURATION
@@ -572,7 +571,7 @@ try:
         )
 
         # Merge static data into main_df
-        
+        final_dir = config[catchment]["paths"]["final_df_path"]
         static_df = pd.read_csv(os.path.join(final_dir, 'final_static_df.csv'))
         main_df_static = main_df.merge(
             static_df,
@@ -607,9 +606,8 @@ try:
 
         logger.info(f"Groundwater Level data successfully merged into main_df for {catchment} catchment.\n")
         
-        # Save final dataframe to file
+        # Save final dataframe to file - [FUTURE] LONG, SET FLAG?
         
-        final_dir = config[catchment]["paths"]["final_df_path"]
         final_save_path = os.path.join(final_dir, 'final_df.csv')
         main_df_full.to_csv(final_save_path)
         
@@ -632,7 +630,7 @@ try:
         # [FUTURE] Create an interactive map showing the mesh, GWL stations, and other snapped data points.
         
         # ==============================================================================
-        # SECTION 6: TRAINING/TESTING SPLIT
+        # SECTION 6: TRAINING / VALIDATION / TESTING PyG OV=BJECT CREATION
         # ==============================================================================
         
         # --- 6a. Define Spatial Split for Observed Stations ---
@@ -652,10 +650,10 @@ try:
         
         # --- 6b. Preprocess (Standardise, one hot encode, round to 4dp) all shared features (not GWL) ---
         
-        processed_df, shared_scaler, encoder = model_feature_engineering.preprocess_shared_features(
+        processed_df, shared_scaler, encoder, gwl_feats = model_feature_engineering.preprocess_shared_features(
             main_df_full=main_df_full,
             catchment=catchment,
-            random_state=config["global"]["pipeline_settings"]["random_seed"],
+            random_seed=config["global"]["pipeline_settings"]["random_seed"],
             violin_plt_path=config[catchment]["visualisations"]["violin_plt_path"]
         )
 
@@ -665,7 +663,7 @@ try:
         
         # df_train[gwl_derived_cols_with_nans].fillna(sentinel_value, inplace=True)
         
-        # --- 6f. Creat pyg data object using partioned station IDs (from 6a) ---
+        # --- 6f. Creat PyG data object using partioned station IDs (from 6a) ---
 
         # --- 6g. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) ---
         # Purpose: Establish connections between mesh nodes.
