@@ -4,7 +4,6 @@ import logging
 import numpy as np
 import pandas as pd
 from ruamel.yaml import YAML
-from scipy.stats import skew
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from scipy.stats import skew, boxcox
