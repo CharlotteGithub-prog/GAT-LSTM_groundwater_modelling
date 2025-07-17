@@ -21,6 +21,7 @@ logging.basicConfig(
 # Set up logger for file and load config file for paths and params
 logger = logging.getLogger(__name__)
 
+# Preprocess shared features in final dataframe
 def _group_features_by_type(processed_df):
     """
     Divide column name into data type lists for subsequent preprocessing subsetting.
@@ -158,14 +159,14 @@ def preprocess_shared_features(main_df_full, catchment, random_seed, violin_plt_
     if cat_feats:
         # Fit on all available data for feature(s)
         logger.info(f"Beginning one hot encoding of {len(cat_feats)} categorical features...")
-        encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
-        encoder.fit(processed_df[cat_feats])
-        encoded_features = encoder.transform(processed_df[cat_feats])
+        shared_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+        shared_encoder.fit(processed_df[cat_feats])
+        encoded_features = shared_encoder.transform(processed_df[cat_feats])
 
         # Build encoded cols
         one_hot_df = pd.DataFrame(
             encoded_features,
-            columns=encoder.get_feature_names_out(cat_feats),
+            columns=shared_encoder.get_feature_names_out(cat_feats),
             index=processed_df.index
         )
         
@@ -173,7 +174,7 @@ def preprocess_shared_features(main_df_full, catchment, random_seed, violin_plt_
         processed_df = pd.concat([processed_df.drop(columns=cat_feats, axis=1), one_hot_df], axis=1)
         
         # Update numerical and cateogrical features list for future use with encoded col names
-        num_feats.extend(encoder.get_feature_names_out(cat_feats).tolist())
+        num_feats.extend(shared_encoder.get_feature_names_out(cat_feats).tolist())
         cat_feats = []
         logger.info("Categorical features successfully one hot encoded.\n")
 
@@ -192,4 +193,209 @@ def preprocess_shared_features(main_df_full, catchment, random_seed, violin_plt_
     
     _plot_standardised_data_aligned(processed_df, random_seed, violin_plt_path)
     
-    return processed_df, shared_scaler, encoder, gwl_feats
+    return processed_df, shared_scaler, shared_encoder, gwl_feats
+
+# Preprocess gwl featues in final dataframe
+def _fill_missing_with_sentinel(df, cols, sentinel_value):
+    """
+    Fill all 'missing value' assignments in gwl data columns with sentinel value as required for input into GAT. df
+    is modified in place so no return needed.
+    """
+    n_missing_before_sentinel_fill = df[cols].isnull().sum().sum()
+
+    if n_missing_before_sentinel_fill > 0:
+        logger.info(f"Filling {n_missing_before_sentinel_fill} missing values in specified columns with sentinel = {sentinel_value}.")
+        df.loc[:, cols] = df.loc[:, cols].fillna(sentinel_value)
+        logger.info(f"Sentinel fill complete for columns: {cols}.\n")
+    else:
+        logger.info(f"No missing values found in specified columns, skipping sentinel fill.\n")
+
+def _standardise_gwl_station_data(df, num_cols, sentinel_value, gwl_scaler, all_gwl_station_ids,
+                                  train_station_ids):
+    """
+    Standardise all OBSERVED GWL values using only training data to fit scaler to avoid leakage. df is
+    modified in place so no return needed.
+    """
+    if num_cols:
+        logger.info(f"Beginning standardisation of {len(num_cols)} numerical GWL features "
+                    f"(fitted on training data only)...")
+
+        # Select only training station nodes and confirm none contain NaN or seninel
+        train_data_for_std = df[df['node_id'].isin(train_station_ids)][num_cols].copy()
+        
+        # Check no training data has been fileed with sentinel vals, temporarily exclude if so
+        n_sentinels_in_train_num = (train_data_for_std == sentinel_value).sum().sum()
+        if n_sentinels_in_train_num > 0:
+            train_data_for_std.replace(sentinel_value, np.nan, inplace=True)
+            logger.warning(f"Found {n_sentinels_in_train_num} sentinel values in training numerical data for fitting.")
+            
+        # Check for persisting NaNs
+        n_nan_in_train_num_before_fit = train_data_for_std.isna().sum().sum()
+        assert n_nan_in_train_num_before_fit == 0, \
+            f"Original training numerical data contains {n_nan_in_train_num_before_fit} genuine NaN values (not sentinels)."
+
+        # Fit on training data
+        gwl_scaler.fit(train_data_for_std)
+        
+        # --- Apply transformation to ALL rows (train, val, test) for these cols ---
+    
+        # Create a boolean mask for rows to transform
+        mask_for_num_transform = df['node_id'].isin(all_gwl_station_ids)
+        
+        # Apply standardising transformation in-place using .loc (only applying to masked rows)
+        df.loc[mask_for_num_transform, num_cols] = gwl_scaler.transform(df.loc[mask_for_num_transform, num_cols])
+        logger.info(f"Successfully standardised {len(num_cols)} numerical GWL features across "
+                    f"{mask_for_num_transform.sum()} rows for observed GWL stations.\n")
+    
+    else:
+        logger.info("No numerical GWL features found, skipping standardisation.\n")
+
+def _encode_gwl_station_data(df, cat_cols, gwl_encoder, all_gwl_station_ids, train_station_ids):
+    """
+    One hot encode all OBSERVED GWL categorical data using only training data to fit encoder to avoid
+    leakage. df is modified in place so no return needed.
+    """
+    if cat_cols:
+        logger.info(f"Beginning one-hot encoding of {len(cat_cols)} categorical GWL features "
+                    f"(fitted on training data only, applied to observed GWL stations)...")
+        
+        # Select only training station nodes and confirm none contain NaN or seninel
+        train_data_for_encoder = df[df['node_id'].isin(train_station_ids)][cat_cols].copy()
+
+        # Fill any NaNs in categorical columns with placeholder before encoding for fitting
+        for col in cat_cols:
+            if col in train_data_for_encoder.columns:
+                n_cat_nan_before_fill = train_data_for_encoder[col].isna().sum()
+                if n_cat_nan_before_fill > 0:
+                    logger.info(f"    {n_cat_nan_before_fill} NaN values in '{col}' (training data) filling with '__MISSING_CAT__' for encoder fit.")
+                    train_data_for_encoder.loc[:, col] = train_data_for_encoder[col].fillna('__MISSING_CAT__')
+        
+        # Fit encoder using only training data
+        gwl_encoder.fit(train_data_for_encoder)
+        
+        # --- Apply transformation to ALL rows (train, val, test) for these cols ---
+        
+        mask_for_cat_transform = df['node_id'].isin(all_gwl_station_ids)
+        
+        # Prepare missing data for transformation (fill NaNs for all rows for consistent transformation)
+        data_to_encode_for_transform = df[cat_cols].copy()
+        for col in cat_cols:
+            data_to_encode_for_transform.loc[:, col] = data_to_encode_for_transform[col].fillna('__MISSING_CAT__')
+            
+        # Tranform prepared data
+        encoded_features_arr = gwl_encoder.transform(data_to_encode_for_transform)
+        
+        # Get new one hot encoded colums and initalise as 0 before merge
+        new_ohe_cols = gwl_encoder.get_feature_names_out(cat_cols).tolist()
+        for new_col in new_ohe_cols:
+            df[new_col] = 0.0
+        
+        # Assign the transformed values to ONLY the masked rows
+        df.loc[mask_for_cat_transform, new_ohe_cols] = encoded_features_arr[mask_for_cat_transform]
+    
+        # Drop original categorical columns from df
+        df.drop(columns=cat_cols, axis=1, inplace=True)
+        
+        logger.info(f"Successfully one-hot encoded {len(cat_cols)} categorical GWL features across "
+                f"{mask_for_cat_transform.sum()} rows for observed GWL stations.\n")
+    else:
+        logger.info("No categorical GWL features found, skipping one hot encoding.\n")
+
+def _modify_final_col_order(processed_df):
+    """
+    Force 'timestep' and 'node_id' to be the first two columns for clarity.
+    """
+    logger.info(f"Adjuat final column order of dataframe.")
+    
+    # Get all current columns and create desired order for first cols
+    all_cols = processed_df.columns.tolist()
+    desired_initial_cols = ['timestep', 'node_id']
+    
+    # Filter out 'timestep' and 'node_id' from the full df
+    remaining_cols = [col for col in all_cols if col not in desired_initial_cols]
+    
+    # Combine to create the new column order and reindex the df to apply the new order
+    new_column_order = desired_initial_cols + remaining_cols
+    processed_df = processed_df[new_column_order]
+    
+    return processed_df
+
+def preprocess_gwl_features(processed_df, catchment, train_station_ids, val_station_ids, test_station_ids,
+                            sentinel_value):
+    """
+    Preprocesses groundwater level (GWL) features by handling missing values with sentinels,
+    standardising numerical features, and one-hot encoding categorical features using only training data
+    to prevent leakage. Integrate these processed features back into the full df and order cols.
+    """
+    logger.info(f"Processing final groundwater data for {catchment} catchment...\n")
+    
+    # Drop unneeded cols
+    processed_df = processed_df.drop(columns=['gwl_masked'])
+
+    # --- Group columns by type ---
+
+    # Define gwl specific columns including node_id and timestep (for merge)
+    gwl_cols = ['timestep', 'node_id', 'gwl_value', 'gwl_data_quality', 'gwl_data_type', 'gwl_lag1',
+                'gwl_lag2', 'gwl_lag3', 'gwl_lag4', 'gwl_lag5', 'gwl_lag6', 'gwl_lag7']
+    
+    # Filter to ensure only columns actually present in processed_df are used
+    gwl_cols = [col for col in gwl_cols if col in processed_df.columns]
+
+    # Define columns by type for various preprocessing requirements (defensively using processed_df checks)
+    num_cols = [f'gwl_lag{i}' for i in range(1, 8) if f'gwl_lag{i}' in processed_df.columns]
+    cat_cols = [col for col in ['gwl_data_quality', 'gwl_data_type', 'gwl_masked'] if col in processed_df.columns]
+    
+    idx_cols = ['timestep', 'node_id']
+    target_col = 'gwl_value'
+    
+    # Define list of all (observed) gwl station IDs
+    all_gwl_station_ids = list(set(train_station_ids + val_station_ids + test_station_ids))
+
+    # Take copy of original df to process
+    df = processed_df.copy()
+
+    # --- Fill numerical NaNs with Sentinel Value ---
+
+    _fill_missing_with_sentinel(df, num_cols, sentinel_value)
+
+    # --- Standardise training data rows and propagate standardisation params to val and test rows ---
+
+    # Initialise standard scaler and standardise numerical values using training data params
+    gwl_scaler = StandardScaler()
+    _standardise_gwl_station_data(df, num_cols, sentinel_value, gwl_scaler,
+                                  all_gwl_station_ids, train_station_ids)
+        
+    # --- One hot encode categorical gwl features ---
+
+    # Initialise categorical encode and encode categorical columns using training data params
+    gwl_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+    _encode_gwl_station_data(df, cat_cols, gwl_encoder, all_gwl_station_ids, train_station_ids)
+    
+    # --- Final Sentinel Fill for any remaining NaNs in GWL X-Features ---
+    
+    final_gwl_x_features = num_cols + gwl_encoder.get_feature_names_out(cat_cols).tolist() if cat_cols else num_cols
+    _fill_missing_with_sentinel(df, final_gwl_x_features, sentinel_value)
+        
+    logger.info(f"Final GWL data processing complete for {catchment} catchment.")
+
+    # --- Update original processed_df with reprocessed GWL columns ---
+    
+    # Ensure all original GWL input columns are dropped (numerical and categorical)
+    original_gwl_input_cols = num_cols + cat_cols
+    processed_df = processed_df.drop(columns=original_gwl_input_cols, errors='ignore')
+
+    # Merge the updated GWL features back into processed_df
+    processed_df = pd.merge(
+        processed_df,
+        df[idx_cols + final_gwl_x_features + [target_col]],
+        on=['timestep', 'node_id'],
+        how='left'
+    )
+    
+    # Clean up final df, col order and log completion of processing
+    processed_df = processed_df.drop(columns='gwl_value_x').rename(columns={'gwl_value_y': 'gwl_value'})
+    processed_df = _modify_final_col_order(processed_df)
+    logger.info(f"Updated processed_df with standardised and encoded GWL features.")
+
+    # Return the modified df and the fitted transformers for potential inverse transforms or inspection
+    return processed_df, gwl_scaler, gwl_encoder

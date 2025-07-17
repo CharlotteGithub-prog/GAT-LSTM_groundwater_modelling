@@ -659,19 +659,26 @@ try:
 
         logger.info(f"Pipeline Step 'Preprocess Final Shared Features' complete for {catchment} catchment.")
         
-        # --- 6d. Pass NaN's in tensor to the GNN layers as sentinel value (-999) ---
+        # --- 6c. Preprocess all GWL features using training data only ---
         
-        # df_train[gwl_derived_cols_with_nans].fillna(sentinel_value, inplace=True)
+        processed_df, gwl_scaler, gwl_encoder = model_feature_engineering.preprocess_gwl_features(
+            processed_df=processed_df,
+            catchment=catchment,
+            train_station_ids=train_station_ids,
+            val_station_ids=val_station_ids,
+            test_station_ids=test_station_ids,
+            sentinel_value = config["global"]["graph"]["sentinel_value"]
+        )
         
-        # --- 6f. Creat PyG data object using partioned station IDs (from 6a) ---
+        # --- 6d. Creat PyG data object using partioned station IDs (from 6a) ---
 
-        # --- 6g. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) ---
+        # --- 6e. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) --- (ALREADY DONE?)
         # Purpose: Establish connections between mesh nodes.
         # Action: Define criteria for edges (e.g., k-nearest neighbors, distance threshold, hydrological connectivity).
         # Action: Construct the adjacency matrix (A) for the graph.
         # Output: Adjacency matrix or edge_index for PyTorch Geometric.
 
-        # --- 6h. Create Graph Data Object / Input Tensors ---
+        # --- 6f. Create Graph Data Object / Input Tensors ---
         # Purpose: Assemble all graph components (nodes, edges, features, targets) into a format suitable for the GNN framework.
         # Action: Split data into training, validation, and test sets based on time (e.g., 70/15/15 chronological split).
         # Action: Generate graph snapshots/sequences for the GNN's input.
