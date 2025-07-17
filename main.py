@@ -635,8 +635,6 @@ try:
         # SECTION 6: TRAINING/TESTING SPLIT
         # ==============================================================================
         
-        # [VERIFIED TO HERE!]
-        
         # --- 6a. Define Spatial Split for Observed Stations ---
                 
         train_station_ids, val_station_ids, test_station_ids = data_partitioning.define_station_id_splits(
@@ -652,36 +650,30 @@ try:
 
         logger.info(f"Pipeline Step 'define station splits' complete for {catchment} catchment.")
         
-        # --- 6b. Standardisation of all numeric features and round all numeric to 3-4dp ---
+        # --- 6b. Preprocess (Standardise, one hot encode, round to 4dp) all shared features (not GWL) ---
         
-        # processed_df, input_feature_columns = model_feature_engineering.standardise_df(
-        #     main_df_full,
-        # )
-        
-        # Using from sklearn.preprocessing import StandardScaler
-        
-        # --- 6c. One-Hot Encode Categorical Features ---
-        
-        # processed_df, input_feature_columns = model_feature_engineering.one_hot_encode_df(
-        #     main_df_full
-        # )
-        
-        # Using from sklearn.preprocessing import OneHotEncoder
-        
-        # --- 6d. Weight imbalanced classes (land_use) ---
-        
-        # Using from sklearn.utils.class_weight import compute_class_weight
-        
-        # --- 6e. Pass NaN's in tensor to the GNN layers as sentinel value (-999) ---
-        # df_train[gwl_derived_cols_with_nans].fillna(sentinel_value, inplace=True)
+        processed_df, shared_scaler, encoder = model_feature_engineering.preprocess_shared_features(
+            main_df_full=main_df_full,
+            catchment=catchment,
+            random_state=config["global"]["pipeline_settings"]["random_seed"],
+            violin_plt_path=config[catchment]["visualisations"]["violin_plt_path"]
+        )
 
-        # --- 6f. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) ---
+        logger.info(f"Pipeline Step 'Preprocess Final Shared Features' complete for {catchment} catchment.")
+        
+        # --- 6d. Pass NaN's in tensor to the GNN layers as sentinel value (-999) ---
+        
+        # df_train[gwl_derived_cols_with_nans].fillna(sentinel_value, inplace=True)
+        
+        # --- 6f. Creat pyg data object using partioned station IDs (from 6a) ---
+
+        # --- 6g. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) ---
         # Purpose: Establish connections between mesh nodes.
         # Action: Define criteria for edges (e.g., k-nearest neighbors, distance threshold, hydrological connectivity).
         # Action: Construct the adjacency matrix (A) for the graph.
         # Output: Adjacency matrix or edge_index for PyTorch Geometric.
 
-        # --- 6g. Create Graph Data Object / Input Tensors ---
+        # --- 6h. Create Graph Data Object / Input Tensors ---
         # Purpose: Assemble all graph components (nodes, edges, features, targets) into a format suitable for the GNN framework.
         # Action: Split data into training, validation, and test sets based on time (e.g., 70/15/15 chronological split).
         # Action: Generate graph snapshots/sequences for the GNN's input.
