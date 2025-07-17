@@ -22,6 +22,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def _group_features_by_type(processed_df):
+    """
+    Divide column name into data type lists for subsequent preprocessing subsetting.
+    """
     # Define numerical feature list
     numerical_features = ['mean_elevation', 'mean_slope_deg', 'mean_aspect_sin', 'mean_aspect_cos',
                         'rainfall_volume_m3', 'rainfall_lag_1', 'rainfall_lag_2', 'rainfall_lag_3',
@@ -75,6 +78,9 @@ def _transform_skewed_data(processed_df, catchment):
     return processed_df
 
 def _plot_standardised_data_aligned(processed_df, random_seed, violin_plt_path):
+    """
+    Plot simple violin plot to visually confirm standardisation success.
+    """
     plt.figure(figsize=(15, 8))
 
     # Create random sample to reduce computation of repeated passes over full df 
@@ -130,7 +136,7 @@ def preprocess_shared_features(main_df_full, catchment, random_seed, violin_plt_
 
     # --- Get feature lists split by type ---
 
-    num_feats, cat_feats, _ = _group_features_by_type(processed_df)
+    num_feats, cat_feats, gwl_feats = _group_features_by_type(processed_df)
     
     # --- Transform slope and elevation cols (previously kept raw for adge_attrs) ---
     
@@ -186,4 +192,4 @@ def preprocess_shared_features(main_df_full, catchment, random_seed, violin_plt_
     
     _plot_standardised_data_aligned(processed_df, random_seed, violin_plt_path)
     
-    return processed_df, shared_scaler, encoder
+    return processed_df, shared_scaler, encoder, gwl_feats
