@@ -171,7 +171,8 @@ eden:
     catchment_min_elevation: 8.00  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     rainfall_boxcox_lambda: 0.1701496697839992
     aet_boxcox_lambda: 0.4931417208883217
-
+    mean_elevation_boxcox_lambda: 0.43791794465031564
+    mean_slope_deg_boxcox_lambda: -0.24587351671403726
   visualisations:
     maps:  # ensure no specific file extensions here
       static_mesh_map_output: "results/figures/eden/maps/static_mesh_map"
@@ -183,14 +184,14 @@ eden:
       dpi_save: 300  # Always adjust to 300 for final output run
       extension: "svg"
     corr_dist_score_scatters: "results/figures/eden/scatter/"
-  
+    violin_plt_path: "results/figures/eden/other/standardised_violins.png"
   model:
     data_partioning:
       test_station_shortlist: ["ainstable", "coupland", "scaleby"]  # Length ideally >= minimum station req count
       val_station_shortlist: ["castle_carrock", "skirwith", "great_musgrave"]  # Length ideally >= minimum station req count
-      percentage_train: 70
+      percentage_train: 77
       percentage_val: 15
-      percentage_test: 15
+      percentage_test: 8
 
 # ==============================================================================
 # FUTURE CATCHMENT CONFIG SETTINGS
