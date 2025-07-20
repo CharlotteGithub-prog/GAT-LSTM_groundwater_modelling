@@ -1,5 +1,6 @@
 # Import Libraries
 import os
+import re
 import sys
 import glob
 import logging
@@ -10,6 +11,7 @@ import xarray as xr
 import pandas as pd
 import geopandas as gpd
 import xrspatial as xrs
+from pathlib import Path
 from rasterio.merge import merge
 from rasterstats import zonal_stats
 
@@ -488,6 +490,233 @@ def derive_slope_data(high_res_raster: xr.DataArray, mesh_cells_gdf_polygons: gp
     
     return slope_gdf, directional_edge_weights
 
+# Geology Feature Set
+def _loop_geology_subdirectories(subdirs, columns_of_interest, mesh_crs, catchment):
+    """
+    Load simplified geometries from subdirectories
+    """
+    logger.info(f"Loading simplified geology geometries from {catchment} catchment...")
+    
+    layer_suffixes = {
+        "bedrock": "_bedrock.shp",
+        "superficial": "_superficial.shp"
+    }
+        
+    simplified_geology = {layer: [] for layer in layer_suffixes}
+    
+    # Loop through subdirectories
+    for subdir in subdirs:
+        for layer, suffix in layer_suffixes.items():
+            for shp in subdir.glob(f"*{suffix}"):
+                try:
+                    # Only read relevant columns + geometry (avoiding unnecessary compiutation)
+                    wanted_cols = columns_of_interest.get(layer, []) + ["geometry"]
+                    gdf = gpd.read_file(shp, dtype={"MAX_EPOCH": "str"})[wanted_cols]
+
+                    # Reproject if necessary
+                    if gdf.crs != mesh_crs:
+                        gdf = gdf.to_crs(mesh_crs)
+
+                    simplified_geology[layer].append(gdf)
+                except Exception as e:
+                    logging.warning(f"[ERROR] Failed to load {shp.name}: {e}")
+    
+    return simplified_geology
+
+def _merge_geology_layers(simplified_geology, mesh_crs):
+    """
+    Merge all individual layers into one concatenated gdf
+    """
+    # Initialise feature layers dict
+    final_layers = {}
+    
+    logging.info(f"Merging simlpified geology layers into concatenated groups...\n")
+    for name, gdf_list in simplified_geology.items():
+        if gdf_list:
+            merged = gpd.GeoDataFrame(pd.concat(gdf_list, ignore_index=True), crs=mesh_crs)
+            final_layers[name] = merged
+            logging.info(f"[OK] Loaded and simplified '{name}': {len(merged)} features")
+        else:
+            logging.info(f"[SKIPPED] No features found for: {name}")
+
+    return final_layers
+
+def _map_geo_cols_to_cats(bedrock_gdf: gpd.GeoDataFrame, superficial_gdf: gpd.GeoDataFrame):
+    """
+    Map heterogeous and highly imbalanced categories to main categorisations
+    while retaining hydrological meaning.
+    """
+    # Define bedrock gdf column mappings
+    bedrock_map = {
+        'SEDIMENTARY': 'sedimentary',
+        'IGNEOUS': 'igneous',
+        'SEDIMENTARY AND IGNEOUS': 'other',
+        'METAMORPHIC': 'other'
+    }
+
+    # Apply bedrock mappings
+    original_bed_cats = bedrock_gdf["RCS_ORIGIN"].nunique()
+    bedrock_gdf["geo_bedrock_type"] = bedrock_gdf["RCS_ORIGIN"].map(bedrock_map).fillna("unknown")
+    simplified_bed_cats = bedrock_gdf["geo_bedrock_type"].nunique()
+    
+    logging.info(f"[BEDROCK] Mapped RCS_ORIGIN from {original_bed_cats} to {simplified_bed_cats} categories.")
+    logging.info(f'[BEDROCK] Category distribution:\n\n {bedrock_gdf["geo_bedrock_type"].value_counts()}\n')
+
+    # Define superficial gdf column mappings
+    superficial_map = {
+        # main groups
+        'PEAT': 'organic',
+        'DIAMICTON': 'diamicton',
+        'DIAMICTON, SAND AND GRAVEL': 'diamicton',
+
+        # course
+        'SAND': 'coarse',
+        'GRAVEL': 'coarse',
+        'SAND AND GRAVEL': 'coarse',
+        'GRAVEL, SAND AND SILT': 'coarse',
+        'SAND, GRAVEL AND BOULDERS': 'coarse',
+        'GRAVEL, SAND, SILT AND CLAY': 'coarse',
+        'ROCK FRAGMENTS, ANGULAR, UNDIFFERENTIATED SOURCE ROCK': 'coarse',
+        'MUD, SANDY': 'coarse',
+
+        # mixed_fines
+        'CLAY, SILT, SAND AND GRAVEL': 'mixed_fines',
+        'SILT, SAND AND GRAVEL': 'mixed_fines',
+        'SAND, SILT AND CLAY': 'mixed_fines',
+        'CLAY, SAND AND GRAVEL': 'mixed_fines',
+        'CLAY, SILT AND SAND': 'mixed_fines',
+
+        # Residual fine-grained / rare / uncertain
+        'CLAY': 'other',
+        'CLAY AND SILT': 'other',
+        'SILT AND CLAY': 'other',
+        'CLAY, SILTY': 'other',
+        'SILT': 'other',
+        'WATER, TYPE UNSPECIFIED': 'other',
+        'UNKNOWN/UNCLASSIFIED ENTRY': 'other'
+    }
+
+    # Apply superficial mappings
+    original_sup_cats = superficial_gdf["RCS_D"].nunique()
+    superficial_gdf["geo_superficial_type"] = superficial_gdf["RCS_D"].map(superficial_map).fillna("unknown")
+    simplified_sup_cats = superficial_gdf["geo_superficial_type"].nunique()
+
+    logging.info(f"[SUPERFICIAL] Mapped RCS_D from {original_sup_cats} to {simplified_sup_cats} categories.")
+    logging.info(f'[SUPERFICIAL] Category distribution:\n\n {superficial_gdf["geo_superficial_type"].value_counts()}\n')
+    
+    # Drop old columns
+    bedrock_gdf = bedrock_gdf.drop(columns=['RCS_ORIGIN'])
+    superficial_gdf = superficial_gdf.drop(columns=['RCS_D'])
+
+    return bedrock_gdf, superficial_gdf
+
+def _align_geology_with_mesh(mesh_cells_gdf_polygons, bedrock_gdf, superficial_gdf, catchment):
+    """
+    Merge spatial geolgoy with main model mesh using intersecting geology then aggregate to 1km values
+    using modal average. Merge aggregated data back to single df.
+    """
+    logging.info(f"Merging geology data together for {catchment} catchment...\n")
+    
+    # Merge to mesh by intersecting points
+    bedrock_joined = gpd.sjoin(mesh_cells_gdf_polygons, bedrock_gdf, how="left", predicate="intersects")
+    superficial_joined = gpd.sjoin(mesh_cells_gdf_polygons, superficial_gdf, how="left", predicate="intersects")
+
+    # Calc mode label per 1km cell for bedrock
+    bedrock_mode = (
+        bedrock_joined[["node_id", "geo_bedrock_type"]].dropna().groupby("node_id")
+        .agg(lambda x: x.mode().iloc[0])
+    )
+    logging.info(f"Bedrock geology data merged to mesh.")
+
+    # Calc mode label per 1km cell for superficial
+    superficial_mode = (
+        superficial_joined[["node_id", "geo_superficial_type"]].dropna().groupby("node_id")
+        .agg(lambda x: x.mode().iloc[0])
+    )
+    logging.info(f"Superficial geology data merged to mesh.")
+
+    # Merge both back to mesh
+    mesh_geology_df = (
+        mesh_cells_gdf_polygons[["node_id", "geometry"]]
+        .merge(bedrock_mode, on="node_id", how="left")
+        .merge(superficial_mode, on="node_id", how="left")
+    )
+    logging.info(f"Full geology df built for {catchment} catchment.\n")
+    
+    # Fill missing values
+    mesh_geology_df['geo_superficial_type'] = mesh_geology_df['geo_superficial_type'].fillna("other")
+    mesh_geology_df['geo_bedrock_type'] = mesh_geology_df['geo_bedrock_type'].fillna("other")
+
+    return mesh_geology_df
+
+def load_and_process_geology_layers(base_dir, mesh_crs, columns_of_interest, mesh_cells_gdf_polygons, catchment):
+    """
+    Recursively loads and simplifies geological shapefiles (e.g., bedrock, superficial)
+    from all 'ew*' or 'sc*' subdirectories, retaining only columns of interest.
+    Automatically reprojects to match mesh CRS.
+    """
+    base_path = Path(base_dir)
+    subdirs = [p for p in base_path.iterdir() if p.is_dir() and re.match(r'^(ew|sc)', p.name)]
+
+    # --- Load data in from sub directories and merge together ---
+    
+    simplified_geology = _loop_geology_subdirectories(subdirs, columns_of_interest,
+                                                      mesh_crs, catchment)
+    
+    final_layers = _merge_geology_layers(simplified_geology, mesh_crs)
+
+    # --- Split into individual df's by type and map sparse categories to final ---
+    
+    bedrock_gdf = final_layers["bedrock"]
+    superficial_gdf = final_layers["superficial"]
+    
+    bedrock_gdf, superficial_gdf = _map_geo_cols_to_cats(bedrock_gdf, superficial_gdf)
+    
+    # --- Merge with mesh by intersecting areas and aggregate to 1km modal values ---
+    
+    mesh_geology_df = _align_geology_with_mesh(mesh_cells_gdf_polygons, bedrock_gdf, superficial_gdf, catchment)
+    
+    # --- Add lat and lon to plot ---
+    
+    # Project to lat/lon (EPSG:4326)
+    centroids = mesh_geology_df.geometry.centroid
+    centroids_latlon = centroids.to_crs("EPSG:4326")
+    
+    # Add as explicit lat and lon cols in df
+    mesh_geology_df["lon"] = centroids_latlon.x
+    mesh_geology_df["lat"] = centroids_latlon.y
+
+    return mesh_geology_df
+
+def get_geo_feats():
+    """
+    Get interactive mapping features for geology map.
+    """
+    geo_superficial_labels = {
+        'coarse':'Coarse (sand & gravel)',
+        'mixed_fines':'Mixed fines',
+        'organic':'Organic (peat)',
+        'diamicton':'Diamicton',
+        'superficial_other':'Other (Superficial)'
+    }
+
+    geo_bedrock_labels = {
+        'sedimentary':'Sedimentary',
+        'igneous':'Igneous',
+        'bedrock_other':'Other (Bedrock)'
+    }
+
+    geo_bedrock_colors = {'sedimentary': '#8e412e', 'igneous': '#4d85ba', 'bedrock_other': '#999999'}
+
+    geo_superficial_colors = {'coarse': '#8e412e', 'mixed_fines': '#4d85ba', 'organic': '#009E73',
+                            'diamicton': "#DFD53E", 'superficial_other': '#999999'}
+
+    feature_category_colors = {'geo_superficial_type': geo_superficial_colors, 'geo_bedrock_type': geo_bedrock_colors}
+    feature_category_labels = {'geo_superficial_type': geo_superficial_labels, 'geo_bedrock_type': geo_bedrock_labels}
+    layer_labels = {"geo_superficial_type": "Superficial Type", "geo_bedrock_type": "Bedrock Type"}
+    
+    return feature_category_colors, feature_category_labels, layer_labels
+
 # Save final static data csv
 def save_final_static_data(static_features: pd.DataFrame, dir_path: str):
     # Define columns to drop
@@ -505,3 +734,4 @@ def save_final_static_data(static_features: pd.DataFrame, dir_path: str):
     static_features.to_csv(save_path)
 
     logger.info(f"Final merged static dataframe saved to {save_path}")
+
