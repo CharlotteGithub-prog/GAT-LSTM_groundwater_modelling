@@ -91,7 +91,7 @@ def plot_interactive_mesh(mesh_nodes_gdf: gpd.geodataframe, catchment_polygon: g
         map.save(full_interactive_output_path)
         logger.info(f"Interactive map file saved to: {full_interactive_output_path}\n")
         return map
-    
+
 def plot_interactive_mesh_colour_coded(mesh_nodes_gdf: gpd.geodataframe, catchment_polygon: gpd.GeoDataFrame, map_blue: str,
                           esri: str, esri_attr: str, static_output_path: str, interactive_output_path: str,
                           category_colors: dict, category_labels: dict, grid_resolution: int = 1000, interactive: bool = True):
@@ -324,4 +324,72 @@ def plot_interactive_mesh_with_stations(mesh_nodes_gdf: gpd.GeoDataFrame, catchm
         logger.info(f"Interactive map file saved to: {full_interactive_output_path}\n")
         
         return map_obj
+
+def plot_geology_layers_interactive(mesh_geology_df: gpd.GeoDataFrame, catchment_polygon: gpd.GeoDataFrame, esri: str,
+                                    esri_attr: str, output_path: str, feature_columns: list, category_colors: dict,
+                                    category_labels: dict, map_blue: str, layer_labels: dict = {}, grid_resolution: int = None):
+    """
+    Build an interactive Folium map showing multiple geology layers,
+    each togglable via LayerControl. Centroids are colour‐coded
+    per feature_columns using the provided colour+label dicts.
+    """
+    # Reproject to WGS84 if needed
+    if mesh_geology_df.crs and mesh_geology_df.crs.to_string() != "EPSG:4326":
+        mesh_geology_df = mesh_geology_df.to_crs(epsg=4326)
+
+    # ompute centroids in geographic coords
+    mesh_geology_df = mesh_geology_df.copy()
+    mesh_geology_df["centroid"] = mesh_geology_df.geometry.centroid
+    mesh_geology_df["lat"] = mesh_geology_df["centroid"].y
+    mesh_geology_df["lon"] = mesh_geology_df["centroid"].x
+
+    # Initialise map centred on data
+    map_center = [mesh_geology_df["lat"].mean(), mesh_geology_df["lon"].mean()]
+    map = folium.Map(location=map_center, zoom_start=10, tiles=None)
+
+    # Add tile layers (esri visible by default, others in toggle)
+    folium.TileLayer(tiles=esri, attr=esri_attr, name="Topo", show=True).add_to(map)
+    folium.TileLayer("CartoDB positron", name="Light", show=False).add_to(map)
+    folium.TileLayer("CartoDB dark_matter", name="Dark", show=False).add_to(map)
+
+    # One FeatureGroup per geology attribute
+    for idx, feature_col in enumerate(feature_columns):
+        layer_name = layer_labels.get(
+            feature_col,
+            feature_col.replace("geo_", "").replace("_", " ").title()
+        )
+
+        # Define feature group, only first visible by default
+        feature_group = folium.FeatureGroup(name=layer_name, show=(idx == 0))
+
+        colors = category_colors.get(feature_col, {})
+        labels = category_labels.get(feature_col, {})
+
+        for _, row in mesh_geology_df.iterrows():
+            cat = row.get(feature_col)
+            col = colors.get(cat, "#999999")
+            lbl = labels.get(cat, "Unknown")
+            folium.CircleMarker(
+                location=(row["lat"], row["lon"]),
+                radius=1.5,
+                color=col,
+                fill=True,
+                fill_color=col,
+                fill_opacity=0.6,
+                tooltip=f"{layer_name}: {lbl}").add_to(feature_group)
+
+        feature_group.add_to(map)
     
+    # Catchment outline
+    folium.GeoJson(catchment_polygon, name="Catchment Boundary", style_function=lambda _: {
+        "color": map_blue, "weight": 2, "fillColor": map_blue, "fillOpacity": 0.05}).add_to(map)
+
+    # Layer control and save
+    folium.LayerControl(collapsed=False).add_to(map)
+    
+    grid_filename = f"{output_path}_{grid_resolution}.html"
+    reg_filename = f"{output_path}.html"
+    filename = grid_filename if grid_resolution else reg_filename
+    map.save(filename)
+    
+    return map
