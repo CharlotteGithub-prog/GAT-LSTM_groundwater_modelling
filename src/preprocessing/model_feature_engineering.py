@@ -31,12 +31,13 @@ def _group_features_by_type(processed_df):
                         'rainfall_volume_m3', 'rainfall_lag_1', 'rainfall_lag_2', 'rainfall_lag_3',
                         'rainfall_lag_4', 'rainfall_lag_5', 'rainfall_lag_6', 'rainfall_lag_7',
                         'rolling_30', 'rolling_60', '2m_temp', 'aet_volume', 'surface_pressure',
-                        'season_sin', 'season_cos']
+                        'season_sin', 'season_cos', 'bedrock_perm_avg', 'superficial_perm_avg']
     # Check list defensively
     numerical_features = [feat for feat in numerical_features if feat in processed_df.columns]
 
     # Define categorical feature list
-    categorical_features = ['land_cover_code']
+    categorical_features = ['land_cover_code', 'geo_bedrock_type', 'geo_superficial_type',
+                            'bedrock_flow_type', 'superficial_flow_type']
     categorical_features = [feat for feat in categorical_features if feat in processed_df.columns]
 
     # Define groundwater data feature list
@@ -329,7 +330,7 @@ def preprocess_gwl_features(processed_df, catchment, train_station_ids, val_stat
     """
     logger.info(f"Processing final groundwater data for {catchment} catchment...\n")
     
-    # Drop unneeded cols
+    # Drop unneeded cols - masked col is a duplicate of 'masked' category in data type col
     processed_df = processed_df.drop(columns=['gwl_masked'])
 
     # --- Group columns by type ---
