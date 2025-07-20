@@ -136,6 +136,7 @@ eden:
     aet_raw_output_dir: "data/01_raw/eden/hydroclimatic/aet/"
     output_polygon_dir: "data/02_processed/eden/gis/"
     elevation_geojson_path: "data/02_processed/eden/static/elevation/elevation.geojson"
+    geology_dir: "data/01_raw/eden/static/geology"
 
     # --- ERA5-Land API Ingestion ---
     aet_processed_output_dir: "data/02_processed/eden/hydroclimatic/aet/"
@@ -173,6 +174,7 @@ eden:
     aet_boxcox_lambda: 0.4931417208883217
     mean_elevation_boxcox_lambda: 0.43791794465031564
     mean_slope_deg_boxcox_lambda: -0.24587351671403726
+  
   visualisations:
     maps:  # ensure no specific file extensions here
       static_mesh_map_output: "results/figures/eden/maps/static_mesh_map"
@@ -185,6 +187,7 @@ eden:
       extension: "svg"
     corr_dist_score_scatters: "results/figures/eden/scatter/"
     violin_plt_path: "results/figures/eden/other/standardised_violins.png"
+  
   model:
     data_partioning:
       test_station_shortlist: ["ainstable", "coupland", "scaleby"]  # Length ideally >= minimum station req count
