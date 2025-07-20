@@ -314,24 +314,20 @@ try:
         
         logger.info(f"Slope and aspect data derived at node level for {catchment} catchment.\n")
         
-        # [FUTURE] Soil type [CEH's Grid-to-Grid soil maps / HOST soil classes / CAMELS-GB / BFIHOST]
-        # [FUTURE] Aquifer Properties (tbd - depth? type? transmissivity? storage coefficientet?) [DEFRA/BGS]
-        # [FUTURE] Geological Maps [DIGIMAPS (BGS data via Geology Digimap / Direct)]
-        # [FUTURE] Permeability [BGS]
-        # [FUTURE] Distance from River (Derived) [DEFRA/DIGIMAP]
+        # Geological Maps [DIGIMAPS Geology]
         
-        # Geological Maps [BGS Hydrogeology 625k digital hydrogeological map of the UK]
-        
-        # Load and explore geology data
         mesh_geology_df = static_data_ingestion.load_and_process_geology_layers(
             base_dir=config[catchment]["paths"]["geology_dir"],
             mesh_crs=mesh_cells_gdf_polygons.crs,
             columns_of_interest={"bedrock": ["RCS_ORIGIN"], "superficial": ["RCS_D"]},
             mesh_cells_gdf_polygons=mesh_cells_gdf_polygons,
+            perm_dir=config[catchment]["paths"]["permeability_dir"],
+            geo_output_dir=config[catchment]["paths"]["geology_df"],
             catchment=catchment
         )
         
         # Plot geology features as interactive map
+        
         feature_category_colors, feature_category_labels, layer_labels = static_data_ingestion.get_geo_feats()
         geology_map = mapped_visualisations.plot_geology_layers_interactive(
             mesh_geology_df=mesh_geology_df,
@@ -346,9 +342,12 @@ try:
             layer_labels=layer_labels
         )
         
-        # Mean thickness
-        # Max thicknes
-        # Binary 'has_superficial' assignment
+        # [FUTURE] Soil type [CEH's Grid-to-Grid soil maps / HOST soil classes / CAMELS-GB / BFIHOST]
+        # [FUTURE] Aquifer Properties (tbd - depth? type? transmissivity? storage coefficientet?) [DEFRA/BGS]
+        # [Future] Gridded infiltration rates / hydraulic conductivity
+        # [FUTURE] Distance from River (Derived) [DEFRA/DIGIMAP]
+        
+        # Mean thickness, Max thicknes, Binary 'has_superficial' assignment
         
         # --- 4c. Preprocess Time Series Features ---
         
@@ -492,7 +491,7 @@ try:
         merged_gdf_nodes_landuse = mesh_nodes_gdf.merge(
             agg_land_cover_df[['easting', 'northing', 'land_cover_code']],
             on=['easting', 'northing'],
-            how='left'  # left join to keep all centroids, even NaN
+            how='left'  # left join to keep all centroids, even if NaN
         )
         
         logger.info(f"Land cover data snapped to mesh nodes (centroids).\n")
@@ -502,31 +501,42 @@ try:
         merged_gdf_nodes_elevation = merged_gdf_nodes_landuse.merge(
             elevation_gdf_polygon[['node_id', 'mean_elevation', 'polygon_geometry']],
             on='node_id',
-            how='left'  # left join to keep all centroids, even NaN
+            how='left'  # left join to keep all centroids, even if NaN
         )
         
         logger.info(f"Elevation data snapped to mesh nodes (centroids).\n")
         
+        # Snap Geology Maps to Mesh
+        
+        merged_gdf_nodes_geology = merged_gdf_nodes_elevation.merge(
+            mesh_geology_df[['geo_bedrock_type', 'geo_superficial_type', 'bedrock_flow_type',
+                             'bedrock_perm_avg', 'superficial_flow_type', 'superficial_perm_avg',
+                             'node_id']],
+            on='node_id',
+            how='left'  # left join to keep all centroids, even if NaN
+        )
+        
+        logger.info(f"Geology data snapped to mesh nodes (centroids).\n")
+        
         # Snap Slope to Mesh [TODO: THIS IS CURRENTLY ACTING AS FINAL STATIC DF, UPDATE IN FUTURE]
         
         # merged_gdf_nodes_slope = merged_gdf_nodes_elevation.merge(
-        static_features = merged_gdf_nodes_elevation.merge(
+        static_features = merged_gdf_nodes_geology.merge(
             slope_gdf[['node_id', 'mean_slope_degrees', 'mean_aspect_sin', 'mean_aspect_cos']],
             on='node_id',
-            how='left'  # left join to keep all centroids, even NaN
+            how='left'  # left join to keep all centroids, even if NaN
         )
 
         logger.info(f"Slope degrees and sinusoidal aspect data snapped to mesh nodes (centroids).\n")
         
         # [FUTURE] Snap Soil type to Mesh
         # [FUTURE] Snap Aquifer Properties to Mesh
-        # [FUTURE] Snap Geology Maps to Mesh
-        # [FUTURE] Snap Permeability to Mesh
+        # [FUTURE] Snap Infiltration Rate to Mesh
         # [FUTURE] Snap Distance from River to Mesh
         
         # Finalise final_static_df for merge
         
-        final_static_df = data_merging.reorder_static_columns(static_features)  # Update as more features added
+        final_static_df = data_merging.reorder_static_columns(static_features)  # TODO: Update as more features added
         static_data_ingestion.save_final_static_data(
             static_features=final_static_df,
             dir_path=config[catchment]["paths"]["final_df_path"]
@@ -636,7 +646,7 @@ try:
 
         logger.info(f"Groundwater Level data successfully merged into main_df for {catchment} catchment.\n")
         
-        # Save final dataframe to file - [FUTURE] LONG, SET FLAG?
+        # Save final dataframe to file - NB: TIME TO SAVE APPROX. 2.5 MINS - [FUTURE] SET FLAG?
         
         final_save_path = os.path.join(final_dir, 'final_df.csv')
         main_df_full.to_csv(final_save_path)

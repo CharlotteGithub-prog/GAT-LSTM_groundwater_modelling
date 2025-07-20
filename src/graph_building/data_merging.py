@@ -24,7 +24,9 @@ def reorder_static_columns(df: pd.DataFrame):
     """
     desired_order = ['node_id', 'geometry', 'polygon_geometry', 'easting', 'northing',
                     'lon', 'lat', 'land_cover_code', 'mean_elevation',
-                    'mean_slope_degrees', 'mean_aspect_sin', 'mean_aspect_cos']
+                    'mean_slope_degrees', 'mean_aspect_sin', 'mean_aspect_cos',
+                    'geo_bedrock_type', 'geo_superficial_type', 'bedrock_flow_type',
+                    'bedrock_perm_avg', 'superficial_flow_type', 'superficial_perm_avg']
 
     return df[desired_order]
 
