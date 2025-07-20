@@ -327,7 +327,7 @@ def plot_interactive_mesh_with_stations(mesh_nodes_gdf: gpd.GeoDataFrame, catchm
 
 def plot_geology_layers_interactive(mesh_geology_df: gpd.GeoDataFrame, catchment_polygon: gpd.GeoDataFrame, esri: str,
                                     esri_attr: str, output_path: str, feature_columns: list, category_colors: dict,
-                                    category_labels: dict, map_blue: str, layer_labels: dict = {}, grid_resolution: int = None):
+                                    category_labels: dict, map_blue: str, layer_labels: dict = {}, grid_resolution: int = 1000):
     """
     Build an interactive Folium map showing multiple geology layers,
     each togglable via LayerControl. Centroids are colour‐coded
@@ -387,8 +387,8 @@ def plot_geology_layers_interactive(mesh_geology_df: gpd.GeoDataFrame, catchment
     # Layer control and save
     folium.LayerControl(collapsed=False).add_to(map)
     
-    grid_filename = f"{output_path}_{grid_resolution}.html"
-    reg_filename = f"{output_path}.html"
+    grid_filename = f"{output_path}_geology_{grid_resolution}.html"
+    reg_filename = f"{output_path}_geology.html"
     filename = grid_filename if grid_resolution else reg_filename
     map.save(filename)
     
