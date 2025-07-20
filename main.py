@@ -20,7 +20,7 @@ import pandas as pd
 
 # --- 1b. Project Imports ---
 from src.utils.config_loader import load_project_config
-from src.visualisation.mapped_visualisations import plot_interactive_mesh
+from src.visualisation import mapped_visualisations
 from src.preprocessing import gwl_preprocessing, gap_imputation, gwl_feature_engineering, \
     hydroclimatic_feature_engineering, data_partitioning, model_feature_engineering
 from src.data_ingestion import gwl_data_ingestion, static_data_ingestion, \
@@ -132,7 +132,7 @@ try:
         
         # --- 3b. Save interactive map of catchment mesh ---
 
-        mesh_map = plot_interactive_mesh(
+        mesh_map = mapped_visualisations.plot_interactive_mesh(
             mesh_nodes_gdf=mesh_nodes_gdf,
             catchment_polygon=catchment_polygon,
             map_blue=config['global']['visualisations']['maps']['map_blue'],
@@ -319,6 +319,36 @@ try:
         # [FUTURE] Geological Maps [DIGIMAPS (BGS data via Geology Digimap / Direct)]
         # [FUTURE] Permeability [BGS]
         # [FUTURE] Distance from River (Derived) [DEFRA/DIGIMAP]
+        
+        # Geological Maps [BGS Hydrogeology 625k digital hydrogeological map of the UK]
+        
+        # Load and explore geology data
+        mesh_geology_df = static_data_ingestion.load_and_process_geology_layers(
+            base_dir=config[catchment]["paths"]["geology_dir"],
+            mesh_crs=mesh_cells_gdf_polygons.crs,
+            columns_of_interest={"bedrock": ["RCS_ORIGIN"], "superficial": ["RCS_D"]},
+            mesh_cells_gdf_polygons=mesh_cells_gdf_polygons,
+            catchment=catchment
+        )
+        
+        # Plot geology features as interactive map
+        feature_category_colors, feature_category_labels, layer_labels = static_data_ingestion.get_geo_feats()
+        geology_map = mapped_visualisations.plot_geology_layers_interactive(
+            mesh_geology_df=mesh_geology_df,
+            catchment_polygon=catchment_polygon,
+            esri=config['global']['visualisations']['maps']['esri'],
+            esri_attr=config['global']['visualisations']['maps']['esri_attr'],
+            output_path=config[catchment]["visualisations"]["maps"]["interactive_mesh_map_output"],
+            feature_columns=['geo_superficial_type','geo_bedrock_type'],
+            category_colors=feature_category_colors,
+            category_labels=feature_category_labels,
+            map_blue=config['global']['visualisations']['maps']['map_blue'],
+            layer_labels=layer_labels
+        )
+        
+        # Mean thickness
+        # Max thicknes
+        # Binary 'has_superficial' assignment
         
         # --- 4c. Preprocess Time Series Features ---
         
@@ -630,7 +660,7 @@ try:
         # [FUTURE] Create an interactive map showing the mesh, GWL stations, and other snapped data points.
         
         # ==============================================================================
-        # SECTION 6: TRAINING / VALIDATION / TESTING PyG OV=BJECT CREATION
+        # SECTION 6: TRAINING / VALIDATION / TESTING PYG OBJECT CREATION
         # ==============================================================================
         
         # --- 6a. Define Spatial Split for Observed Stations ---
@@ -669,8 +699,12 @@ try:
             test_station_ids=test_station_ids,
             sentinel_value = config["global"]["graph"]["sentinel_value"]
         )
+
+        logger.info(f"Pipeline Step 'Preprocess Final GWL Features' complete for {catchment} catchment.")
         
         # --- 6d. Creat PyG data object using partioned station IDs (from 6a) ---
+        
+
 
         # --- 6e. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) --- (ALREADY DONE?)
         # Purpose: Establish connections between mesh nodes.
