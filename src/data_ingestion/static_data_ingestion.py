@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 
 # TODO: Make resolution dynamic for all? Maybe not priority for this pipeline if certain.
 
-# Land Cover
+# --- Land Cover ---
+
 def load_land_cover_data(tif_path: str, csv_path: str, catchment: str, shape_filepath: str):
     """
     Loads land cover data from GeoTIFF file using xarray, flattens it to a DataFrame,
@@ -109,7 +110,8 @@ def aggregate_land_cover_categories(land_use_df: pd.DataFrame):
         
     return land_use_df
 
-# Elevation
+# --- Elevation ---
+
 def _load_mosaic_elevation(dir_path: str, mesh_cells_gdf_polygons: gpd.GeoDataFrame, csv_path: str):
 
     logger.info(f"Loading Elevation Data: Starting DTM processing from {dir_path} directory...")
@@ -278,7 +280,8 @@ def load_process_elevation_data(dir_path: str, csv_path: str, catchment: str, ca
     
     return mesh_cells_gdf_polygons, clipped_dtm
 
-# Various
+# --- Various ---
+
 def cap_data_between_limits(gdf: gpd.GeoDataFrame, max_limit: float, min_limit: float, catchment: str,
                             column_name: str):
     
@@ -304,7 +307,8 @@ def cap_data_between_limits(gdf: gpd.GeoDataFrame, max_limit: float, min_limit: 
     
     return gdf
 
-# Slope and Aspect
+# --- Slope and Aspect ---
+
 def preprocess_slope_data(slope_gdf: gpd.GeoDataFrame, catchment: str):
     """
     Preprocess slope degrees, sine component and cosine aspect component. Check and fill NaNs and verify
@@ -490,7 +494,8 @@ def derive_slope_data(high_res_raster: xr.DataArray, mesh_cells_gdf_polygons: gp
     
     return slope_gdf, directional_edge_weights
 
-# Geology Feature Set
+# --- Geology Feature Set ---
+
 def _loop_geology_subdirectories(subdirs, columns_of_interest, mesh_crs, catchment):
     """
     Load simplified geometries from subdirectories
@@ -649,7 +654,9 @@ def _align_geology_with_mesh(mesh_cells_gdf_polygons, bedrock_gdf, superficial_g
 
     return mesh_geology_df
 
-def load_and_process_geology_layers(base_dir, mesh_crs, columns_of_interest, mesh_cells_gdf_polygons, catchment):
+def load_and_process_geology_layers(base_dir: str, mesh_crs: str, columns_of_interest: list,
+                                    mesh_cells_gdf_polygons: gpd.GeoDataFrame, perm_dir: str,
+                                    geo_output_dir: str, catchment: str):
     """
     Recursively loads and simplifies geological shapefiles (e.g., bedrock, superficial)
     from all 'ew*' or 'sc*' subdirectories, retaining only columns of interest.
@@ -676,15 +683,30 @@ def load_and_process_geology_layers(base_dir, mesh_crs, columns_of_interest, mes
     
     mesh_geology_df = _align_geology_with_mesh(mesh_cells_gdf_polygons, bedrock_gdf, superficial_gdf, catchment)
     
+    # --- Pull in permeability data ---
+    
+    bedrock_perm_agg, superficial_perm_agg = ingest_and_process_permeability(perm_dir, mesh_cells_gdf_polygons)
+    
+    mesh_geology_df = (
+        mesh_geology_df
+        .merge(bedrock_perm_agg, on="node_id", how="left")
+        .merge(superficial_perm_agg, on="node_id", how="left")
+    )
+    
     # --- Add lat and lon to plot ---
     
     # Project to lat/lon (EPSG:4326)
-    centroids = mesh_geology_df.geometry.centroid
-    centroids_latlon = centroids.to_crs("EPSG:4326")
+    centroids_latlon = mesh_geology_df.geometry.to_crs("EPSG:4326").centroid
     
     # Add as explicit lat and lon cols in df
     mesh_geology_df["lon"] = centroids_latlon.x
     mesh_geology_df["lat"] = centroids_latlon.y
+    
+    # --- Save df ---
+    geology_filename = geo_output_dir + '/geology_df.csv'
+    mesh_geology_df.to_csv(geology_filename)
+    
+    logger.info(f"Full geology dataframe saved to {geology_filename}.\n")
 
     return mesh_geology_df
 
@@ -717,7 +739,154 @@ def get_geo_feats():
     
     return feature_category_colors, feature_category_labels, layer_labels
 
-# Save final static data csv
+# --- Bedrock and Superficial Permeability ---
+
+def _encode_ordinal_perm(row, perm_encoding):
+    """
+    Encode each row to ordinal mapping and return average if possible or
+    available row if not.
+    """
+    max_ = perm_encoding.get(row["MAX_PERM"], None)
+    min_ = perm_encoding.get(row["MIN_PERM"], None)
+    
+    if max_ is not None and min_ is not None:
+        return (max_ + min_) / 2
+    elif max_ is not None:
+        return max_
+    elif min_ is not None:
+        return min_
+    else:
+        return None
+
+def _get_mode_or_none(x):
+    mode_vals = x.mode()
+    return mode_vals.iloc[0] if not mode_vals.empty else None
+
+def _aggregate_perm_by_node_id(bedrock_join, superficial_join):
+    """
+    Aggregate each gdf to 1km mesh
+    """
+    # Aggregate bedrock permeability by node_id
+    bedrock_perm_agg = (
+        bedrock_join.groupby("node_id")
+        .agg({
+            "FLOW_TYPE": _get_mode_or_none,
+            "bedrock_perm_avg": "mean",
+        }).rename(columns={"FLOW_TYPE": "bedrock_flow_type"})
+    )
+    logger.info(f"Aggregated bedrock permeability: {len(bedrock_perm_agg)} nodes.")
+
+    # Aggregate superficial permeability by node_id
+    superficial_perm_agg = (
+        superficial_join.groupby("node_id")
+        .agg({
+            "FLOW_TYPE": _get_mode_or_none,
+            "superficial_perm_avg": "mean",
+        }).rename(columns={"FLOW_TYPE": "superficial_flow_type"})
+    )
+    logger.info(f"Aggregated superficial permeability: {len(superficial_perm_agg)} nodes.\n")
+    
+    return bedrock_perm_agg, superficial_perm_agg
+
+def _encode_agg_clean_perm(bedrock_join, superficial_join):
+    """
+    Do full preprocessing of permeability data to build final dfs to merge
+    into main geology df.
+    """
+    # --- Encode max and min to ordinal ---
+
+    logger.info(f"Encoding categorical permeability to ordinal...")
+    perm_encoding = {"Very Low": 0, "Low": 1, "Moderate": 2, "High": 3, "Very High": 4}
+
+    bedrock_join["bedrock_perm_avg"] = bedrock_join.apply(lambda r: _encode_ordinal_perm(r, perm_encoding), axis=1)
+    superficial_join["superficial_perm_avg"] = superficial_join.apply(lambda r: _encode_ordinal_perm(r, perm_encoding), axis=1)
+
+    logger.info("Encoding complete.\n")
+
+    # --- Aggregate permeability by node_id ---
+
+    bedrock_perm_agg, superficial_perm_agg = _aggregate_perm_by_node_id(bedrock_join, superficial_join)
+    logger.info("Permeability aggregation complete.")
+
+    # --- Clean up final dfs ---
+
+    bedrock_med = bedrock_perm_agg["bedrock_perm_avg"].median()
+    bedrock_perm_agg["bedrock_perm_avg"] = bedrock_perm_agg["bedrock_perm_avg"].fillna(bedrock_med).round(2)
+    bedrock_perm_agg["bedrock_flow_type"] = bedrock_perm_agg["bedrock_flow_type"].fillna("Mixed")
+
+    superficial_med = superficial_perm_agg["superficial_perm_avg"].median()
+    superficial_perm_agg["superficial_perm_avg"] = superficial_perm_agg["superficial_perm_avg"].fillna(superficial_med).round(2)
+    superficial_perm_agg["superficial_flow_type"] = superficial_perm_agg["superficial_flow_type"].fillna("Mixed")
+
+    logger.info("Final flow type and permeability cleaning complete.\n")
+    return bedrock_perm_agg, superficial_perm_agg
+
+def ingest_and_process_permeability(perm_dir: str, mesh_cells_gdf_polygons: gpd.GeoDataFrame):
+    """
+    Read in BGS Permeability data that corresponds to the bedrock and superficial categorisations
+    """
+    # Get data paths to load in
+    bedrock_path = perm_dir + "/BedrockPermeability_v8.shp"
+    superficial_path = perm_dir + "/SuperficialPermeability_v8.shp"
+
+    # --- Load permeability shapefiles ---
+
+    # Define columns of interest
+    cols = ['FLOW_TYPE', 'MAX_PERM', 'MIN_PERM', 'geometry']
+
+    # Read in bedrock permeability data
+    logger.info("Loading bedrock permeability shapefile...")
+    bedrock_perm = gpd.read_file(bedrock_path)[cols]
+
+    # Read in superficial permeability data
+    logger.info("Loading superficial permeability shapefile...\n")
+    superficial_perm = gpd.read_file(superficial_path)[cols]
+
+    logger.info(f"Loaded bedrock permeability: {len(bedrock_perm)} features.")
+    logger.info(f"Loaded superficial permeability: {len(superficial_perm)} features.\n")
+
+    # --- Reproject crs if required ---
+
+    mesh_crs = mesh_cells_gdf_polygons.crs 
+
+    if bedrock_perm.crs != mesh_crs:
+        logger.info("Reprojecting bedrock permeability to mesh CRS...\n")
+        bedrock_perm = bedrock_perm.to_crs(mesh_crs)
+        
+    if superficial_perm.crs != mesh_crs:
+        logger.info("Reprojecting superficial permeability to mesh CRS...\n")
+        superficial_perm = superficial_perm.to_crs(mesh_crs)
+
+    # --- Prepare mesh polygons for join ---
+
+    polygon_gdf = mesh_cells_gdf_polygons.copy().drop(columns=['mean_elevation'])
+
+    # --- Spatial joins by type ---
+
+    bedrock_join = gpd.sjoin(
+        polygon_gdf,
+        bedrock_perm,
+        how='left',
+        predicate='intersects'
+    )
+    logger.info(f"Joined bedrock permeability: {len(bedrock_join)} rows.")
+
+    superficial_join = gpd.sjoin(
+        polygon_gdf,
+        superficial_perm,
+        how='left',
+        predicate='intersects'
+    )
+    logger.info(f"Joined superficial permeability: {len(superficial_join)} rows.\n")
+
+    # --- Encode, aggregate and clean dfs ---
+
+    bedrock_perm_agg, superficial_perm_agg = _encode_agg_clean_perm(bedrock_join, superficial_join)
+
+    return bedrock_perm_agg, superficial_perm_agg
+
+# --- Save final static data csv ---
+
 def save_final_static_data(static_features: pd.DataFrame, dir_path: str):
     # Define columns to drop
     if 'geometry_x' in static_features.columns:
