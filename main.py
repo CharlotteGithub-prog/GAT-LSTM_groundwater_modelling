@@ -714,19 +714,22 @@ try:
         
         # --- 6d. Creat PyG data object using partioned station IDs (from 6a) ---
         
+        # Run time approx. 23 mins to build 4018 timesteps of objects (0.34s per Obj)
+        all_timesteps_list = data_partitioning.build_pyg_object(
+            processed_df=processed_df,
+            sentinel_value=config["global"]["graph"]["sentinel_value"],
+            train_station_ids=train_station_ids,
+            val_station_ids=val_station_ids,
+            test_station_ids=test_station_ids,
+            gwl_feats=gwl_feats,
+            edge_index_tensor=edge_index_tensor,
+            edge_attr_tensor=edge_attr_tensor
+        )
 
+        logger.info(f"Pipeline Step 'Build PyG Data Objects' complete for {catchment} catchment.")
 
-        # --- 6e. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) --- (ALREADY DONE?)
-        # Purpose: Establish connections between mesh nodes.
-        # Action: Define criteria for edges (e.g., k-nearest neighbors, distance threshold, hydrological connectivity).
-        # Action: Construct the adjacency matrix (A) for the graph.
-        # Output: Adjacency matrix or edge_index for PyTorch Geometric.
-
-        # --- 6f. Create Graph Data Object / Input Tensors ---
-        # Purpose: Assemble all graph components (nodes, edges, features, targets) into a format suitable for the GNN framework.
-        # Action: Split data into training, validation, and test sets based on time (e.g., 70/15/15 chronological split).
-        # Action: Generate graph snapshots/sequences for the GNN's input.
-        # Output: PyTorch Geometric Data objects or DGL graphs, including node features (X), edge index (edge_index), and target GWL values (Y) for observed nodes.
+        # --- 6e. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) ---
+        # Already generated in Step 5e and incorporated into PyG objects in step 6d.
 
         # ==============================================================================
         # SECTION 7: MODEL
