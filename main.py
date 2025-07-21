@@ -758,6 +758,14 @@ try:
         # Action: Define the GNN layers (e.g., GATConv for spatial message passing, LSTM for temporal learning).
         # Action: Specify input/output dimensions, hidden layer sizes, activation functions, dropout rates.
         # Output: A PyTorch nn.Module or similar model class.
+        
+        model, device, optimizer, criterion = model_building.instantiate_model_and_associated(
+            all_timesteps_list=all_timesteps_list,
+            config=config,
+            catchment=catchment
+        )
+
+        logger.info(f"Pipeline Step 'Instantiate GAT-LSTM Model' complete for {catchment} catchment.")
 
         # --- 7b. Define Loss Function ---
         # Action: Choose an appropriate loss function for regression (e.g., Mean Squared Error (MSE), Mean Absolute Error (MAE), Huber Loss).
@@ -786,6 +794,8 @@ try:
         # --- 8c. Model Checkpointing and Logging ---
         # Action: Save best performing model weights based on validation metrics.
         # Action: Log training and validation metrics (e.g., using TensorBoard, MLflow, or custom logging).
+        
+        # --- 8d. Hyperparameter Tuning? ---
 
         # ==============================================================================
         # SECTION 9: EVALUATION
