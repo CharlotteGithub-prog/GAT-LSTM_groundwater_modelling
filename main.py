@@ -714,7 +714,7 @@ try:
         
         # --- 6d. Creat PyG data object using partioned station IDs (from 6a) ---
         
-        # Run time approx. 23 mins to build 4018 timesteps of objects (0.34s per Obj)
+        # Run time approx. 12.5 mins to build 4018 timesteps of objects (0.19s per Object)
         all_timesteps_list = data_partitioning.build_pyg_object(
             processed_df=processed_df,
             sentinel_value=config["global"]["graph"]["sentinel_value"],
@@ -723,9 +723,11 @@ try:
             test_station_ids=test_station_ids,
             gwl_feats=gwl_feats,
             edge_index_tensor=edge_index_tensor,
-            edge_attr_tensor=edge_attr_tensor
+            edge_attr_tensor=edge_attr_tensor,
+            catchment=catchment
         )
 
+        torch.save(all_timesteps_list, config[catchment]["paths"]["pyg_object_path"])
         logger.info(f"Pipeline Step 'Build PyG Data Objects' complete for {catchment} catchment.")
 
         # --- 6e. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) ---
