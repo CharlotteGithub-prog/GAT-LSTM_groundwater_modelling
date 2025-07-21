@@ -68,20 +68,16 @@ global:
       k_neighbors: 8  # Basic Surrounding Grid
     sentinel_value: -999.0  # Float to match col dtypes
     epsilon: 1e-6
-  #     edge_features_to_add: ["distance", "elevation_difference"]
-  #   feature_engineering:
-  #     add_time_of_year: true
-  #     add_lagged_features: true
-  #     lag_steps: [1, 7, 14, 30] # In days / time steps
 
-  # # --- MODEL SETTINGS (for GAT-LSTM) ---
-  # model:
-  #   architecture: "GAT_LSTM"
-  #   gat_layers: 2
-  #   gat_heads: 4
-  #   lstm_hidden_dim: 128
-  #   dropout_rate: 0.2
-  #   output_dim: 1
+  # --- MODEL SETTINGS (for GAT-LSTM) ---
+  model:
+    data_loader_batch_size: 1  #  Or a custom sequence length for LSTM if using batch sequences
+    architecture: "GAT_LSTM"
+    gat_layers: 2
+    gat_heads: 4
+    lstm_hidden_dim: 128
+    dropout_rate: 0.2
+    output_dim: 1
 
   # # --- TRAINING SETTINGS ---
   # training:
@@ -100,7 +96,7 @@ global:
   #   metrics: ["RMSE", "MAE", "R2"]
   #   save_plots: true
   #   split_ratio: 0.2 # 80% train, 20% test
-  #   target_variable: "groundwater_level" # The column the model is predicting
+  #   target_variable: "gwl_value" # Target Column: Groundwater Level
 
 # ==============================================================================
 # EDEN CATCHMENT CONFIG SETTINGS
@@ -161,6 +157,7 @@ eden:
     # --- Graph Paths ---
     final_df_path: "data/02_processed/eden/final_df/"
     graph_data_output_dir: "data/03_graph/eden/tensors/"
+    pyg_object_path: "data/03_graph/eden/PyG/all_timesteps_list.pt"
 
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
@@ -172,6 +169,7 @@ eden:
       grid_resolution: 1000  # Could change to 500m grid in future for performance. Will require pipeline adjustments.
     catchment_max_elevation: 945.40  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     catchment_min_elevation: 8.00  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
+    # --- Generated in Pipeline ---
     rainfall_boxcox_lambda: 0.1701496697839992
     aet_boxcox_lambda: 0.4931417208883217
     mean_elevation_boxcox_lambda: 0.43791794465031564
@@ -189,13 +187,17 @@ eden:
       extension: "svg"
     corr_dist_score_scatters: "results/figures/eden/scatter/"
     violin_plt_path: "results/figures/eden/other/standardised_violins.png"
+
+  # --- GRAPH CONSTRUCTION SETTINGS (for GAT-LSTM) ---
   model:
     data_partioning:
       test_station_shortlist: ["ainstable", "coupland", "scaleby"]  # Length ideally >= minimum station req count
       val_station_shortlist: ["castle_carrock", "skirwith", "great_musgrave"]  # Length ideally >= minimum station req count
-      percentage_train: 77
-      percentage_val: 15
-      percentage_test: 8
+      percentage_train: 77  # remaining stations for training
+      percentage_val: 15  # 2 stations for validating
+      percentage_test: 8  # 1 station tested at a time
+
+  # --- MODEL SETTINGS (for GAT-LSTM) ---
 
 # ==============================================================================
 # FUTURE CATCHMENT CONFIG SETTINGS
