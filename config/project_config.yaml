@@ -197,6 +197,16 @@ eden:
       percentage_train: 77  # remaining stations for training
       percentage_val: 15  # 2 stations for validating
       percentage_test: 8  # 1 station tested at a time
+    params:
+      heads_gat: 8
+      dropout_gat: 0.4  # 40% dropped
+      hidden_channels_gat: 64
+      out_channels_gat: 64
+      hidden_channels_lstm: 64
+      num_layers_lstm: 1  # stack layers later if needed for performance
+      output_dim: 1  # one station gwl prediction per timestep
+      adam_learning_rate: 0.001
+      adam_weight_decay: 0.0005  # 5e-4 is common initial weight decay val
 
   # --- MODEL SETTINGS (for GAT-LSTM) ---
 
