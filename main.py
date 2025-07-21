@@ -26,6 +26,7 @@ from src.preprocessing import gwl_preprocessing, gap_imputation, gwl_feature_eng
 from src.data_ingestion import gwl_data_ingestion, static_data_ingestion, \
     timeseries_data_ingestion
 from src.graph_building import graph_construction, data_merging
+from src.model import model_building
 
 # --- 1c. Logging Config ---
 for handler in logging.root.handlers[:]:
@@ -741,7 +742,18 @@ try:
         # When constructing the PyTorch Geometric Data objects (one per timestep), pass edge_index and edge_attr as separate arguments to the Data
         # constructor, alongside the x (node features) and y (targets).
         
-        # --- 7a. Define Graph Neural Network Architecture ---
+        # --- 7a. Build Data Loaders by Timestep ---
+
+        full_dataset_loader = model_building.build_data_loader(
+            all_timesteps_list=all_timesteps_list,
+            batch_size = config["global"]["model"]["data_loader_batch_size"],
+            shuffle = config["global"]["model"]["data_loader_shuffle"],
+            catchment=catchment
+        )
+
+        logger.info(f"Pipeline Step 'Create PyG DataLoaders' complete for {catchment} catchment.")
+        
+        # --- 7b. Define Graph Neural Network Architecture ---
         # Goal: Implement a GAT-LSTM (Graph Attention Network + Long Short-Term Memory).
         # Action: Define the GNN layers (e.g., GATConv for spatial message passing, LSTM for temporal learning).
         # Action: Specify input/output dimensions, hidden layer sizes, activation functions, dropout rates.
