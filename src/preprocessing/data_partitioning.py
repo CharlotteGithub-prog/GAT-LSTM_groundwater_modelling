@@ -226,6 +226,52 @@ def define_station_id_splits(main_df_full: pd.DataFrame, catchment: str, test_st
     return train_station_ids_output, val_station_ids_output, test_station_ids_output
 
 # Divide preprocessing datafame into PyG data objects using train/val/test station id subsets
+# def _build_x_tensor(df_snapshot, gwl_x_features, sentinel_value, val_station_ids, test_station_ids):
+#     """
+#     For validation and test stations, set their GWL-specific features in x to sentinels/zeros.
+#     All non-station nodes are already 'masked' to sentinel value (num) / 0.0 (cat)
+#     """
+#     # Identify nodes whose gwl feaetures should be masked in training obj
+#     training_masks_nodes = set(val_station_ids + test_station_ids)
+    
+#     # Identify all relevant x features (no indexes or y feat)
+#     all_x_features = [col for col in df_snapshot.columns
+#                     if col not in ['node_id', 'timestep', 'gwl_value']]
+
+#     # prepare the 'x' feat matrix
+#     temp_df = df_snapshot.copy()
+    
+#     # Add a single 'gwl_data_is_observed' indicator column, initialised to observed for all nodes
+#     temp_df['gwl_data_is_observed'] = 1.0
+    
+#     # Apply GWL feature masking for identified nodes within the `x` features
+#     for id_to_mask in training_masks_nodes:
+#         node_mask = (temp_df["node_id"] == id_to_mask)
+        
+#         # Flag to determine if this node's GWL data is considered 'observed' at this ts for input features
+#         is_gwl_observed_at_this_node_timestep = False
+        
+#         # If node id mask exists (defensive, should exist), then mask x feats
+#         if node_mask.any():
+#             for feat in gwl_x_features:
+#                 if feat in temp_df.columns:
+                    
+#                     # Set numerical features to sentinel filler value
+#                     if temp_df[feat].dtype in ['float64', 'float32', 'int64', 'int32']:
+#                         temp_df.loc[node_mask, feat] = sentinel_value
+                    
+#                     # Set OHE categorical features to 0.0 (Non-Occurrence)
+#                     elif temp_df[feat].dtype == 'uint8':
+#                         temp_df.loc[node_mask, feat] = 0.0
+    
+#     # prepare the 'x' feat matrix
+#     x_df = temp_df[all_x_features].copy()
+                        
+#     # Build x tensor (dtype requiring numerical input)
+#     x = torch.tensor(x_df.values, dtype=torch.float)
+    
+#     return x
+
 def _build_x_tensor(df_snapshot, gwl_x_features, sentinel_value, val_station_ids, test_station_ids):
     """
     For validation and test stations, set their GWL-specific features in x to sentinels/zeros.
@@ -241,12 +287,25 @@ def _build_x_tensor(df_snapshot, gwl_x_features, sentinel_value, val_station_ids
     # prepare the 'x' feat matrix
     temp_df = df_snapshot.copy()
     
+    # Add a single 'gwl_data_is_observed' indicator column, initialised to observed for all nodes
+    temp_df['gwl_data_is_observed'] = 1.0
+    
     # Apply GWL feature masking for identified nodes within the `x` features
     for id_to_mask in training_masks_nodes:
         node_mask = (temp_df["node_id"] == id_to_mask)
         
-        # If node id mask exists (defensive, should exist), then mask x feats
+        # Flag to determine if this node's GWL data is considered 'observed' at this ts for input feats
+        is_gwl_observed_at_this_node_timestep = False
+        
+        # Ensure the node exists in the snapshot
         if node_mask.any():
+            gwl_val_at_node = df_snapshot.loc[node_mask, 'gwl_value'].iloc[0]
+            # gwl_val_at_node is NaN if it's a non-station node or a test station
+            if not pd.isna(gwl_val_at_node):
+                is_gwl_observed_at_this_node_timestep = True
+                
+        # If node id mask exists (defensive, should exist), then mask x feats
+        if not is_gwl_observed_at_this_node_timestep:
             for feat in gwl_x_features:
                 if feat in temp_df.columns:
                     
@@ -257,6 +316,9 @@ def _build_x_tensor(df_snapshot, gwl_x_features, sentinel_value, val_station_ids
                     # Set OHE categorical features to 0.0 (Non-Occurrence)
                     elif temp_df[feat].dtype == 'uint8':
                         temp_df.loc[node_mask, feat] = 0.0
+    
+    # Ensure the indicator feature is included in the final x_df
+    all_x_features.append('gwl_data_is_observed')
     
     # prepare the 'x' feat matrix
     x_df = temp_df[all_x_features].copy()
@@ -292,7 +354,7 @@ def _build_object_masks(grouped_by_timestep, train_station_ids: list, val_statio
     
     # Loop through timesteps
     for timestep_t, df_t in grouped_by_timestep:
-        logging.info(f"\nProcessing timestep {count} of {total_timesteps}...\n")
+        logging.info(f"Processing timestep {count} of {total_timesteps}...")
         
         # Create copy to avoid modifying main df in place affecting future loops
         df_snapshot = df_t.copy()
@@ -313,6 +375,11 @@ def _build_object_masks(grouped_by_timestep, train_station_ids: list, val_statio
         # Map current snapshot node_ids to their global index for mask creation
         node_id_to_idx = {node_id: idx for idx, node_id in enumerate(all_node_ids)}
         
+        # Initialise trackers for logging
+        train_count = 0
+        val_count = 0
+        test_count = 0
+        
         # Loop thorugh each node ID in the temporal data snapshot
         for idx, node_id_in_snapshot in enumerate(df_snapshot["node_id"]):
             global_idx = node_id_to_idx[node_id_in_snapshot]
@@ -325,18 +392,22 @@ def _build_object_masks(grouped_by_timestep, train_station_ids: list, val_statio
             
             # Defined training mask
             if node_id_in_snapshot in train_station_ids and is_observed_gwl:
-                logger.info(f"   - Training station node {idx} is observed and set to True in train_mask.")
                 train_mask[global_idx] = True
+                train_count += 1
             
             # Define validation mask
             elif node_id_in_snapshot in val_station_ids and is_observed_gwl:
-                logger.info(f"   - Validation station node {idx} is observed and set to True in val_mask.")
                 val_mask[global_idx] = True
+                val_count += 1
             
             # Define testing mask
             elif node_id_in_snapshot in test_station_ids:  # Test cannot be observed
-                logger.info(f"   - Test station node {idx} set to True in test_mask.\n")
                 test_mask[global_idx] = True
+                test_count += 1
+        
+        # Final single log statement per timestep
+        logger.info(f"   - Masks applied for timestep {timestep_t.date()}: "
+            f"Train: {train_count} nodes, Val: {val_count} nodes, Test: {test_count} nodes.\n")
         
         # Create the PyG Data object for this timestep
         data = Data(
@@ -360,7 +431,7 @@ def _build_object_masks(grouped_by_timestep, train_station_ids: list, val_statio
 
 def build_pyg_object(processed_df: pd.DataFrame, sentinel_value: float, train_station_ids: list,
                      val_station_ids: list, test_station_ids: list, gwl_feats: list,
-                     edge_index_tensor: torch.Tensor, edge_attr_tensor: torch.Tensor):
+                     edge_index_tensor: torch.Tensor, edge_attr_tensor: torch.Tensor, catchment: str):
     """
     tbd
     """
@@ -402,5 +473,3 @@ def build_pyg_object(processed_df: pd.DataFrame, sentinel_value: float, train_st
                         edge_attr_tensor)
     
     return all_timesteps_list
-
-# def apply_sentinel_mask(df: pd.DataFrame, cols: list, sentinel: float = -999.0):
