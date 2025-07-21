@@ -71,7 +71,8 @@ global:
 
   # --- MODEL SETTINGS (for GAT-LSTM) ---
   model:
-    data_loader_batch_size: 1  #  Or a custom sequence length for LSTM if using batch sequences
+    data_loader_batch_size: 1  # Necessary due to LSTM portion
+    data_loader_shuffle: False  # Essential for processing in temporal order
     architecture: "GAT_LSTM"
     gat_layers: 2
     gat_heads: 4
