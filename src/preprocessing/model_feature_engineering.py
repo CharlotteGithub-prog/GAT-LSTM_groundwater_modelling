@@ -96,7 +96,8 @@ def _plot_standardised_data_aligned(processed_df, random_seed, violin_plt_path):
     features_to_plot = [
         'mean_elevation', 'mean_slope_deg', 'mean_aspect_sin', 'mean_aspect_cos',
         'rainfall_volume_m3', 'rainfall_lags',  'rolling_30', 'rolling_60', '2m_temp',
-        'aet_volume', 'surface_pressure','season_sin', 'season_cos'
+        'aet_volume', 'surface_pressure','season_sin', 'season_cos', 'bedrock_perm_avg',
+        'superficial_perm_avg'
     ]
 
     # Filter plot_df to include only the columns that actually exist and are in the desired list
