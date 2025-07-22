@@ -27,6 +27,7 @@ from src.data_ingestion import gwl_data_ingestion, static_data_ingestion, \
     timeseries_data_ingestion
 from src.graph_building import graph_construction, data_merging
 from src.model import model_building
+from src.training import model_training
 
 # --- 1c. Logging Config ---
 for handler in logging.root.handlers[:]:
@@ -770,16 +771,39 @@ try:
         
         # --- 8a. Implement Training Loop ---
         
+        train_losses, val_losses = model_training.run_training_and_validation(
+            num_epochs=config[catchment]["training"]["num_epochs"],
+            early_stopping_patience=config[catchment]["training"]["early_stopping_patience"],
+            lr_scheduler_factor=config[catchment]["training"]["lr_scheduler_factor"],
+            lr_scheduler_patience=config[catchment]["training"]["lr_scheduler_patience"],
+            min_lr=config[catchment]["training"]["min_lr"],
+            gradient_clip_max_norm=config[catchment]["training"]["gradient_clip_max_norm"],
+            model_save_path=config[catchment]["paths"]["best_model_path"],
+            loss_delta=config[catchment]["training"]["loss_delta"],
+            verbose=config[catchment]["training"]["verbose"],
+            catchment=catchment,
+            model=model,
+            device=device,
+            optimizer=optimizer,
+            criterion=criterion,
+            all_timesteps_list=all_timesteps_list
+        )
 
-        # --- 8b. Implement Validation Loop ---
-        # Action: Periodically evaluate model performance on the validation set.
-        # Action: Monitor validation loss/metrics for early stopping.
+        logger.info(f"Pipeline Step 'Train and Validate Model' complete for {catchment} catchment.")
 
-        # --- 8c. Model Checkpointing and Logging ---
+        model_training.save_train_val_losses(
+            output_analysis_dir=config[catchment]["paths"]["model_dir"],
+            train_losses=train_losses,
+            val_losses=val_losses
+        )
+
+        logger.info(f"Pipeline Step 'Save Training and Validation Losses' complete for {catchment} catchment.")
+
+        # --- 8b. Model Checkpointing and Logging ---
         # Action: Save best performing model weights based on validation metrics.
         # Action: Log training and validation metrics (e.g., using TensorBoard, MLflow, or custom logging).
         
-        # --- 8d. Hyperparameter Tuning? ---
+        # --- 8c. Hyperparameter Tuning Here? ---
 
         # ==============================================================================
         # SECTION 9: EVALUATION
