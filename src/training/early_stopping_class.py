@@ -31,7 +31,7 @@ class EarlyStopping:
         self.counter = 0
         self.best_score = None  # Tracks best score (negative validation loss)
         self.early_stop = False
-        self.val_loss_min = np.Inf  # Tracks actual min validation loss
+        self.val_loss_min = np.inf  # Tracks actual min validation loss
         self.delta = delta
         self.path = path
         
