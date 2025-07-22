@@ -28,3 +28,7 @@ notebooks/00_archive/
 !/data/02_processed/.gitkeep
 /data/03_graph/*
 !/data/03_graph/.gitkeep
+/data/04_model/*
+!/data/04_model/.gitkeep
+/data/05_analysis/*
+!/data/05_analysis/.gitkeep
