@@ -226,52 +226,6 @@ def define_station_id_splits(main_df_full: pd.DataFrame, catchment: str, test_st
     return train_station_ids_output, val_station_ids_output, test_station_ids_output
 
 # Divide preprocessing datafame into PyG data objects using train/val/test station id subsets
-# def _build_x_tensor(df_snapshot, gwl_x_features, sentinel_value, val_station_ids, test_station_ids):
-#     """
-#     For validation and test stations, set their GWL-specific features in x to sentinels/zeros.
-#     All non-station nodes are already 'masked' to sentinel value (num) / 0.0 (cat)
-#     """
-#     # Identify nodes whose gwl feaetures should be masked in training obj
-#     training_masks_nodes = set(val_station_ids + test_station_ids)
-    
-#     # Identify all relevant x features (no indexes or y feat)
-#     all_x_features = [col for col in df_snapshot.columns
-#                     if col not in ['node_id', 'timestep', 'gwl_value']]
-
-#     # prepare the 'x' feat matrix
-#     temp_df = df_snapshot.copy()
-    
-#     # Add a single 'gwl_data_is_observed' indicator column, initialised to observed for all nodes
-#     temp_df['gwl_data_is_observed'] = 1.0
-    
-#     # Apply GWL feature masking for identified nodes within the `x` features
-#     for id_to_mask in training_masks_nodes:
-#         node_mask = (temp_df["node_id"] == id_to_mask)
-        
-#         # Flag to determine if this node's GWL data is considered 'observed' at this ts for input features
-#         is_gwl_observed_at_this_node_timestep = False
-        
-#         # If node id mask exists (defensive, should exist), then mask x feats
-#         if node_mask.any():
-#             for feat in gwl_x_features:
-#                 if feat in temp_df.columns:
-                    
-#                     # Set numerical features to sentinel filler value
-#                     if temp_df[feat].dtype in ['float64', 'float32', 'int64', 'int32']:
-#                         temp_df.loc[node_mask, feat] = sentinel_value
-                    
-#                     # Set OHE categorical features to 0.0 (Non-Occurrence)
-#                     elif temp_df[feat].dtype == 'uint8':
-#                         temp_df.loc[node_mask, feat] = 0.0
-    
-#     # prepare the 'x' feat matrix
-#     x_df = temp_df[all_x_features].copy()
-                        
-#     # Build x tensor (dtype requiring numerical input)
-#     x = torch.tensor(x_df.values, dtype=torch.float)
-    
-#     return x
-
 def _build_x_tensor(df_snapshot, gwl_x_features, sentinel_value, val_station_ids, test_station_ids):
     """
     For validation and test stations, set their GWL-specific features in x to sentinels/zeros.
