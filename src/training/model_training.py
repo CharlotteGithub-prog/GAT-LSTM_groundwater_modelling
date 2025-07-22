@@ -3,6 +3,8 @@ import sys
 import math
 import torch
 import logging
+import numpy as np
+import pandas as pd
 import torch.nn as nn
 from tqdm import tqdm # For progress bars
 
@@ -157,3 +159,22 @@ def run_training_and_validation(num_epochs: int, early_stopping_patience: int, l
     logger.info(f"--- Training Loop Finished ---\n")
     
     return train_losses, val_losses
+
+def save_train_val_losses(output_analysis_dir, train_losses, val_losses):
+    # Save outputs to model dir (confirming it exists)
+    os.makedirs(output_analysis_dir, exist_ok=True)
+
+    # Save train_losses and val_losses as .pt files
+    torch.save(train_losses, os.path.join(output_analysis_dir, "train_losses.pt"))
+    torch.save(val_losses, os.path.join(output_analysis_dir, "val_losses.pt"))
+    logger.info(f"Training and validation losses saved to {output_analysis_dir} as .pt files.")
+
+    # Save train_losses and val_losses as .npy files
+    np.save(os.path.join(output_analysis_dir, "train_losses.npy"), np.array(train_losses))
+    np.save(os.path.join(output_analysis_dir, "val_losses.npy"), np.array(val_losses))
+    logger.info(f"Training and validation losses saved to {output_analysis_dir} as .npy files.")
+
+    # Save train_losses and val_losses as CSV files
+    pd.DataFrame(train_losses).to_csv(os.path.join(output_analysis_dir, "train_losses.csv"), index=False)
+    pd.DataFrame(val_losses).to_csv(os.path.join(output_analysis_dir, "val_losses.csv"), index=False)
+    logger.info(f"Training and validation losses saved to {output_analysis_dir} as .csv files.\n")
