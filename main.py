@@ -687,7 +687,7 @@ try:
             perc_test=config[catchment]["model"]["data_partioning"]["percentage_test"]
         )
 
-        logger.info(f"Pipeline Step 'define station splits' complete for {catchment} catchment.")
+        logger.info(f"Pipeline Step 'define station splits' complete for {catchment} catchment.\n")
         
         # --- 6b. Preprocess (Standardise, one hot encode, round to 4dp) all shared features (not GWL) ---
         
@@ -698,7 +698,7 @@ try:
             violin_plt_path=config[catchment]["visualisations"]["violin_plt_path"]
         )
 
-        logger.info(f"Pipeline Step 'Preprocess Final Shared Features' complete for {catchment} catchment.")
+        logger.info(f"Pipeline Step 'Preprocess Final Shared Features' complete for {catchment} catchment.\n")
         
         # --- 6c. Preprocess all GWL features using training data only ---
         
@@ -711,7 +711,7 @@ try:
             sentinel_value = config["global"]["graph"]["sentinel_value"]
         )
 
-        logger.info(f"Pipeline Step 'Preprocess Final GWL Features' complete for {catchment} catchment.")
+        logger.info(f"Pipeline Step 'Preprocess Final GWL Features' complete for {catchment} catchment.\n")
         
         # --- 6d. Creat PyG data object using partioned station IDs (from 6a) ---
         
@@ -729,19 +729,19 @@ try:
         )
 
         torch.save(all_timesteps_list, config[catchment]["paths"]["pyg_object_path"])
-        logger.info(f"Pipeline Step 'Build PyG Data Objects' complete for {catchment} catchment.")
+        logger.info(f"Pipeline Step 'Build PyG Data Objects' complete for {catchment} catchment.\n")
 
         # --- 6e. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) ---
         # Already generated in Step 5e and incorporated into PyG objects in step 6d.
 
-        # ==============================================================================
+        # ====================================================================================================
         # SECTION 7: MODEL
-        # ==============================================================================
-        
-        # --- 7. Goal: GAT-LSTM (using PyTorch Geometric) ---
-        # When constructing the PyTorch Geometric Data objects (one per timestep), pass edge_index and edge_attr as separate arguments to the Data
-        # constructor, alongside the x (node features) and y (targets).
-        
+        # ----------------------------------------------------------------------------------------------------
+        # Instantiate GAT-LSTM Model using PyTorch Geometric:
+        #   - Construct PyTorch Geometric Data objects (one per timestep), passing edge_index and edge_attr as
+        #     separate arguments to the Data constructor, alongside x (node features) and y (targets).
+        # ====================================================================================================
+
         # --- 7a. Build Data Loaders by Timestep ---
 
         full_dataset_loader = model_building.build_data_loader(
@@ -751,41 +751,25 @@ try:
             catchment=catchment
         )
 
-        logger.info(f"Pipeline Step 'Create PyG DataLoaders' complete for {catchment} catchment.")
+        logger.info(f"Pipeline Step 'Create PyG DataLoaders' complete for {catchment} catchment.\n")
         
-        # --- 7b. Define Graph Neural Network Architecture ---
-        # Goal: Implement a GAT-LSTM (Graph Attention Network + Long Short-Term Memory).
-        # Action: Define the GNN layers (e.g., GATConv for spatial message passing, LSTM for temporal learning).
-        # Action: Specify input/output dimensions, hidden layer sizes, activation functions, dropout rates.
-        # Output: A PyTorch nn.Module or similar model class.
-        
+        # --- 7b. Define Graph Neural Network Architecture including loss and optimiser definition ---
+
+        # Adjust model architecture and params in catchment-specific config. TODO: Further optimise hyperparams.
         model, device, optimizer, criterion = model_building.instantiate_model_and_associated(
             all_timesteps_list=all_timesteps_list,
             config=config,
             catchment=catchment
         )
 
-        logger.info(f"Pipeline Step 'Instantiate GAT-LSTM Model' complete for {catchment} catchment.")
-
-        # --- 7b. Define Loss Function ---
-        # Action: Choose an appropriate loss function for regression (e.g., Mean Squared Error (MSE), Mean Absolute Error (MAE), Huber Loss).
-        # Action: Consider masking the loss calculation to only evaluate predictions at observed GWL stations if non-interpolated.
-
-        # --- 7c. Define Optimiser ---
-        # Action: Select an optimiser (e.g., Adam, SGD).
-        # Action: Configure learning rate and other optimiser parameters.
+        logger.info(f"Pipeline Step 'Instantiate GAT-LSTM Model' complete for {catchment} catchment.\n")
 
         # ==============================================================================
         # SECTION 8: TRAINING
         # ==============================================================================
         
         # --- 8a. Implement Training Loop ---
-        # Action: Iterate over epochs.
-        # Action: For each epoch, iterate over mini-batches of graph data.
-        # Action: Perform forward pass through the model.
-        # Action: Calculate loss.
-        # Action: Perform backward pass and optimize weights.
-        # Action: Implement gradient clipping if necessary.
+        
 
         # --- 8b. Implement Validation Loop ---
         # Action: Periodically evaluate model performance on the validation set.
