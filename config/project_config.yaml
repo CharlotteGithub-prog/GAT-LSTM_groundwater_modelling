@@ -162,6 +162,7 @@ eden:
 
     # --- Model Paths ---
     best_model_path: "data/04_model/eden/model/best_model.pt"
+    model_dir: "data/04_model/eden/model/"
 
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
