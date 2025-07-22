@@ -6,6 +6,7 @@ import logging
 import datetime
 import numpy as np
 import pandas as pd
+from ruamel.yaml import YAML
 from torch_geometric.data import Data
     
 # Set up logger config
@@ -137,7 +138,39 @@ def _random_fill_remaining_reqs(num_target, station_ids, unassigned_ids_pool, sp
         logger.info(f"Randomly added {added_count} stations to '{split_name}' set to meet target.")
         
     return station_ids
-            
+
+def _save_ID_count_to_config(train_station_ids, val_station_ids, test_station_ids, catchment):
+    """
+    Save number of stations assigned to each id list by type to config for future reference.
+    """
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    config_path = "config/project_config.yaml"
+    
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.load(f)
+
+        # Defensive: Ensure expected structure in catchment config
+        if 'model' not in config[catchment]:
+            config[catchment]['model'] = {}
+        if 'data_partioning' not in config[catchment]['model']:
+            config[catchment]['model']['data_partioning'] = {}
+
+        # Save list lengths to yaml
+        config[catchment]['model']['data_partioning']["len_train"] = int(len(train_station_ids))
+        config[catchment]['model']['data_partioning']["len_val"] = int(len(val_station_ids))
+        config[catchment]['model']['data_partioning']["len_test"] = int(len(test_station_ids))
+
+        with open(config_path, 'w') as f:
+            yaml.dump(config, f)
+        
+        logger.info(f"Saved len_train={len(train_station_ids)}, len_val={len(val_station_ids)},"
+                    f" len_test={len(test_station_ids)} to {config_path}\n")
+
+    except Exception as e:
+        logger.error(f"Failed to save node ID list lengths to config.yaml: {e}")
+         
 def define_station_id_splits(main_df_full: pd.DataFrame, catchment: str, test_station_shortlist: list, val_station_shortlist: list,
                              random_seed: int, perc_train: int = 70, perc_val: int = 15, perc_test: int = 15):
     """
@@ -221,7 +254,12 @@ def define_station_id_splits(main_df_full: pd.DataFrame, catchment: str, test_st
     logger.info(f"Testing Nodes:  NODE COUNT = {len(test_station_ids_output)}, NODE_IDs: {test_station_ids_output}\n")
     
     # --- Confirm all stations are assigned and validate assignments ---
+    
     _check_split_success(train_station_ids, val_station_ids, test_station_ids, all_observed_node_ids_set)
+    
+    # --- Save station ID count by type to config ---
+    
+    _save_ID_count_to_config(train_station_ids, val_station_ids, test_station_ids, catchment)
 
     return train_station_ids_output, val_station_ids_output, test_station_ids_output
 
