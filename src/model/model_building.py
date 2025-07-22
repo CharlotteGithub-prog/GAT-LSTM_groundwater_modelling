@@ -94,7 +94,7 @@ def _assert_instantiation_vals(model, all_timesteps_list, device, output_dim, hi
     # --- Testing: dummy forward pass ---
 
     logger.info("--- Testing Model Forward Pass with Dummy Data ---")
-    try:
+    try:      
         # Get actual shapes from first PyG Data object
         dummy_x = all_timesteps_list[0].x.to(device)
         dummy_edge_index = all_timesteps_list[0].edge_index.to(device)
@@ -117,13 +117,23 @@ def _assert_instantiation_vals(model, all_timesteps_list, device, output_dim, hi
             f"Output shape mismatch! Expected {expected_output_shape}, got {output_predictions.shape}"
         logger.info("Model forward pass successful with expected output shape.")
 
-        # Expected LSTM hidden/cell state shape: (num_layers_lstm, num_nodes, hidden_channels_lstm)
-        expected_lstm_state_shape = (num_layers_lstm, len(all_timesteps_list[0].x), hidden_channels_lstm)
-        assert new_h_c_state[0].shape == expected_lstm_state_shape, \
-            f"LSTM hidden state shape mismatch! Expected {expected_lstm_state_shape}, got {new_h_c_state[0].shape}"
-        assert new_h_c_state[1].shape == expected_lstm_state_shape, \
-            f"LSTM cell state shape mismatch! Expected {expected_lstm_state_shape}, got {new_h_c_state[1].shape}"
-        logger.info("LSTM hidden/cell states have expected shapes.\n")
+        # Conditional Assertion for LSTM hidden/cell states (based on model architecture configuration)
+        if model.run_LSTM:
+            
+            # Expected LSTM hidden/cell state shape: (num_layers_lstm, num_nodes, hidden_channels_lstm)
+            logger.info(f"New LSTM hidden/cell state shapes: h_n={new_h_c_state[0].shape}, c_n={new_h_c_state[1].shape}")
+            expected_lstm_state_shape = (num_layers_lstm, len(all_timesteps_list[0].x), hidden_channels_lstm)
+            assert new_h_c_state[0].shape == expected_lstm_state_shape, \
+                f"LSTM hidden state shape mismatch! Expected {expected_lstm_state_shape}, got {new_h_c_state[0].shape}"
+            assert new_h_c_state[1].shape == expected_lstm_state_shape, \
+                f"LSTM cell state shape mismatch! Expected {expected_lstm_state_shape}, got {new_h_c_state[1].shape}"
+            logger.info("LSTM hidden/cell states have expected shapes.\n")
+        
+        else:
+            # If LSTM is not running, assert that the state is None
+            assert new_h_c_state is None, "new_h_c_state should be None when LSTM is not running."
+            logger.info("LSTM is disabled in the model; new_h_c_state is correctly None.\n")
+
 
     except Exception as e:
         logger.error(f"Error during model forward pass: {e}")
@@ -173,7 +183,7 @@ def _assert_instantiation_vals(model, all_timesteps_list, device, output_dim, hi
 
 def instantiate_model_and_associated(all_timesteps_list, config, catchment):
 
-    # Instantiate the model
+    # Instantiate the model class
     model = GAT_LSTM_Model(
         in_channels=all_timesteps_list[0].x.shape[1],
         hidden_channels_gat=config[catchment]["model"]["params"]["hidden_channels_gat"],
@@ -184,6 +194,9 @@ def instantiate_model_and_associated(all_timesteps_list, config, catchment):
         num_layers_lstm=config[catchment]["model"]["params"]["num_layers_lstm"],
         num_nodes=len(all_timesteps_list[0].x),
         output_dim=config[catchment]["model"]["params"]["output_dim"],
+        run_GAT=config[catchment]["model"]["architecture"]["run_GAT"],
+        run_LSTM=config[catchment]["model"]["architecture"]["run_LSTM"],
+        random_seed=config["global"]["pipeline_settings"]["random_seed"],
         catchment=catchment
     )
 
