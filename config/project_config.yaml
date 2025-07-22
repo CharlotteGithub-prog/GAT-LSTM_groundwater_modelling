@@ -72,7 +72,7 @@ global:
   # --- MODEL SETTINGS (for GAT-LSTM) ---
   model:
     data_loader_batch_size: 1  # Necessary due to LSTM portion
-    data_loader_shuffle: False  # Essential for processing in temporal order
+    data_loader_shuffle: false  # Essential for processing in temporal order
     architecture: "GAT_LSTM"
     gat_layers: 2
     gat_heads: 4
@@ -160,6 +160,9 @@ eden:
     graph_data_output_dir: "data/03_graph/eden/tensors/"
     pyg_object_path: "data/03_graph/eden/PyG/all_timesteps_list.pt"
 
+    # --- Model Paths ---
+    best_model_path: "data/04_model/eden/model/best_model.pt"
+
   # --- PREPROCESSING SETTINGS ---
   preprocessing:
     inclusion_threshold: 5000
@@ -176,6 +179,7 @@ eden:
     mean_elevation_boxcox_lambda: 0.43791794465031564
     mean_slope_deg_boxcox_lambda: -0.24587351671403726
 
+  # --- VISUALISATION OUTPUT SETTINGS ---
   visualisations:
     maps:  # ensure no specific file extensions here
       static_mesh_map_output: "results/figures/eden/maps/static_mesh_map"
@@ -189,17 +193,20 @@ eden:
     corr_dist_score_scatters: "results/figures/eden/scatter/"
     violin_plt_path: "results/figures/eden/other/standardised_violins.png"
 
-  # --- GRAPH CONSTRUCTION SETTINGS (for GAT-LSTM) ---
+  # --- GRAPH CONSTRUCTION SETTINGS ---
   model:
     architecture: # Turn sections off for benchmarking and performance analysis
-      run_GAT: True 
-      run_LSTM: True
+      run_GAT: true
+      run_LSTM: true
     data_partioning:
       test_station_shortlist: ["ainstable", "coupland", "scaleby"]  # Length ideally >= minimum station req count
       val_station_shortlist: ["castle_carrock", "skirwith", "great_musgrave"]  # Length ideally >= minimum station req count
-      percentage_train: 77  # remaining stations for training
+      percentage_train: 77
       percentage_val: 15  # 2 stations for validating
       percentage_test: 8  # 1 station tested at a time
+      len_train: 11
+      len_val: 2
+      len_test: 1
     params:
       # --- GAT ---
       heads_gat: 8
@@ -213,10 +220,16 @@ eden:
       output_dim: 1  # one station gwl prediction per timestep
       adam_learning_rate: 0.001
       adam_weight_decay: 0.0005  # 5e-4 is common initial weight decay val
-      num_epochs: 10
-      # patience: ?  # Implement for early stopping
-
-  # --- MODEL SETTINGS (for GAT-LSTM) ---
+  # --- MODEL IMPLEMENTATION SETTINGS ---
+  training:
+    verbose: True  # Run logger to debug (increases computation)
+    num_epochs: 200  # Start here, may need to increase depending on computation times
+    early_stopping_patience: 15  # Early Stopping: Number of epochs to wait for improvement in validation loss before stopping training.
+    lr_scheduler_factor: 0.5  # ReduceLROnPlateau: Factor by which the learning rate will be reduced.
+    lr_scheduler_patience: 7  # Patience for ReduceLROnPlateau: Number of epochs with no improvement in validation
+    min_lr: 0.000001  # Min learning rate bound (Generally recommended: 1e-6)
+    loss_delta: 0.0001  # Minimum change in loss required to count as improvement
+    gradient_clip_max_norm: 1.0  # Gradient Clipping Max Norm: Maximum norm of the gradients for gradient clipping (help prevent exploding grad.)
 
 # ==============================================================================
 # FUTURE CATCHMENT CONFIG SETTINGS
