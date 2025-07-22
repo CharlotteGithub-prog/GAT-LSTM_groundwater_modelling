@@ -5,7 +5,6 @@ import torch
 import logging
 import torch.nn as nn
 from torch_geometric.loader import DataLoader
-
     
 # Set up logger config
 logging.basicConfig(
