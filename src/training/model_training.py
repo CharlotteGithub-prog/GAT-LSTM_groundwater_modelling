@@ -39,6 +39,15 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
     num_timesteps_processed = 0
     h_c_state = None  # Reset LSTM hidden/cell states for new seq
     
+    # Initialise global LSTM state store
+    if model.run_LSTM:
+        lstm_state_store = {
+            'h': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm).to(device),
+            'c': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm).to(device)
+        }
+    else:
+        lstm_state_store = None
+
     # Iterate over all timesteps for training, applying spatial train_mask (+ tqdm for progress bars)
     loop = tqdm(all_timesteps_list, desc=f"Epoch {epoch+1}/{num_epochs} [{description}]", leave=False)
     
@@ -52,36 +61,57 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
             
             # Move data to device and run forward pass
             data = data.to(device)
-            predictions, h_c_state = model(data.x, data.edge_index, data.edge_attr, h_c_state)
             
-            # Detach hidden states for Truncated Backpropagation Through Time (BPTT)
-            if model.run_LSTM and h_c_state is not None:  # update only required if LSTM is running
-                h_c_state = (h_c_state[0].detach(), h_c_state[1].detach())
-                
-            # KEY: Get current mask and calculate loss only on relevant nodes (spatial split)
+            # Select the correct nodes to process for this phase (training or validation)
             mask = getattr(data, mask_attr)
-            
-            # NEW!: ---> TEST During training:
-            # print("Epoch", epoch, "Phase", mask_attr, "Sample y values from masked nodes:", data.y[mask][:5])
-
             if not mask.any():
-                # DEFENSIVE: If a timestep for some reason has no observed training nodes (e.g. all assigned val/test/NaNs)
-                logger.debug(f"Epoch {epoch+1}, Timestep {data.timestep.date()}: No {description} nodes "
-                                f"({mask} all False). Skipping loss for this timestep.")
+                logger.debug(f"Epoch {epoch+1}, Timestep {data.timestep.date()}: No {description} nodes. Skipping.")
                 continue
-
-            # --- Compute loss in standardised space ---
+        
+            x_lstm = data.x[mask]
+            node_ids = torch.where(mask)[0]
             
-            loss = criterion(predictions[mask], data.y[mask])
+            # Identify gauged nodes from the mask
+            # gauged_mask = getattr(data, 'train_mask') if is_training else getattr(data, 'val_mask')
+            # if model.run_LSTM:
+            #     x_lstm = data.x[gauged_mask]
+            #     node_ids = torch.where(gauged_mask)[0]
+            # else:
+            #     x_lstm = data.x
+            #     node_ids = data.node_id
+                
+            # initialise predictions for all nodes
+            # predictions_all = torch.zeros_like(data.y).to(device)
+
+            preds_subset, (h_new, c_new), node_ids_subset = model(x_lstm, data.edge_index, data.edge_attr, node_ids, lstm_state_store)
+            
+            # predictions_all[node_ids] = preds_subset
+            
+            # assert preds_subset.shape[0] == node_ids.shape[0], \
+            #     f"Mismatch: preds={preds_subset.shape}, node_ids={node_ids.shape}"
+            
+            # predictions, (h_new, c_new), node_ids = model(data.x, data.edge_index, data.edge_attr, data.node_id, lstm_state_store)
+            
+            # Update persistent LSTM state: Detach hidden states for Truncated Backpropagation Through Time (BPTT)
+            if model.run_LSTM:
+                h_new, c_new = h_new.detach(), c_new.detach()
+                lstm_state_store['h'][:, node_ids_subset, :] = h_new
+                lstm_state_store['c'][:, node_ids_subset, :] = c_new
+                
+            # Populate predictions into full tensor for loss/metrics
+            predictions_all = torch.zeros_like(data.y).to(device)
+            predictions_all[node_ids] = preds_subset
+
+            # Compute loss (on relevant nodes only)
+            loss = criterion(predictions_all[mask], data.y[mask])
             total_loss += loss.item()
             num_timesteps_processed += 1
 
-            # --- Unscaled MAE for interpretability ---
+            # --- Compute unscaled MAE (mAOD) for interpretability ---
             
             if target_scaler is not None:
-                preds_orig = predictions[mask] * scale + mean
+                preds_orig = predictions_all[mask] * scale + mean
                 targets_orig = data.y[mask] * scale + mean
-
                 batch_mae = torch.mean(torch.abs(preds_orig - targets_orig)).item()
                 mask_count = mask.sum().item()
                 total_mae_unscaled += batch_mae * mask_count
@@ -95,6 +125,7 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
                     torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip_max_norm)
                 optimizer.step()
 
+                # Progress bar
                 postfix = {'loss': f"{loss.item():.4f}", 'lr':   f"{optimizer.param_groups[0]['lr']:.6f}"}
                 if target_scaler is not None:
                     postfix['mae'] = f"{batch_mae:.2f}"

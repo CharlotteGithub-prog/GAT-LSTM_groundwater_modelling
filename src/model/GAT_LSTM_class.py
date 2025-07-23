@@ -147,23 +147,23 @@ class GAT_LSTM_Model(nn.Module):
         logger.info(f"  Output [True]: {output_layer_input_dim} -> {self.output_dim}\n")
         
     # Define forward pass of model architecture
-    def forward(self, x, edge_index, edge_attr, h_c_state=None):
+    def forward(self, x, edge_index, edge_attr, node_ids, lstm_state_store=None):
         """
         Performs a single forward pass through the GAT-LSTM model for one timestep. Processes spatial features
         using GAT layers and then temporal dependencies using an LSTM layer, producing groundwater level
         predictions for all nodes.
 
         Args:
-            x (torch.Tensor): node features (num_nodes, in_channels)
-            edge_index (torch.Tensor): graph connectivity (2, num_edges)
-            edge_attr (torch.Tensor):edge features (num_edges, num_edge_features)
-            h_c_state (tuple, optional): (h_n, c_n) tuple from previous LSTM step. Defaults to None.
-            
+            x (torch.Tensor): Node features (num_nodes_per_timestep, in_channels)
+            edge_index (torch.Tensor): Graph connectivity (2, num_edges)
+            edge_attr (torch.Tensor): Edge features (num_edges, num_edge_features)
+            node_ids (torch.Tensor): Indices of the nodes in this timestep relative to the full graph (for LSTM state indexing)
+            lstm_state_store (dict, optional): Global hidden and cell state store with keys 'h' and 'c'. Defaults to None.
+
         Returns:
-            tuple (predictions, new_h_c_state):
-                - predictions (torch.Tensor): Predicted groundwater levels for all nodes at the current timestep.
-                - new_h_c_state (tuple): The updated hidden state (h_n) and cell state (c_n) of the LSTM after
-                                        processing the current timestep. This is then passed to the next forward call.
+            predictions (torch.Tensor): GWL predictions (num_nodes_per_timestep, output_dim)
+            new_h_c_state (tuple): Updated (h, c) for the current node_ids only
+            node_ids (torch.Tensor): Returned as-is for external state update
         """
         
         # --- GAT Forward Pass ---
@@ -172,34 +172,34 @@ class GAT_LSTM_Model(nn.Module):
             for i, gat_layer in enumerate(self.gat_layers):
                 x = F.dropout(x, p=self.dropout_gat, training=self.training)
                 x = gat_layer(x, edge_index, edge_attr)
-                if i < len(self.gat_layers) - 1: # Apply activation for all but the last GAT layer
+                if i < len(self.gat_layers) - 1: # Apply ELU activation for all but the last GAT layer
                     x = F.elu(x)
-                    
-            # x = F.dropout(x, p=self.conv1.dropout, training=self.training)  # Apply dropout to input features (training is an attr of the torch.nn.Module)
-            # x = self.conv1(x, edge_index, edge_attr)  # First GAT layer
-            # x = F.elu(x)  # Could also try ReLU, eLU currently used to try to avoid dead neurons (dead ReLU)
-            # x = F.dropout(x, p=self.conv2.dropout, training=self.training)  # Apply dropout after activation, before next layer
-            # x = self.conv2(x, edge_index, edge_attr)  # Second GAT layer
     
-        # Reshape for LSTM (no final layer before as fed straight in)
-        x_subsequent_input = x.view(self.num_nodes, 1, -1)  # NB: If self.run_GAT is False, x remains the original input x.  
+        # --- Prepare LSTM hidden state for current subset of nodes ---
         
-        predictions = None
-        new_h_c_state = None # Initialise new_h_c_state
-        
+        if self.run_LSTM and lstm_state_store is not None:
+            h_full, c_full = lstm_state_store['h'], lstm_state_store['c']
+            h = h_full[:, node_ids, :].contiguous()  # shape: (num_layers, batch_nodes, hidden_dim)
+            c = c_full[:, node_ids, :].contiguous()
+            h_c_state = (h, c)
+        else:
+            h_c_state = None
+    
         # --- LSTM Forward Pass ---
         
+        x_input = x.view(x.size(0), 1, -1)  # shape: (batch_nodes, 1, input_dim)
+        
         if self.run_LSTM:
-            # If h_c_state = None, hidden and cell states automatically initialised to zeros.
-            lstm_out, new_h_c_state = self.lstm(x_subsequent_input, h_c_state)
-            output_layer_features = lstm_out.squeeze(1) 
+            lstm_out, (h_new, c_new) = self.lstm(x_input, h_c_state)
+            features = lstm_out[:, -1, :]
         else:
-            output_layer_features = x_subsequent_input.squeeze(1)
+            h_new, c_new = None, None
+            features = x  # shape: (batch_nodes, feature_dim)
             
         # --- Output Layer ---
         
         # This is always defined -> regardless of architecture configuration this layer always runs.
-        predictions = self.output_layer(output_layer_features)
+        predictions = self.output_layer(features)  # shape: (batch_nodes, output_dim)
         
-        return predictions, new_h_c_state
+        return predictions, (h_new, c_new), node_ids
         

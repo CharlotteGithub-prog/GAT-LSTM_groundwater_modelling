@@ -62,7 +62,7 @@ def build_data_loader(all_timesteps_list, batch_size, shuffle, catchment):
     
     return full_dataset_loader
 
-# Instantiate model using class and associated information
+# Instantiate model using class and associated information - TODO: This needs updating to match new arch,
 def _assert_instantiation_vals(model, all_timesteps_list, device, output_dim, hidden_channels_lstm,
                                num_layers_lstm, optimizer, adam_learning_rate, adam_weight_decay, criterion):
     """

@@ -401,6 +401,10 @@ def _build_object_masks(grouped_by_timestep, train_station_ids: list, val_statio
         logger.info(f"   - Masks applied for timestep {timestep_t.date()}: "
             f"Train: {train_count} nodes, Val: {val_count} nodes, Test: {test_count} nodes.\n")
         
+        # Map per-row node_id for this timestep
+        snapshot_node_ids = df_snapshot["node_id"].tolist()
+        node_id_tensor = torch.tensor([node_id_to_idx[n] for n in snapshot_node_ids], dtype=torch.long)
+
         # Create the PyG Data object for this timestep
         data = Data(
             x=x,
@@ -412,6 +416,9 @@ def _build_object_masks(grouped_by_timestep, train_station_ids: list, val_statio
             test_mask=test_mask,
             timestep=timestep_t # Store directly in data obj for easier temporal handling
         )
+        
+        # Store global node indices in the Data object
+        data.node_id = node_id_tensor
 
         # Append data to full list and iterate loop counter
         all_timesteps_list.append(data)
