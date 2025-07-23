@@ -1,5 +1,7 @@
 # Import Libraries
+import os
 import sys
+import joblib
 import logging
 import pandas as pd
 import seaborn as sns
@@ -121,7 +123,25 @@ def _plot_standardised_data_aligned(processed_df, random_seed, violin_plt_path):
     plt.show()
     plt.close()
 
-def preprocess_shared_features(main_df_full, catchment, random_seed, violin_plt_path):
+def _save_shared_feat_encoders(shared_scaler, shared_encoder, catchment, scaler_dir):
+    
+    # Ensure the directory exists
+    os.makedirs(scaler_dir, exist_ok=True)
+
+    # Define full paths for saving
+    shared_scaler_path = os.path.join(scaler_dir, "shared_scaler.pkl")
+    shared_encoder_path = os.path.join(scaler_dir, "shared_encoder.pkl")
+
+    # Save the objects
+    joblib.dump(shared_scaler, shared_scaler_path)
+    logger.info(f"Shared scaler saved to: {shared_scaler_path}")
+
+    joblib.dump(shared_encoder, shared_encoder_path)
+    logger.info(f"Shared encoder saved to: {shared_encoder_path}")
+
+    logger.info(f"Pipeline Step 'Save Scalers and Encoders' complete for {catchment} catchment.")
+
+def preprocess_shared_features(main_df_full, catchment, random_seed, violin_plt_path, scaler_dir):
     """
     Apply final preprocessing to shared features only to reduce operation repetition after splitting
     while avoiding data leakage. GWL preprocessingn is undertaken post data split.
@@ -195,6 +215,9 @@ def preprocess_shared_features(main_df_full, catchment, random_seed, violin_plt_
     
     _plot_standardised_data_aligned(processed_df, random_seed, violin_plt_path)
     
+    # Save Encoders
+    _save_shared_feat_encoders(shared_scaler, shared_encoder, catchment, scaler_dir)
+    
     return processed_df, shared_scaler, shared_encoder, gwl_feats
 
 # Preprocess gwl featues in final dataframe
@@ -251,6 +274,35 @@ def _standardise_gwl_station_data(df, num_cols, sentinel_value, gwl_scaler, all_
     
     else:
         logger.info("No numerical GWL features found, skipping standardisation.\n")
+
+def _standardise_target_feat(df, target_scaler, train_station_ids, target_col='gwl_value'):
+    """
+    Standardise the target GWL value ('gwl_value') using only training data to fit the scaler.
+    df is modified in place.
+    """
+    logger.info(f"Beginning standardisation of target feature '{target_col}' (fitted on training data only)...")
+
+    # Select only training station nodes for the target column
+    train_target_data = df[df['node_id'].isin(train_station_ids)][[target_col]].copy()
+
+    # Ensure no NaNs in training target data before fitting
+    n_nan_in_train_target_before_fit = train_target_data.isna().sum().sum()
+    if n_nan_in_train_target_before_fit > 0:
+        logger.warning(f"Found {n_nan_in_train_target_before_fit} NaN values in training target data before"
+                       f" scaler fit. These will be ignored by fit.")
+        pass
+
+    # Fit on training data
+    target_scaler.fit(train_target_data)
+
+    # Apply transformation to all rows for the target column (NaNs propagated)
+    # df.loc[:, target_col] = target_scaler.transform(df.loc[:, [target_col]])
+
+    # Only transform rows where target is not NaN
+    target_mask = df[target_col].notna()
+    df.loc[target_mask, target_col] = target_scaler.transform(df.loc[target_mask, [target_col]])
+    
+    logger.info(f"Successfully standardised target feature '{target_col}'.\n")
 
 def _encode_gwl_station_data(df, cat_cols, gwl_encoder, all_gwl_station_ids, train_station_ids):
     """
@@ -322,8 +374,30 @@ def _modify_final_col_order(processed_df):
     
     return processed_df
 
+def _save_gwl_encoders(gwl_scaler, gwl_encoder, target_scaler, catchment, scaler_dir):
+    
+    # Ensure the directory exists
+    os.makedirs(scaler_dir, exist_ok=True)
+
+    # Define full paths for saving
+    gwl_scaler_path = os.path.join(scaler_dir, "gwl_scaler.pkl")
+    gwl_encoder_path = os.path.join(scaler_dir, "gwl_encoder.pkl")
+    target_scaler_path = os.path.join(scaler_dir, "target_scaler.pkl")
+
+    # Save the objects
+    joblib.dump(gwl_scaler, gwl_scaler_path)
+    logger.info(f"GWL scaler saved to: {gwl_scaler_path}")
+
+    joblib.dump(gwl_encoder, gwl_encoder_path)
+    logger.info(f"GWL encoder saved to: {gwl_encoder_path}")
+    
+    joblib.dump(target_scaler, target_scaler_path)
+    logger.info(f"Target scaler saved to: {target_scaler_path}")
+
+    logger.info(f"Pipeline Step 'Save Scalers and Encoders' complete for {catchment} catchment.")
+
 def preprocess_gwl_features(processed_df, catchment, train_station_ids, val_station_ids, test_station_ids,
-                            sentinel_value):
+                            sentinel_value, scaler_dir):
     """
     Preprocesses groundwater level (GWL) features by handling missing values with sentinels,
     standardising numerical features, and one-hot encoding categorical features using only training data
@@ -366,6 +440,11 @@ def preprocess_gwl_features(processed_df, catchment, train_station_ids, val_stat
     gwl_scaler = StandardScaler()
     _standardise_gwl_station_data(df, num_cols, sentinel_value, gwl_scaler,
                                   all_gwl_station_ids, train_station_ids)
+    
+    # Standardise gwl_value (target variable, y)
+    # target_scaler = None
+    target_scaler = StandardScaler()
+    _standardise_target_feat(df, target_scaler, train_station_ids)
         
     # --- One hot encode categorical gwl features ---
 
@@ -398,6 +477,9 @@ def preprocess_gwl_features(processed_df, catchment, train_station_ids, val_stat
     processed_df = processed_df.drop(columns='gwl_value_x').rename(columns={'gwl_value_y': 'gwl_value'})
     processed_df = _modify_final_col_order(processed_df)
     logger.info(f"Updated processed_df with standardised and encoded GWL features.")
+    
+    # Save Encoders
+    _save_gwl_encoders(gwl_scaler, gwl_encoder, target_scaler, catchment, scaler_dir)
 
     # Return the modified df and the fitted transformers for potential inverse transforms or inspection
     return processed_df, gwl_scaler, gwl_encoder

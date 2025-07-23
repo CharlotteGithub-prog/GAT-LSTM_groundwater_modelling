@@ -159,6 +159,7 @@ eden:
     final_df_path: "data/02_processed/eden/final_df/"
     graph_data_output_dir: "data/03_graph/eden/tensors/"
     pyg_object_path: "data/03_graph/eden/PyG/all_timesteps_list.pt"
+    scalers_dir: "data/03_graph/eden/scalers/"
 
     # --- Model Paths ---
     best_model_path: "data/04_model/eden/model/best_model.pt"
@@ -198,7 +199,7 @@ eden:
   model:
     architecture: # Turn sections off for benchmarking and performance analysis
       run_GAT: true
-      run_LSTM: true
+      run_LSTM: false
     data_partioning:
       test_station_shortlist: ["ainstable", "coupland", "scaleby"]  # Length ideally >= minimum station req count
       val_station_shortlist: ["castle_carrock", "skirwith", "great_musgrave"]  # Length ideally >= minimum station req count
@@ -208,12 +209,13 @@ eden:
       len_train: 11
       len_val: 2
       len_test: 1
-    params:
+    params:  # VERSION 3
       # --- GAT ---
       heads_gat: 8
-      dropout_gat: 0.4  # 40% dropped
+      dropout_gat: 0.2  # 20% dropped
       hidden_channels_gat: 64
       out_channels_gat: 64
+      num_layers_gat: 2
       # --- LSTM ---
       hidden_channels_lstm: 64
       num_layers_lstm: 1  # stack layers later if needed for performance
@@ -223,11 +225,11 @@ eden:
       adam_weight_decay: 0.0005  # 5e-4 is common initial weight decay val
   # --- MODEL IMPLEMENTATION SETTINGS ---
   training:
-    verbose: True  # Run logger to debug (increases computation)
+    verbose: true  # Run logger to debug (increases computation)
     num_epochs: 200  # Start here, may need to increase depending on computation times
     early_stopping_patience: 15  # Early Stopping: Number of epochs to wait for improvement in validation loss before stopping training.
     lr_scheduler_factor: 0.5  # ReduceLROnPlateau: Factor by which the learning rate will be reduced.
-    lr_scheduler_patience: 7  # Patience for ReduceLROnPlateau: Number of epochs with no improvement in validation
+    lr_scheduler_patience: 5  # Patience for ReduceLROnPlateau: Number of epochs with no improvement in validation
     min_lr: 0.000001  # Min learning rate bound (Generally recommended: 1e-6)
     loss_delta: 0.0001  # Minimum change in loss required to count as improvement
     gradient_clip_max_norm: 1.0  # Gradient Clipping Max Norm: Maximum norm of the gradients for gradient clipping (help prevent exploding grad.)

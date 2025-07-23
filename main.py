@@ -696,7 +696,8 @@ try:
             main_df_full=main_df_full,
             catchment=catchment,
             random_seed=config["global"]["pipeline_settings"]["random_seed"],
-            violin_plt_path=config[catchment]["visualisations"]["violin_plt_path"]
+            violin_plt_path=config[catchment]["visualisations"]["violin_plt_path"],
+            scaler_dir = config[catchment]["paths"]["scalers_dir"]
         )
 
         logger.info(f"Pipeline Step 'Preprocess Final Shared Features' complete for {catchment} catchment.\n")
@@ -709,7 +710,8 @@ try:
             train_station_ids=train_station_ids,
             val_station_ids=val_station_ids,
             test_station_ids=test_station_ids,
-            sentinel_value = config["global"]["graph"]["sentinel_value"]
+            sentinel_value = config["global"]["graph"]["sentinel_value"],
+            scaler_dir = config[catchment]["paths"]["scalers_dir"]
         )
 
         logger.info(f"Pipeline Step 'Preprocess Final GWL Features' complete for {catchment} catchment.\n")
@@ -786,7 +788,8 @@ try:
             device=device,
             optimizer=optimizer,
             criterion=criterion,
-            all_timesteps_list=all_timesteps_list
+            all_timesteps_list=all_timesteps_list,
+            scalers_dir=config[catchment]["paths"]["scalers_dir"]
         )
 
         logger.info(f"Pipeline Step 'Train and Validate Model' complete for {catchment} catchment.")
