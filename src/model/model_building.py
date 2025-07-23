@@ -191,6 +191,7 @@ def instantiate_model_and_associated(all_timesteps_list, config, catchment):
         dropout_gat=config[catchment]["model"]["params"]["dropout_gat"],
         hidden_channels_lstm=config[catchment]["model"]["params"]["hidden_channels_lstm"],
         num_layers_lstm=config[catchment]["model"]["params"]["num_layers_lstm"],
+        num_layers_gat=config[catchment]["model"]["params"]["num_layers_gat"],
         num_nodes=len(all_timesteps_list[0].x),
         output_dim=config[catchment]["model"]["params"]["output_dim"],
         run_GAT=config[catchment]["model"]["architecture"]["run_GAT"],
