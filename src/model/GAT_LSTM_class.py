@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class GAT_LSTM_Model(nn.Module):
     # Config imported directly to get hyperparams and random seed
     def __init__(self, in_channels, hidden_channels_gat, out_channels_gat, heads_gat, dropout_gat, hidden_channels_lstm,
-                 num_layers_lstm, num_nodes, output_dim, run_GAT, run_LSTM, random_seed, catchment):
+                 num_layers_lstm, num_layers_gat, num_nodes, output_dim, run_GAT, run_LSTM, random_seed, catchment):
         """
         Initializes the GAT-LSTM Model with a flexible architecture.
 
@@ -55,6 +55,7 @@ class GAT_LSTM_Model(nn.Module):
         self.dropout_gat = dropout_gat
         self.hidden_channels_gat = hidden_channels_gat
         self.out_channels_gat = out_channels_gat
+        self.num_layers_gat = num_layers_gat
         
         # LSTM params
         self.hidden_channels_lstm = hidden_channels_lstm
@@ -65,14 +66,49 @@ class GAT_LSTM_Model(nn.Module):
         # Second GAT Layer - Takes concatenated output from conv1, outputs to out_channels_gat
         
         if self.run_GAT:
-            self.conv1 = GATConv(self.in_channels, self.hidden_channels_gat, heads=self.heads_gat,
-                                dropout=self.dropout_gat, add_self_loops=True, concat=True)
-            self.conv2 = GATConv(self.hidden_channels_gat * self.heads_gat, self.out_channels_gat,
-                                heads=1, dropout=self.dropout_gat, add_self_loops=True, concat=False)  # 1 head for final layer after concat
-            logger.info(f"  GAT Enabled: {self.in_channels} -> {self.hidden_channels_gat} ({self.heads_gat} heads) -> {self.out_channels_gat} (1 head)")
             
-            # If GAT is run, LSTM's input comes from GAT's output
+            # Use ModuleList to stack GAT layers
+            self.gat_layers = nn.ModuleList()
+            
+            # First GAT layer
+            self.gat_layers.append(GATConv(self.in_channels, self.hidden_channels_gat, heads=self.heads_gat,
+                                           dropout=self.dropout_gat, add_self_loops=True, concat=True))
+            
+            # Intermediate GAT layers (if num_layers_gat > 2)
+            for i in range(self.num_layers_gat - 2): # Loop for 0 to num_layers_gat - 3
+                self.gat_layers.append(GATConv(self.hidden_channels_gat * self.heads_gat, self.hidden_channels_gat,
+                                               heads=self.heads_gat, dropout=self.dropout_gat, add_self_loops=True, concat=True))
+            
+            # Last GAT layer
+            if self.num_layers_gat > 1:
+                self.gat_layers.append(GATConv(self.hidden_channels_gat * self.heads_gat, self.out_channels_gat,
+                                               heads=1, dropout=self.dropout_gat, add_self_loops=True, concat=False))
+            # if only 1 GAT layer
+            else:
+                self.gat_layers = nn.ModuleList([GATConv(self.in_channels, self.out_channels_gat, heads=1,
+                                                         dropout=self.dropout_gat, add_self_loops=True, concat=False)])
+
+
+            logger.info(f"  GAT Enabled with {self.num_layers_gat} layers. First layer: {self.in_channels} -> "
+                        f"{self.hidden_channels_gat} ({self.heads_gat} heads)")
+            
+            if self.num_layers_gat > 1:
+                logger.info(f"  Intermediate layers: {self.hidden_channels_gat * self.heads_gat} -> "
+                            f"{self.hidden_channels_gat} ({self.heads_gat} heads)")
+                logger.info(f"  Last layer: {self.hidden_channels_gat * self.heads_gat} -> {self.out_channels_gat}"
+                            f" (1 head, concat=False)")
+            
+            # If GAT is run, LSTM's input comes from GAT's final output
             lstm_input_dim = self.out_channels_gat 
+            
+            # self.conv1 = GATConv(self.in_channels, self.hidden_channels_gat, heads=self.heads_gat,
+            #                     dropout=self.dropout_gat, add_self_loops=True, concat=True)
+            # self.conv2 = GATConv(self.hidden_channels_gat * self.heads_gat, self.out_channels_gat,
+            #                     heads=1, dropout=self.dropout_gat, add_self_loops=True, concat=False)  # 1 head for final layer after concat
+            # logger.info(f"  GAT Enabled: {self.in_channels} -> {self.hidden_channels_gat} ({self.heads_gat} heads) -> {self.out_channels_gat} (1 head)")
+            
+            # # If GAT is run, LSTM's input comes from GAT's output
+            # lstm_input_dim = self.out_channels_gat 
 
         else:
             logger.info("  GAT Disabled: LSTM running with in_channels orignal node feature inputs.")
@@ -133,11 +169,17 @@ class GAT_LSTM_Model(nn.Module):
         # --- GAT Forward Pass ---
         
         if self.run_GAT:
-            x = F.dropout(x, p=self.conv1.dropout, training=self.training)  # Apply dropout to input features (training is an attr of the torch.nn.Module)
-            x = self.conv1(x, edge_index, edge_attr)  # First GAT layer
-            x = F.elu(x)  # Could also try ReLU, eLU currently used to try to avoid dead neurons (dead ReLU)
-            x = F.dropout(x, p=self.conv2.dropout, training=self.training)  # Apply dropout after activation, before next layer
-            x = self.conv2(x, edge_index, edge_attr)  # Second GAT layer
+            for i, gat_layer in enumerate(self.gat_layers):
+                x = F.dropout(x, p=self.dropout_gat, training=self.training)
+                x = gat_layer(x, edge_index, edge_attr)
+                if i < len(self.gat_layers) - 1: # Apply activation for all but the last GAT layer
+                    x = F.elu(x)
+                    
+            # x = F.dropout(x, p=self.conv1.dropout, training=self.training)  # Apply dropout to input features (training is an attr of the torch.nn.Module)
+            # x = self.conv1(x, edge_index, edge_attr)  # First GAT layer
+            # x = F.elu(x)  # Could also try ReLU, eLU currently used to try to avoid dead neurons (dead ReLU)
+            # x = F.dropout(x, p=self.conv2.dropout, training=self.training)  # Apply dropout after activation, before next layer
+            # x = self.conv2(x, edge_index, edge_attr)  # Second GAT layer
     
         # Reshape for LSTM (no final layer before as fed straight in)
         x_subsequent_input = x.view(self.num_nodes, 1, -1)  # NB: If self.run_GAT is False, x remains the original input x.  
