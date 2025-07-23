@@ -32,3 +32,6 @@ notebooks/00_archive/
 !/data/04_model/.gitkeep
 /data/05_analysis/*
 !/data/05_analysis/.gitkeep
+
+# --- Specific Files (e.g. Tests) ---
+notebooks/03_model_development/test.ipynb
