@@ -40,7 +40,7 @@ global:
   data_ingestion:
     api_start_date: "2013-11-01T00:00:00"
     api_end_date: "2025-02-28T23:59:59"
-    model_start_date: "2014-01-01T00:00:00"
+    model_start_date: "2018-01-01T00:00:00"
     model_end_date: "2024-12-31T23:59:59"
     col_order: ['station_name', 'date', 'dateTime', 'value', 'quality', 'measure']
     max_interp_length: 25
@@ -197,9 +197,22 @@ eden:
 
   # --- GRAPH CONSTRUCTION SETTINGS ---
   model:
-    architecture: # Turn sections off for benchmarking and performance analysis
-      run_GAT: true
-      run_LSTM: false
+    architecture:
+      # --- GAT ---
+      run_GAT: True  # Turn sections off for benchmarking and performance analysis
+      heads_gat: 8 # (2) - to 8, then 4
+      dropout_gat: 0.4  # 40% dropped - (1) To 0.4 next
+      hidden_channels_gat: 64
+      out_channels_gat: 64
+      num_layers_gat: 2
+      # --- LSTM ---
+      run_LSTM: False
+      hidden_channels_lstm: 64  # (3) - reduce to 32
+      num_layers_lstm: 2  # stack layers later if needed for performance
+      # --- Full Model ---
+      output_dim: 1  # one station gwl prediction per timestep
+      adam_learning_rate: 0.001
+      adam_weight_decay: 0.001  # 5e-4 is common initial weight decay val - (0) currenlty 0.005 to 0.001
     data_partioning:
       test_station_shortlist: ["ainstable", "coupland", "scaleby"]  # Length ideally >= minimum station req count
       val_station_shortlist: ["castle_carrock", "skirwith", "great_musgrave"]  # Length ideally >= minimum station req count
@@ -209,20 +222,7 @@ eden:
       len_train: 11
       len_val: 2
       len_test: 1
-    params:  # VERSION 3
-      # --- GAT ---
-      heads_gat: 8
-      dropout_gat: 0.2  # 20% dropped
-      hidden_channels_gat: 64
-      out_channels_gat: 64
-      num_layers_gat: 2
-      # --- LSTM ---
-      hidden_channels_lstm: 64
-      num_layers_lstm: 1  # stack layers later if needed for performance
-      # --- Full Model ---
-      output_dim: 1  # one station gwl prediction per timestep
-      adam_learning_rate: 0.001
-      adam_weight_decay: 0.0005  # 5e-4 is common initial weight decay val
+
   # --- MODEL IMPLEMENTATION SETTINGS ---
   training:
     verbose: true  # Run logger to debug (increases computation)
@@ -233,6 +233,7 @@ eden:
     min_lr: 0.000001  # Min learning rate bound (Generally recommended: 1e-6)
     loss_delta: 0.0001  # Minimum change in loss required to count as improvement
     gradient_clip_max_norm: 1.0  # Gradient Clipping Max Norm: Maximum norm of the gradients for gradient clipping (help prevent exploding grad.)
+    loss: "MAE"  # Options: MSE, MAE
 
 # ==============================================================================
 # FUTURE CATCHMENT CONFIG SETTINGS

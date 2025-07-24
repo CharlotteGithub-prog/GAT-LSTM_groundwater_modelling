@@ -64,7 +64,8 @@ def build_data_loader(all_timesteps_list, batch_size, shuffle, catchment):
 
 # Instantiate model using class and associated information - TODO: This needs updating to match new arch,
 def _assert_instantiation_vals(model, all_timesteps_list, device, output_dim, hidden_channels_lstm,
-                               num_layers_lstm, optimizer, adam_learning_rate, adam_weight_decay, criterion):
+                               num_layers_lstm, optimizer, adam_learning_rate, adam_weight_decay, criterion,
+                               loss_type):
     """
     Thorough assertion testing upon instantiation to catch errors earlier in pipeline to avoid wasting time.
     """
@@ -175,8 +176,14 @@ def _assert_instantiation_vals(model, all_timesteps_list, device, output_dim, hi
     
     logger.info("--- Testing Criterion (Loss Function) Object ---")
     logger.info(f"Criterion Type: {type(criterion)}")
-    assert isinstance(criterion, nn.L1Loss), "Criterion is not torch.nn.L1Loss"
-    logger.info("Loss function successfully instantiated as L1Loss (MAE).\n")
+    if loss_type == "MAE":
+        assert isinstance(criterion, nn.L1Loss), "Criterion is not torch.nn.L1Loss"
+        logger.info("Loss function successfully instantiated as L1Loss (MAE).\n")
+    elif loss_type == "MSE":
+        assert isinstance(criterion, nn.MSELoss), "Criterion is not torch.nn.MSELoss"
+        logger.info("Loss function successfully instantiated as MSELoss (MSE).\n")
+    else:
+        logger.info("Confirm loss type and recheck assertions.\n")
 
     logger.info("--- All initial setup tests PASSED ---\n")
 
@@ -185,15 +192,15 @@ def instantiate_model_and_associated(all_timesteps_list, config, catchment):
     # Instantiate the model class
     model = GAT_LSTM_Model(
         in_channels=all_timesteps_list[0].x.shape[1],
-        hidden_channels_gat=config[catchment]["model"]["params"]["hidden_channels_gat"],
-        out_channels_gat=config[catchment]["model"]["params"]["out_channels_gat"],
-        heads_gat=config[catchment]["model"]["params"]["heads_gat"],
-        dropout_gat=config[catchment]["model"]["params"]["dropout_gat"],
-        hidden_channels_lstm=config[catchment]["model"]["params"]["hidden_channels_lstm"],
-        num_layers_lstm=config[catchment]["model"]["params"]["num_layers_lstm"],
-        num_layers_gat=config[catchment]["model"]["params"]["num_layers_gat"],
+        hidden_channels_gat=config[catchment]["model"]["architecture"]["hidden_channels_gat"],
+        out_channels_gat=config[catchment]["model"]["architecture"]["out_channels_gat"],
+        heads_gat=config[catchment]["model"]["architecture"]["heads_gat"],
+        dropout_gat=config[catchment]["model"]["architecture"]["dropout_gat"],
+        hidden_channels_lstm=config[catchment]["model"]["architecture"]["hidden_channels_lstm"],
+        num_layers_lstm=config[catchment]["model"]["architecture"]["num_layers_lstm"],
+        num_layers_gat=config[catchment]["model"]["architecture"]["num_layers_gat"],
         num_nodes=len(all_timesteps_list[0].x),
-        output_dim=config[catchment]["model"]["params"]["output_dim"],
+        output_dim=config[catchment]["model"]["architecture"]["output_dim"],
         run_GAT=config[catchment]["model"]["architecture"]["run_GAT"],
         run_LSTM=config[catchment]["model"]["architecture"]["run_LSTM"],
         random_seed=config["global"]["pipeline_settings"]["random_seed"],
@@ -208,15 +215,24 @@ def instantiate_model_and_associated(all_timesteps_list, config, catchment):
     logger.info(f"Total model parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}\n")
 
     # Set Optimiser - weight decay implements L2 (ridge) regularisation
-    learning_rate=config[catchment]["model"]["params"]["adam_learning_rate"]
-    weight_decay=config[catchment]["model"]["params"]["adam_weight_decay"]
+    learning_rate=config[catchment]["model"]["architecture"]["adam_learning_rate"]
+    weight_decay=config[catchment]["model"]["architecture"]["adam_weight_decay"]
     
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     logger.info(f"Optimiser: Adam (lr={optimizer.param_groups[0]['lr']})")
 
-    # Set loss function (Currently: MAE)
-    criterion = nn.L1Loss()
-    logger.info(f"Loss Function: {type(criterion).__name__} (Mean Absolute Error)\n")
+    # Set loss function using config selection
+    loss_type = config[catchment]["training"]["loss"]
+    if loss_type == "MAE":
+        criterion = nn.L1Loss()
+        logger.info(f"Loss Function: {type(criterion).__name__} (Mean Absolute Error)\n")
+    elif loss_type == "MSE":
+        criterion = nn.MSELoss()
+        logger.info(f"Loss Function: {type(criterion).__name__} (Mean Square Error)\n")
+    else:
+        error_message = f"Invalid loss_type: '{loss_type}'. Must be 'MAE' or 'MSE'."
+        logger.error(error_message)
+        raise ValueError(error_message)
     
     # --- Run assertion testing to validation model instantiation ---
     
@@ -224,13 +240,14 @@ def instantiate_model_and_associated(all_timesteps_list, config, catchment):
         model=model,
         all_timesteps_list=all_timesteps_list,
         device=device,
-        output_dim=config[catchment]["model"]["params"]["output_dim"],
-        hidden_channels_lstm=config[catchment]["model"]["params"]["hidden_channels_lstm"],
-        num_layers_lstm=config[catchment]["model"]["params"]["num_layers_lstm"],
+        output_dim=config[catchment]["model"]["architecture"]["output_dim"],
+        hidden_channels_lstm=config[catchment]["model"]["architecture"]["hidden_channels_lstm"],
+        num_layers_lstm=config[catchment]["model"]["architecture"]["num_layers_lstm"],
         optimizer=optimizer,
-        adam_learning_rate=config[catchment]["model"]["params"]["adam_learning_rate"],
-        adam_weight_decay=config[catchment]["model"]["params"]["adam_weight_decay"],
-        criterion=criterion
+        adam_learning_rate=config[catchment]["model"]["architecture"]["adam_learning_rate"],
+        adam_weight_decay=config[catchment]["model"]["architecture"]["adam_weight_decay"],
+        criterion=criterion,
+        loss_type=loss_type
     )
     
     return model, device, optimizer, criterion

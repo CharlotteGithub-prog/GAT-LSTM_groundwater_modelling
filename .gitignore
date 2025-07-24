@@ -20,6 +20,7 @@ ceda_credentials.netrc
 temp_plots/
 results/figures/
 notebooks/00_archive/
+results/trained_models/
 
 # --- Data Directories (structure retained with .gitkeep) ---
 /data/01_raw/*
@@ -34,4 +35,4 @@ notebooks/00_archive/
 !/data/05_analysis/.gitkeep
 
 # --- Specific Files (e.g. Tests) ---
-notebooks/03_model_development/test.ipynb
+notebooks/03_model_development/test.

@@ -68,7 +68,7 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
                 logger.debug(f"Epoch {epoch+1}, Timestep {data.timestep.date()}: No {description} nodes. Skipping.")
                 continue
         
-            x_lstm = data.x[mask]
+            x_full = data.x
             node_ids = torch.where(mask)[0]
             
             # Identify gauged nodes from the mask
@@ -83,7 +83,7 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
             # initialise predictions for all nodes
             # predictions_all = torch.zeros_like(data.y).to(device)
 
-            preds_subset, (h_new, c_new), node_ids_subset = model(x_lstm, data.edge_index, data.edge_attr, node_ids, lstm_state_store)
+            preds_subset, (h_new, c_new), node_ids_subset = model(x_full, data.edge_index, data.edge_attr, node_ids, lstm_state_store)
             
             # predictions_all[node_ids] = preds_subset
             
@@ -99,8 +99,8 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
                 lstm_state_store['c'][:, node_ids_subset, :] = c_new
                 
             # Populate predictions into full tensor for loss/metrics
-            predictions_all = torch.zeros_like(data.y).to(device)
-            predictions_all[node_ids] = preds_subset
+            # predictions_all = torch.zeros_like(data.y).to(device)
+            predictions_all = preds_subset
 
             # Compute loss (on relevant nodes only)
             loss = criterion(predictions_all[mask], data.y[mask])
@@ -149,7 +149,7 @@ def _generate_model_filename(config, catchment):
     Returns:
         str: A unique filename (e.g., "model_20250723-083000_GATH8_GATD0-5_..._LR0-0005.pt")
     """
-    model_params = config[catchment]["model"]["params"]
+    model_params = config[catchment]["model"]["architecture"]
     training_settings = config[catchment]["training"]
 
     # Helper to format float values for filenames (replaces '.' with '-' to avoid file path issues)

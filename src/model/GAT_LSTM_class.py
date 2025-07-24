@@ -18,6 +18,17 @@ logging.basicConfig(
 # Set up logger for file and load config file for paths and params
 logger = logging.getLogger(__name__)
 
+class GlobalTemporalLSTM(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers=1):
+        super(GlobalTemporalLSTM, self).__init__()
+        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True)
+        self.linear = nn.Linear(hidden_dim, output_dim)
+        
+    def forward(self, x):
+        lstm_out, _ = self.lstm(x)
+        embedding = self.linear(lstm_out)  # (1, seq_len, embedding_dim)
+        return embedding
+
 class GAT_LSTM_Model(nn.Module):
     # Config imported directly to get hyperparams and random seed
     def __init__(self, in_channels, hidden_channels_gat, out_channels_gat, heads_gat, dropout_gat, hidden_channels_lstm,
@@ -62,8 +73,6 @@ class GAT_LSTM_Model(nn.Module):
         self.num_layers_lstm = num_layers_lstm
 
         # --- GAT Layers (Initially Two Layers) ---
-        # First GAT layer - Takes input features, outputs to hidden_channels_gat * heads_gat
-        # Second GAT Layer - Takes concatenated output from conv1, outputs to out_channels_gat
         
         if self.run_GAT:
             
@@ -100,15 +109,6 @@ class GAT_LSTM_Model(nn.Module):
             
             # If GAT is run, LSTM's input comes from GAT's final output
             lstm_input_dim = self.out_channels_gat 
-            
-            # self.conv1 = GATConv(self.in_channels, self.hidden_channels_gat, heads=self.heads_gat,
-            #                     dropout=self.dropout_gat, add_self_loops=True, concat=True)
-            # self.conv2 = GATConv(self.hidden_channels_gat * self.heads_gat, self.out_channels_gat,
-            #                     heads=1, dropout=self.dropout_gat, add_self_loops=True, concat=False)  # 1 head for final layer after concat
-            # logger.info(f"  GAT Enabled: {self.in_channels} -> {self.hidden_channels_gat} ({self.heads_gat} heads) -> {self.out_channels_gat} (1 head)")
-            
-            # # If GAT is run, LSTM's input comes from GAT's output
-            # lstm_input_dim = self.out_channels_gat 
 
         else:
             logger.info("  GAT Disabled: LSTM running with in_channels orignal node feature inputs.")
@@ -130,7 +130,7 @@ class GAT_LSTM_Model(nn.Module):
 
         # --- Output Layer (Simple Linear) ---
         
-        self.output_layer = nn.Linear(output_layer_input_dim, self.output_dim)
+        self.output_layer = nn.Linear(output_layer_input_dim, self.output_dim, bias=True)
         logger.info(f"  Output Layer: {output_layer_input_dim} -> {self.output_dim}\n")
 
         # --- Log final model architecture for clarity ---
