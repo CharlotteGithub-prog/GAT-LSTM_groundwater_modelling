@@ -18,21 +18,11 @@ logging.basicConfig(
 # Set up logger for file and load config file for paths and params
 logger = logging.getLogger(__name__)
 
-class GlobalTemporalLSTM(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, num_layers=1):
-        super(GlobalTemporalLSTM, self).__init__()
-        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True)
-        self.linear = nn.Linear(hidden_dim, output_dim)
-        
-    def forward(self, x):
-        lstm_out, _ = self.lstm(x)
-        embedding = self.linear(lstm_out)  # (1, seq_len, embedding_dim)
-        return embedding
-
 class GAT_LSTM_Model(nn.Module):
     # Config imported directly to get hyperparams and random seed
-    def __init__(self, in_channels, hidden_channels_gat, out_channels_gat, heads_gat, dropout_gat, hidden_channels_lstm,
-                 num_layers_lstm, num_layers_gat, num_nodes, output_dim, run_GAT, run_LSTM, random_seed, catchment):
+    def __init__(self, in_channels, temporal_features_dim, static_features_dim, hidden_channels_gat, out_channels_gat,
+                 heads_gat, dropout_gat, hidden_channels_lstm, num_layers_lstm, num_layers_gat, num_nodes,
+                 output_dim, run_GAT, run_LSTM, random_seed, catchment):
         """
         Initializes the GAT-LSTM Model with a flexible architecture.
 
@@ -46,20 +36,20 @@ class GAT_LSTM_Model(nn.Module):
         are dynamically adjusted based on these 'run_GAT' and 'run_LSTM' flags.
         """
         
-        logger.info(f"Instantiating GAT-LSTM model for {catchment} catchment...")
         
         # Super init model
         super(GAT_LSTM_Model, self).__init__()
-
-        # Verify random seed is set for reproducibility
+        logger.info(f"Instantiating GAT-LSTM model for {catchment} catchment...")
         logger.info(f"Model initialised under global random seed: {random_seed}.\n")
         
-        # Model Architecture
+        # Store key attributes
         self.run_GAT = run_GAT
         self.run_LSTM = run_LSTM
-        self.in_channels = in_channels
-        self.output_dim = output_dim  # one output prediction (one test station) per timestep
+        self.output_dim = output_dim
         self.num_nodes = num_nodes
+        self.temporal_features_dim = temporal_features_dim
+        self.static_features_dim = static_features_dim
+        self.in_channels = in_channels
         
         # GAT params
         self.heads_gat = heads_gat
@@ -71,6 +61,18 @@ class GAT_LSTM_Model(nn.Module):
         # LSTM params
         self.hidden_channels_lstm = hidden_channels_lstm
         self.num_layers_lstm = num_layers_lstm
+        
+        # --- LSTM Layer (Initially One Layer) ---
+        
+        if self.run_LSTM:
+            self.lstm = nn.LSTM(input_size=temporal_features_dim, hidden_size=self.hidden_channels_lstm,
+                                num_layers=self.num_layers_lstm, batch_first=True)
+            self.lstm_output_dim = hidden_channels_lstm
+            logger.info(f"  LSTM Enabled: input={temporal_features_dim}, hidden={self.hidden_channels_lstm}, layers={self.num_layers_lstm}")
+        
+        else:
+            self.lstm_output_dim = temporal_features_dim
+            logger.info("  LSTM Disabled.")
 
         # --- GAT Layers (Initially Two Layers) ---
         
@@ -78,9 +80,10 @@ class GAT_LSTM_Model(nn.Module):
             
             # Use ModuleList to stack GAT layers
             self.gat_layers = nn.ModuleList()
+            gat_input_dim = self.lstm_output_dim + static_features_dim
             
             # First GAT layer
-            self.gat_layers.append(GATConv(self.in_channels, self.hidden_channels_gat, heads=self.heads_gat,
+            self.gat_layers.append(GATConv(gat_input_dim, self.hidden_channels_gat, heads=self.heads_gat,
                                            dropout=self.dropout_gat, add_self_loops=True, concat=True))
             
             # Intermediate GAT layers (if num_layers_gat > 2)
@@ -94,11 +97,11 @@ class GAT_LSTM_Model(nn.Module):
                                                heads=1, dropout=self.dropout_gat, add_self_loops=True, concat=False))
             # if only 1 GAT layer
             else:
-                self.gat_layers = nn.ModuleList([GATConv(self.in_channels, self.out_channels_gat, heads=1,
+                self.gat_layers = nn.ModuleList([GATConv(gat_input_dim, self.out_channels_gat, heads=1,
                                                          dropout=self.dropout_gat, add_self_loops=True, concat=False)])
 
 
-            logger.info(f"  GAT Enabled with {self.num_layers_gat} layers. First layer: {self.in_channels} -> "
+            logger.info(f"  GAT Enabled with {self.num_layers_gat} layers. First layer: {gat_input_dim} -> "
                         f"{self.hidden_channels_gat} ({self.heads_gat} heads)")
             
             if self.num_layers_gat > 1:
@@ -108,46 +111,35 @@ class GAT_LSTM_Model(nn.Module):
                             f" (1 head, concat=False)")
             
             # If GAT is run, LSTM's input comes from GAT's final output
-            lstm_input_dim = self.out_channels_gat 
+            final_output_dim = self.out_channels_gat
 
         else:
-            logger.info("  GAT Disabled: LSTM running with in_channels orignal node feature inputs.")
-            lstm_input_dim = self.in_channels   # If GAT is disabled, LSTM's input comes from the original node features
-            
-        # --- LSTM Layer (Initially One Layer) ---
-        
-        if self.run_LSTM:
-            self.lstm = nn.LSTM(input_size=lstm_input_dim, hidden_size=self.hidden_channels_lstm,
-                                num_layers=self.num_layers_lstm, batch_first=True)
-            logger.info(f"  LSTM Enabled: input={lstm_input_dim}, hidden={self.hidden_channels_lstm}, layers={self.num_layers_lstm}")
-            
-            # If LSTM is run, the output layer's input comes from LSTM's output
-            output_layer_input_dim = self.hidden_channels_lstm 
-        
-        else:
-            logger.info("  LSTM Disabled: Output layer's input comes from GAT Output if enabled or original features if disabled.")
-            output_layer_input_dim = lstm_input_dim 
+            logger.info("  GAT Disabled: LSTM running with temporal feature inputs only.")
+            final_output_dim = self.lstm_output_dim + static_features_dim 
 
         # --- Output Layer (Simple Linear) ---
         
-        self.output_layer = nn.Linear(output_layer_input_dim, self.output_dim, bias=True)
-        logger.info(f"  Output Layer: {output_layer_input_dim} -> {self.output_dim}\n")
+        self.output_layer = nn.Linear(final_output_dim, self.output_dim, bias=True)
+        logger.info(f"  Output Layer: {final_output_dim} -> {self.output_dim}\n")
 
         # --- Log final model architecture for clarity ---
 
         logger.info(f"Model Architecture:")
-        if self.run_GAT:
-            logger.info(f"  GAT [{self.run_GAT}]: {self.in_channels} -> {self.hidden_channels_gat} ({self.heads_gat} heads) -> {self.out_channels_gat} (1 head, concat=False)")
-        else:
-            logger.info(f"  GAT [{self.run_GAT}]: GAT Layers Disabled")
+        
         if self.run_LSTM:
-            logger.info(f"  LSTM [{self.run_LSTM}]: input={lstm_input_dim}, hidden={self.hidden_channels_lstm}, layers={self.num_layers_lstm}")
+            logger.info(f"  LSTM [{self.run_LSTM}]: input={temporal_features_dim}, hidden={self.hidden_channels_lstm}, layers={self.num_layers_lstm}")
         else:
             logger.info(f"  LSTM [{self.run_LSTM}]: LSTM Layers Disabled")
-        logger.info(f"  Output [True]: {output_layer_input_dim} -> {self.output_dim}\n")
+        
+        if self.run_GAT:
+            logger.info(f"  GAT [{self.run_GAT}]: {gat_input_dim} -> {self.hidden_channels_gat} ({self.heads_gat} heads) -> {final_output_dim} (1 head, concat=False)")
+        else:
+            logger.info(f"  GAT [{self.run_GAT}]: GAT Layers Disabled")
+        
+        logger.info(f"  Output [True]: {final_output_dim} -> {self.output_dim}\n")
         
     # Define forward pass of model architecture
-    def forward(self, x, edge_index, edge_attr, node_ids, lstm_state_store=None):
+    def forward(self, x, edge_index, edge_attr, current_timestep_node_ids, lstm_state_store=None):
         """
         Performs a single forward pass through the GAT-LSTM model for one timestep. Processes spatial features
         using GAT layers and then temporal dependencies using an LSTM layer, producing groundwater level
@@ -157,7 +149,7 @@ class GAT_LSTM_Model(nn.Module):
             x (torch.Tensor): Node features (num_nodes_per_timestep, in_channels)
             edge_index (torch.Tensor): Graph connectivity (2, num_edges)
             edge_attr (torch.Tensor): Edge features (num_edges, num_edge_features)
-            node_ids (torch.Tensor): Indices of the nodes in this timestep relative to the full graph (for LSTM state indexing)
+            masked_node_ids (torch.Tensor): Indices of the nodes to which LSTM memory is applied and updated (e.g., training/test nodes).
             lstm_state_store (dict, optional): Global hidden and cell state store with keys 'h' and 'c'. Defaults to None.
 
         Returns:
@@ -166,40 +158,51 @@ class GAT_LSTM_Model(nn.Module):
             node_ids (torch.Tensor): Returned as-is for external state update
         """
         
+        # Split node features into temporal and static
+        x_temporal = x[:, :self.temporal_features_dim]
+        x_static = x[:, self.temporal_features_dim:]
+        
+        # --- Prepare LSTM hidden state for current subset of nodes ---
+        
+        x_temporal_seq = x_temporal.unsqueeze(1)  # LSTM expects (batch, seq_len, features); seq_len=1
+
+        # --- LSTM Forward Pass ---
+        
+        h_c_state_for_current_nodes = None
+        
+        if self.run_LSTM:
+            if lstm_state_store and lstm_state_store is not None:
+                h_full, c_full = lstm_state_store['h'], lstm_state_store['c']
+                # Select states only for the nodes present in the current 'x' tensor
+                h_c_state_for_current_nodes = (
+                    h_full[:, current_timestep_node_ids, :].contiguous(),
+                    c_full[:, current_timestep_node_ids, :].contiguous()
+                )
+                
+        if self.run_LSTM:
+            lstm_out, (h_new, c_new) = self.lstm(x_temporal_seq, h_c_state_for_current_nodes)
+            lstm_embedding = lstm_out[:, -1, :] # Take the last timestep's output for seq_len=1
+        else:
+            h_new, c_new = None, None
+            # lstm_embedding = torch.zeros(x.size(0), 0).to(x.device)    
+            lstm_embedding = x_temporal  # When LSTM is not running, directly pass temporal features to GAT
+        
         # --- GAT Forward Pass ---
+        
+        # Combine static features with LSTM embedding
+        gat_input = torch.cat([x_static, lstm_embedding], dim=1)
         
         if self.run_GAT:
             for i, gat_layer in enumerate(self.gat_layers):
-                x = F.dropout(x, p=self.dropout_gat, training=self.training)
-                x = gat_layer(x, edge_index, edge_attr)
-                if i < len(self.gat_layers) - 1: # Apply ELU activation for all but the last GAT layer
-                    x = F.elu(x)
-    
-        # --- Prepare LSTM hidden state for current subset of nodes ---
-        
-        if self.run_LSTM and lstm_state_store is not None:
-            h_full, c_full = lstm_state_store['h'], lstm_state_store['c']
-            h = h_full[:, node_ids, :].contiguous()  # shape: (num_layers, batch_nodes, hidden_dim)
-            c = c_full[:, node_ids, :].contiguous()
-            h_c_state = (h, c)
-        else:
-            h_c_state = None
-    
-        # --- LSTM Forward Pass ---
-        
-        x_input = x.view(x.size(0), 1, -1)  # shape: (batch_nodes, 1, input_dim)
-        
-        if self.run_LSTM:
-            lstm_out, (h_new, c_new) = self.lstm(x_input, h_c_state)
-            features = lstm_out[:, -1, :]
-        else:
-            h_new, c_new = None, None
-            features = x  # shape: (batch_nodes, feature_dim)
+                gat_input = F.dropout(gat_input, p=self.dropout_gat, training=self.training)
+                gat_input = gat_layer(gat_input, edge_index, edge_attr)
+                if i < len(self.gat_layers) - 1:
+                    gat_input = F.elu(gat_input)
             
         # --- Output Layer ---
         
         # This is always defined -> regardless of architecture configuration this layer always runs.
-        predictions = self.output_layer(features)  # shape: (batch_nodes, output_dim)
+        predictions = self.output_layer(gat_input)
         
-        return predictions, (h_new, c_new), node_ids
+        return predictions, (h_new, c_new), current_timestep_node_ids
         
