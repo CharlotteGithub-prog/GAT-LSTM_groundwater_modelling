@@ -188,10 +188,17 @@ def _assert_instantiation_vals(model, all_timesteps_list, device, output_dim, hi
     logger.info("--- All initial setup tests PASSED ---\n")
 
 def instantiate_model_and_associated(all_timesteps_list, config, catchment):
-
-    # Instantiate the model class
+    
+    temporal_features = config[catchment]["model"]["architecture"]["temporal_features"]
+    temporal_features_dim = len(temporal_features)
+    in_channels = all_timesteps_list[0].x.shape[1]
+    
+    # --- Instantiate the model class ---
+    
     model = GAT_LSTM_Model(
-        in_channels=all_timesteps_list[0].x.shape[1],
+        in_channels=in_channels,
+        temporal_features_dim=temporal_features_dim,
+        static_features_dim=in_channels - temporal_features_dim,
         hidden_channels_gat=config[catchment]["model"]["architecture"]["hidden_channels_gat"],
         out_channels_gat=config[catchment]["model"]["architecture"]["out_channels_gat"],
         heads_gat=config[catchment]["model"]["architecture"]["heads_gat"],
@@ -207,21 +214,23 @@ def instantiate_model_and_associated(all_timesteps_list, config, catchment):
         catchment=catchment
     )
 
-    # Set device if available (Ham8)
+    # Set device if available
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
     logger.info(f"Model instantiated and moved to device: {device}")
     logger.info(f"Total model parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}\n")
 
-    # Set Optimiser - weight decay implements L2 (ridge) regularisation
+    # --- Set Optimiser - weight decay implements L2 (ridge) regularisation ---
+    
     learning_rate=config[catchment]["model"]["architecture"]["adam_learning_rate"]
     weight_decay=config[catchment]["model"]["architecture"]["adam_weight_decay"]
     
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     logger.info(f"Optimiser: Adam (lr={optimizer.param_groups[0]['lr']})")
 
-    # Set loss function using config selection
+    # --- Set loss function using config selection ---
+    
     loss_type = config[catchment]["training"]["loss"]
     if loss_type == "MAE":
         criterion = nn.L1Loss()
