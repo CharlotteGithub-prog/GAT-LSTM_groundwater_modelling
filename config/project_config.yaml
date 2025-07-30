@@ -12,6 +12,7 @@ global:
     run_era5_land_api: false  # Long!
     run_outlier_detection: false
     run_gwl_imputation: false
+    prediction_resolution: "weekly"  # Options: ["daily", "weekly", "monthly"]
 
   # --- FILE PATHS ---
   paths:
@@ -40,8 +41,10 @@ global:
   data_ingestion:
     api_start_date: "2013-11-01T00:00:00"
     api_end_date: "2025-02-28T23:59:59"
-    model_start_date: "2018-01-01T00:00:00"
+    model_start_date: "2014-01-01T00:00:00"
     model_end_date: "2024-12-31T23:59:59"
+    test_start_date: "2014-01-01T00:00:00"
+    test_end_date: "2019-12-31T23:59:59"
     col_order: ['station_name', 'date', 'dateTime', 'value', 'quality', 'measure']
     max_interp_length: 25
 
@@ -199,20 +202,43 @@ eden:
   model:
     architecture:
       # --- GAT ---
-      run_GAT: True  # Turn sections off for benchmarking and performance analysis
-      heads_gat: 8 # (2) - to 8, then 4
+      run_GAT: true  # Turn sections off for benchmarking and performance analysis (ablation studies)
+      heads_gat: 12 # (2) - try 8, then 4
       dropout_gat: 0.4  # 40% dropped - (1) To 0.4 next
       hidden_channels_gat: 64
       out_channels_gat: 64
       num_layers_gat: 2
+
       # --- LSTM ---
-      run_LSTM: False
-      hidden_channels_lstm: 64  # (3) - reduce to 32
-      num_layers_lstm: 2  # stack layers later if needed for performance
+      run_LSTM: false
+      dropout_lstm: 0.4  # TODO: PROPERLY INCORPORATE THIS BEFORE RUNNING LSTM AGAIN!!
+      hidden_channels_lstm: 32  # (3) - reduce to 32 (from 64)
+      num_layers_lstm: 1  # stack layers later if needed for performance
+      # --- Feature Definitions ---
+      # NOTE: in_channels, temporal_lstm_input_dim, and static_and_other_dynamic_features_dim
+      # are calculated dynamically in model_building.py using temporal_features list:
+      temporal_features:
+      - rainfall_volume_m3
+      - rainfall_lag_1
+      - rainfall_lag_2
+      - rainfall_lag_3
+      - rainfall_lag_4
+      - rainfall_lag_5
+      - rainfall_lag_6
+      - rainfall_lag_7
+      - rolling_30
+      - rolling_60
+      - 2m_temp
+      - aet_volume
+      - surface_pressure
+      - season_sin
+      - season_cos
+
       # --- Full Model ---
       output_dim: 1  # one station gwl prediction per timestep
       adam_learning_rate: 0.001
-      adam_weight_decay: 0.001  # 5e-4 is common initial weight decay val - (0) currenlty 0.005 to 0.001
+      adam_weight_decay: 0.0005  # 5e-4 is common initial weight decay val - (0) currenlty 0.005 to 0.001
+      lambda_smooth: 0.0  # Set to 0.0 for no smoothing
     data_partioning:
       test_station_shortlist: ["ainstable", "coupland", "scaleby"]  # Length ideally >= minimum station req count
       val_station_shortlist: ["castle_carrock", "skirwith", "great_musgrave"]  # Length ideally >= minimum station req count
@@ -227,7 +253,7 @@ eden:
   training:
     verbose: true  # Run logger to debug (increases computation)
     num_epochs: 200  # Start here, may need to increase depending on computation times
-    early_stopping_patience: 15  # Early Stopping: Number of epochs to wait for improvement in validation loss before stopping training.
+    early_stopping_patience: 25  # Early Stopping: Number of epochs to wait for improvement in validation loss before stopping training.
     lr_scheduler_factor: 0.5  # ReduceLROnPlateau: Factor by which the learning rate will be reduced.
     lr_scheduler_patience: 5  # Patience for ReduceLROnPlateau: Number of epochs with no improvement in validation
     min_lr: 0.000001  # Min learning rate bound (Generally recommended: 1e-6)
