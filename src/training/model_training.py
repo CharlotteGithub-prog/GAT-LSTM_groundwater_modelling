@@ -10,6 +10,7 @@ import torch.nn as nn
 from tqdm import tqdm # For progress bars
 from joblib import load  # to load scalers
 from datetime import datetime
+import torch.nn.functional as F
 
 # Set up logger config
 logging.basicConfig(
@@ -26,7 +27,7 @@ from src.training.early_stopping_class import EarlyStopping
 
 # Implement Model Training and Validation Loops (8a)
 def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_norm, model, device, criterion,
-                     optimizer, target_scaler, is_training=True):
+                     optimizer, target_scaler, lambda_smooth, is_training=True):
     
     # Initialise model to correct mode
     model.train() if is_training else model.eval()
@@ -37,9 +38,8 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
     total_mae_unscaled = 0.0
     num_nodes_processed = 0
     num_timesteps_processed = 0
-    h_c_state = None  # Reset LSTM hidden/cell states for new seq
     
-    # Initialise global LSTM state store
+    # Initialise global LSTM state store at start of epoch (for Truncated Backpropagation Through Time (TBPTT))
     if model.run_LSTM:
         lstm_state_store = {
             'h': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm).to(device),
@@ -55,6 +55,9 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
         scale = torch.tensor(target_scaler.scale_, device=device)
         mean = torch.tensor(target_scaler.mean_, device=device)
     
+    # Initialise previous prediction tracker
+    previous_predictions = None
+    
     #  Loop through and train/validate model
     with torch.set_grad_enabled(is_training): # Gradients enabled for training, disabled for validation
         for data in loop:
@@ -69,53 +72,47 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
                 continue
         
             x_full = data.x
-            node_ids = torch.where(mask)[0]
-            
-            # Identify gauged nodes from the mask
-            # gauged_mask = getattr(data, 'train_mask') if is_training else getattr(data, 'val_mask')
-            # if model.run_LSTM:
-            #     x_lstm = data.x[gauged_mask]
-            #     node_ids = torch.where(gauged_mask)[0]
-            # else:
-            #     x_lstm = data.x
-            #     node_ids = data.node_id
-                
-            # initialise predictions for all nodes
-            # predictions_all = torch.zeros_like(data.y).to(device)
+            node_ids_in_current_timestep = data.node_id  # Global IDs for all nodes in x_full
+            mask_for_loss_and_metrics = getattr(data, mask_attr)  # Boolean mask for relevant nodes within x_full
 
-            preds_subset, (h_new, c_new), node_ids_subset = model(x_full, data.edge_index, data.edge_attr, node_ids, lstm_state_store)
+            # --- Run Model Pass ---
             
-            # predictions_all[node_ids] = preds_subset
-            
-            # assert preds_subset.shape[0] == node_ids.shape[0], \
-            #     f"Mismatch: preds={preds_subset.shape}, node_ids={node_ids.shape}"
-            
-            # predictions, (h_new, c_new), node_ids = model(data.x, data.edge_index, data.edge_attr, data.node_id, lstm_state_store)
+            predictions_all_nodes, (h_new_for_current_nodes, c_new_for_current_nodes), returned_node_ids = model(
+                x_full, data.edge_index, data.edge_attr, node_ids_in_current_timestep,lstm_state_store)
             
             # Update persistent LSTM state: Detach hidden states for Truncated Backpropagation Through Time (BPTT)
             if model.run_LSTM:
-                h_new, c_new = h_new.detach(), c_new.detach()
-                lstm_state_store['h'][:, node_ids_subset, :] = h_new
-                lstm_state_store['c'][:, node_ids_subset, :] = c_new
-                
-            # Populate predictions into full tensor for loss/metrics
-            # predictions_all = torch.zeros_like(data.y).to(device)
-            predictions_all = preds_subset
-
+                # Update the global lstm_state_store using the specific node IDs that were processed in this timestep
+                # And detach the new states to prevent backprop through previous timesteps' computations.
+                lstm_state_store['h'][:, returned_node_ids, :] = h_new_for_current_nodes.detach()
+                lstm_state_store['c'][:, returned_node_ids, :] = c_new_for_current_nodes.detach()
+            
             # Compute loss (on relevant nodes only)
-            loss = criterion(predictions_all[mask], data.y[mask])
+            loss = criterion(predictions_all_nodes[mask_for_loss_and_metrics], data.y[mask_for_loss_and_metrics])
+            
+            # --- If Smoothness Loss --- TODO: This may need to be proportional to depth?
+            
+            # NOTE: This assumes predictions are for the same node (e.g. test station) across timesteps
+            # If using multiple nodes or changing masks in future, must align predictions by node ID
+            if lambda_smooth > 0.0 and previous_predictions is not None:    
+                smoothness_loss = F.mse_loss(predictions_all_nodes, previous_predictions)
+                loss += lambda_smooth * smoothness_loss  # May need scaling in future, check this.
+            previous_predictions = predictions_all_nodes.detach() # Update for next timestep
+
             total_loss += loss.item()
             num_timesteps_processed += 1
 
             # --- Compute unscaled MAE (mAOD) for interpretability ---
             
             if target_scaler is not None:
-                preds_orig = predictions_all[mask] * scale + mean
-                targets_orig = data.y[mask] * scale + mean
+                preds_orig = predictions_all_nodes[mask_for_loss_and_metrics] * scale + mean
+                targets_orig = data.y[mask_for_loss_and_metrics] * scale + mean
                 batch_mae = torch.mean(torch.abs(preds_orig - targets_orig)).item()
-                mask_count = mask.sum().item()
+                mask_count = mask_for_loss_and_metrics.sum().item()
                 total_mae_unscaled += batch_mae * mask_count
                 num_nodes_processed += mask_count
+            
+            # -- Perform optimisation when in training phase ---
             
             if is_training:
                 optimizer.zero_grad()
@@ -125,7 +122,7 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
                     torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip_max_norm)
                 optimizer.step()
 
-                # Progress bar
+                # Update training specific progress bar
                 postfix = {'loss': f"{loss.item():.4f}", 'lr':   f"{optimizer.param_groups[0]['lr']:.6f}"}
                 if target_scaler is not None:
                     postfix['mae'] = f"{batch_mae:.2f}"
@@ -155,9 +152,11 @@ def _generate_model_filename(config, catchment):
     # Helper to format float values for filenames (replaces '.' with '-' to avoid file path issues)
     format_float = lambda x: str(x).replace('.', '-')
 
-    # Extracting and formatting parameters for the filename
+    # Extracting and formatting parameters for the filename TODO: ADD RUN GAT / LSTM AS CLEAR MARKERS!!!
     # Using abbreviations for conciseness
     params_parts = [
+        f"GAT{model_params['run_GAT']}",
+        f"LSTM{model_params['run_LSTM']}",
         f"GATH{model_params['heads_gat']}",
         f"GATD{format_float(model_params['dropout_gat'])}",
         f"GATHC{model_params['hidden_channels_gat']}",
@@ -168,6 +167,7 @@ def _generate_model_filename(config, catchment):
         f"OUTD{model_params['output_dim']}",
         f"LR{format_float(model_params['adam_learning_rate'])}",
         f"WD{format_float(model_params['adam_weight_decay'])}",
+        f"SM{format_float(model_params['lambda_smooth'])}"
     ]
 
     training_parts = [
@@ -187,7 +187,7 @@ def _generate_model_filename(config, catchment):
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 
     # Final filename structure
-    filename = f"model_{timestamp}_{param_string}.pt"
+    filename = f"model_{timestamp}_{param_string}"  # No specific extension -> added after for all cases
     return filename
 
 def run_training_and_validation(num_epochs: int, early_stopping_patience: int, lr_scheduler_factor: float,
@@ -209,13 +209,14 @@ def run_training_and_validation(num_epochs: int, early_stopping_patience: int, l
     logger.info(f"Setting up Training Loop for {catchment} catchment...")
     
     # --- Get dynamic model save path --- 
-    
-    # Define the directory where models will be saved
-    os.makedirs(model_save_dir, exist_ok=True)
 
     # Generate the unique filename for this training run
-    dynamic_model_filename = _generate_model_filename(config, catchment)
-    model_save_path = os.path.join(model_save_dir, dynamic_model_filename)
+    pt_model_dir = os.path.join(model_save_dir, "pt_model")
+    os.makedirs(pt_model_dir, exist_ok=True)
+    
+    dynamic_base_filename = _generate_model_filename(config, catchment)
+    dynamic_model_filename = f"{dynamic_base_filename}.pt"
+    model_save_path = os.path.join(pt_model_dir, dynamic_model_filename)
 
     logger.info(f"Model for {catchment} will be saved to: {model_save_path}")
     
@@ -255,6 +256,9 @@ def run_training_and_validation(num_epochs: int, early_stopping_patience: int, l
     train_maes_unscaled = []
     val_maes_unscaled = []
     
+    # Initialise smoothing param
+    lambda_smooth=config[catchment]["model"]["architecture"]["lambda_smooth"]
+    
     # --- Run full training and validation loop ---
 
     for epoch in range(num_epochs):
@@ -262,7 +266,7 @@ def run_training_and_validation(num_epochs: int, early_stopping_patience: int, l
         # --- TRAINING PHASE ---
         
         avg_train_loss, avg_train_mae_unscaled = _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_norm,
-                                          model, device, criterion, optimizer, target_scaler, is_training=True)
+                                          model, device, criterion, optimizer, target_scaler, lambda_smooth, is_training=True)
         
         train_losses.append(avg_train_loss)
         train_maes_unscaled.append(avg_train_mae_unscaled) 
@@ -270,7 +274,7 @@ def run_training_and_validation(num_epochs: int, early_stopping_patience: int, l
         # --- VALIDATION PHASE ---
         
         avg_val_loss, avg_val_mae_unscaled = _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_norm,
-                                          model, device, criterion, optimizer, target_scaler, is_training=False)
+                                          model, device, criterion, optimizer, target_scaler, lambda_smooth, is_training=False)
         val_losses.append(avg_val_loss)
         val_maes_unscaled.append(avg_val_mae_unscaled)
         
@@ -297,21 +301,38 @@ def run_training_and_validation(num_epochs: int, early_stopping_patience: int, l
     
     return train_losses, val_losses
 
-def save_train_val_losses(output_analysis_dir, train_losses, val_losses):
-    # Save outputs to model dir (confirming it exists)
-    os.makedirs(output_analysis_dir, exist_ok=True)
+def save_train_val_losses(output_analysis_dir, train_losses, val_losses, config, catchment):
+    
+    # Confirm all necessary dirs exist
+    pt_losses_dir = os.path.join(output_analysis_dir, "pt_losses")
+    os.makedirs(pt_losses_dir, exist_ok=True)
+    npy_losses_dir = os.path.join(output_analysis_dir, "npy_losses")
+    os.makedirs(npy_losses_dir, exist_ok=True)
+    csv_losses_dir = os.path.join(output_analysis_dir, "csv_losses")
+    os.makedirs(csv_losses_dir, exist_ok=True)
+    
+    # Generate the unique filename for this training run
+    dynamic_base_filename = _generate_model_filename(config, catchment)
+
+    logger.info(f"Model Losses for {catchment} will be saved to base: {dynamic_base_filename}")
 
     # Save train_losses and val_losses as .pt files
-    torch.save(train_losses, os.path.join(output_analysis_dir, "train_losses.pt"))
-    torch.save(val_losses, os.path.join(output_analysis_dir, "val_losses.pt"))
-    logger.info(f"Training and validation losses saved to {output_analysis_dir} as .pt files.")
+    torch.save(train_losses, os.path.join(pt_losses_dir, f"{dynamic_base_filename}_train_loss.pt"))
+    torch.save(val_losses, os.path.join(pt_losses_dir, f"{dynamic_base_filename}_val_loss.pt"))
+    logger.info(f"Training and validation losses saved to {pt_losses_dir} as .pt files.")
 
     # Save train_losses and val_losses as .npy files
-    np.save(os.path.join(output_analysis_dir, "train_losses.npy"), np.array(train_losses))
-    np.save(os.path.join(output_analysis_dir, "val_losses.npy"), np.array(val_losses))
+    np.save(os.path.join(npy_losses_dir,  f"{dynamic_base_filename}_train_loss.npy"), np.array(train_losses))
+    np.save(os.path.join(npy_losses_dir, f"{dynamic_base_filename}_val_loss.npy"), np.array(val_losses))
     logger.info(f"Training and validation losses saved to {output_analysis_dir} as .npy files.")
 
     # Save train_losses and val_losses as CSV files
-    pd.DataFrame(train_losses).to_csv(os.path.join(output_analysis_dir, "train_losses.csv"), index=False)
-    pd.DataFrame(val_losses).to_csv(os.path.join(output_analysis_dir, "val_losses.csv"), index=False)
+    pd.DataFrame(train_losses).to_csv(os.path.join(csv_losses_dir,f"{dynamic_base_filename}_train_loss.csv"), index=False)
+    pd.DataFrame(val_losses).to_csv(os.path.join(csv_losses_dir, f"{dynamic_base_filename}_val_loss.csv"), index=False)
     logger.info(f"Training and validation losses saved to {output_analysis_dir} as .csv files.\n")
+    
+    # Return npy filepaths
+    relative_train_path = os.path.join(npy_losses_dir,  f"{dynamic_base_filename}_train_loss.npy")
+    relative_val_path = os.path.join(npy_losses_dir,  f"{dynamic_base_filename}_val_loss.npy")
+    
+    return relative_train_path, relative_val_path
