@@ -239,6 +239,8 @@ eden:
       adam_learning_rate: 0.001
       adam_weight_decay: 0.0005  # 5e-4 is common initial weight decay val - (0) currenlty 0.005 to 0.001
       lambda_smooth: 0.0  # Set to 0.0 for no smoothing
+      initialise_with_dipped: true
+
     data_partioning:
       test_station_shortlist: ["ainstable", "coupland", "scaleby"]  # Length ideally >= minimum station req count
       val_station_shortlist: ["castle_carrock", "skirwith", "great_musgrave"]  # Length ideally >= minimum station req count
