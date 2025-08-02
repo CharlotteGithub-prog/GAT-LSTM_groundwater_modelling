@@ -450,6 +450,11 @@ def build_pyg_object(processed_df: pd.DataFrame, sentinel_value: float, train_st
     
     # Identify groundwater features that are not target variable (for masking)
     gwl_x_features_initial = [feat for feat in gwl_feats if feat != 'gwl_value']
+    static_gwl_feats = ['gwl_mean', 'gwl_dip']
+    
+    # Filter out static_gwl_feats from gwl_x_features_initial
+    gwl_x_features_initial = [feat for feat in gwl_x_features_initial if feat not in static_gwl_feats]
+
     
     # Get all gwl x (not target) features using pre OHE col list
     gwl_x_features = []

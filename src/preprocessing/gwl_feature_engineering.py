@@ -34,7 +34,7 @@ def build_lags(df_dict: dict, catchment: str):
     logging.info(f"Lagged data built for all stations in {catchment} catchment\n.")
     return df_dict
 
-def build_seasonality_features(df_dict: dict, catchment: str):
+def build_seasonality_features(df_dict: dict, catchment: str, init_with_dip_value: bool = True):
     
     # Build sin and cos seasonality to always have a non-zero seasonality
     for station, df in df_dict.items():
@@ -66,6 +66,26 @@ def trim_to_model_bounds(df_dict: dict, start_date: str, end_date: str):
     logging.info(f"All stations trimmed from {start_date} to {end_date}\n")
                 
     return trimmed_df
+
+def derive_mean_dipped(trimmed_df_dict: dict, catchment: str, init_with_dip_value: bool = True):
+
+    logging.info(f"Building mean gwl and dipped features for {catchment} catchment...")
+    
+    for station, df in trimmed_df_dict.items():
+        logging.info(f"    Processing station: {station}")
+        
+        # Initialise mean values by node
+        df['gwl_mean'] = np.nanmean(df['value'])
+        
+        # Initialise starting values by node
+        first_value = df['value'].iloc[0]
+        if pd.isna(first_value):
+            df['gwl_dip'] = np.nan
+        else:
+            df['gwl_dip'] = first_value if init_with_dip_value else np.nan
+        
+    logging.info(f"Mean and dipped values built for all stations in {catchment} catchment\n.")
+    return trimmed_df_dict
 
 def plot_final_gwl_timeseries(df_dict: dict, output_path: str, highlight_column: str = 'data_type', dpi: int = 300):
     """
@@ -148,7 +168,8 @@ def save_trimmed_dict(trimmed_df_dict: dict, trimmed_output_dir: str, model_star
         logging.warning(f"    No trimmed data available. Skipping save.\n")
 
 def trim_and_save(df_dict: dict, model_start_date: str, model_end_date: str, trimmed_output_dir: str, ts_path: str,
-                  notebook: bool, highlight_column: str = 'data_type', dpi: int = 300):
+                  notebook: bool, catchment: str, init_with_dip_value: bool = True, highlight_column: str = 'data_type',
+                  dpi: int = 300):
     """
     Trims dataframes to model bounds (2014–2024 inclusive), plots final ts data,
     fills missing quality markers, drops redundant columns, and saves CSVs per station.
@@ -158,6 +179,13 @@ def trim_and_save(df_dict: dict, model_start_date: str, model_end_date: str, tri
         df_dict=df_dict,
         start_date=model_start_date,
         end_date=model_end_date  
+    )
+    
+    # --- Initialise mean and initalise dipped value [DERIVED, future: BGS] --- 
+    trimmed_df_dict = derive_mean_dipped(
+        trimmed_df_dict=trimmed_df_dict,
+        catchment=catchment,
+        init_with_dip_value=init_with_dip_value
     )
     
     # --- Plot final df with raw and imputed data, marked using data_type column ---

@@ -211,9 +211,9 @@ def _move_masked_cols_to_end(gwl_data):
     })
     
     # Define remaining column order
-    cols_order = ['timestep', 'season_sin',  'season_cos', 'station_name', 'gwl_value',
-                  'gwl_data_quality', 'gwl_data_type', 'gwl_masked', 'gwl_lag1', 'gwl_lag2',
-                  'gwl_lag3', 'gwl_lag4', 'gwl_lag5', 'gwl_lag6', 'gwl_lag7']
+    cols_order = ['timestep', 'season_sin',  'season_cos', 'gwl_mean', 'gwl_dip', 'station_name',
+                  'gwl_value', 'gwl_data_quality', 'gwl_data_type', 'gwl_masked', 'gwl_lag1',
+                  'gwl_lag2', 'gwl_lag3', 'gwl_lag4', 'gwl_lag5', 'gwl_lag6', 'gwl_lag7']
 
     # Reindex the DataFrame with the new column order
     gwl_data = gwl_data[cols_order]

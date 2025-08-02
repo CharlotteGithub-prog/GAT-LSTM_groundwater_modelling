@@ -44,7 +44,8 @@ def _group_features_by_type(processed_df):
 
     # Define groundwater data feature list
     gwl_features = ['gwl_value', 'gwl_data_quality', 'gwl_data_type', 'gwl_masked', 'gwl_lag1',
-                    'gwl_lag2', 'gwl_lag3', 'gwl_lag4', 'gwl_lag5', 'gwl_lag6', 'gwl_lag7']
+                    'gwl_lag2', 'gwl_lag3', 'gwl_lag4', 'gwl_lag5', 'gwl_lag6', 'gwl_lag7',
+                    'gwl_mean', 'gwl_dip']
     gwl_features = [feat for feat in gwl_features if feat in processed_df.columns]
     
     # Check feature count as expected
@@ -412,13 +413,15 @@ def preprocess_gwl_features(processed_df, catchment, train_station_ids, val_stat
 
     # Define gwl specific columns including node_id and timestep (for merge)
     gwl_cols = ['timestep', 'node_id', 'gwl_value', 'gwl_data_quality', 'gwl_data_type', 'gwl_lag1',
-                'gwl_lag2', 'gwl_lag3', 'gwl_lag4', 'gwl_lag5', 'gwl_lag6', 'gwl_lag7']
+                'gwl_lag2', 'gwl_lag3', 'gwl_lag4', 'gwl_lag5', 'gwl_lag6', 'gwl_lag7', 'gwl_mean', 'gwl_dip']
+                # Note that 'gwl_mean' and 'gwl_dip' are static not gwl masked features but need preprocessing by station
     
     # Filter to ensure only columns actually present in processed_df are used
     gwl_cols = [col for col in gwl_cols if col in processed_df.columns]
 
     # Define columns by type for various preprocessing requirements (defensively using processed_df checks)
     num_cols = [f'gwl_lag{i}' for i in range(1, 8) if f'gwl_lag{i}' in processed_df.columns]
+    num_cols.extend(['gwl_mean', 'gwl_dip'])
     cat_cols = [col for col in ['gwl_data_quality', 'gwl_data_type', 'gwl_masked'] if col in processed_df.columns]
     
     idx_cols = ['timestep', 'node_id']
