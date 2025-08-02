@@ -269,7 +269,9 @@ try:
             model_end_date=config['global']['data_ingestion']['model_end_date'],
             trimmed_output_dir=config[catchment]["paths"]["trimmed_output_dir"],
             ts_path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
-            notebook=notebook
+            notebook=notebook,
+            catchment=catchment,
+            init_with_dip_value=config[catchment]['model']['architecture']['initialise_with_dipped']
         )
         
         logger.info(f"Pipeline step 'Trim GWL to Model Bounds' complete for {catchment} catchment.\n")
