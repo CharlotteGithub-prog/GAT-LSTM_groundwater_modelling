@@ -1,29 +1,28 @@
-folium==0.19.6
-geopandas==0.14.0
+folium==0.18.0  # Downgraded from 0.19.6 for NCC compatibility
+geopandas==0.13.2  # Downgraded from 0.14.0 NCC compatibility
 fiona==1.9.5
 hampel==1.0.2
 ipython==8.12.3
 ipywidgets==8.1.5
-joblib==1.5.1
+joblib==1.4.2  # Downgraded from 1.5.1 for NCC compatibility
 matplotlib==3.7.3
-numpy==1.26.4
-pandas==2.2.2
-pyproj==3.6.1
+numpy==1.23.5  # Downgraded from 1.26.4 for NCC compatibility, Downgraded from 1.24.2 for numba==0.56.4 compatibility
+pandas==2.0.3  # Downgraded from 2.2.2 for NCC compatibility
+pyproj==3.5.0  # Downgraded from 3.6.1 for NCC compatibility
 PyYAML==6.0.2
-scipy==1.16.0
-Shapely==2.1.1
-torch==2.5.1
+scipy==1.10.1  # Downgraded from 1.16.0 for NCC compatibility
+Shapely==2.0.7  # Downgraded from 2.1.1 for NCC compatibility
+torch==2.4.1  # Downgraded from 2.5.1 for NCC compatibility
 notebook==7.2.2
 requests==2.32.3
-feature_engine==1.8.3
-pyarrow==20.0.0
+feature_engine==1.6.2  # Downgraded from 1.8.3 for NCC compatibility
+pyarrow==17.0.0  # Downgraded from 20.0.0 for NCC compatibility
 rasterio==1.3.9
-rioxarray==0.15.1
-xarray==2025.6.1
-xrspatial==0.4.0
+rioxarray==0.13.4  # Downgraded from 0.15.1 for NCC compatibility
+xarray==2023.1.0  # Downgraded from 2025.6.1 for NCC compatibility
+git+https://github.com/makepath/xarray-spatial.git  # Originally xrspatial==0.4.0
 rasterstats==0.19.0
-scikit-learn==1.4.2
-git+https://github.com/makepath/xarray-spatial.git
+scikit-learn==1.3.2  # Downgraded from 1.4.2 for NCC compatibility
 netCDF4==1.7.2
 cdsapi==0.7.6
 cfgrib==0.9.15.0
