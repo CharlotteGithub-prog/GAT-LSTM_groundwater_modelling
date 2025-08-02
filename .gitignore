@@ -42,3 +42,5 @@ results/trained_models/
 
 # --- Specific Files (e.g. Tests) ---
 notebooks/03_model_development/test.
+notebooks/02_graph_building_and_integration/05_snap_features_to_mesh_old.ipynb
+notebooks/02_graph_building_and_integration/06_graph_to_tensor_construction_old.ipynb
