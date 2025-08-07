@@ -52,7 +52,7 @@ def process_station_coordinates(os_grid_squares: str, station_list_input: str,
     return stations_df
 
 # Call DEFRA API and retrieve metadata by station
-def get_station_metadata(wiski_id: str, base_url: str):
+def _get_station_metadata(wiski_id: str, base_url: str):
     
     params = {'wiskiID': wiski_id}
     response = requests.get(base_url, params=params)
@@ -77,7 +77,7 @@ def get_station_metadata(wiski_id: str, base_url: str):
         return None
 
 # Call DEFRA API and retrieve measures data by station
-def get_station_measures(row: pd.Series):
+def _get_station_measures(row: pd.Series):
     """
     See https://environment.data.gov.uk/hydrology/doc/reference#measures-summary for measures data
     """
@@ -116,7 +116,7 @@ def fetch_and_process_station_data(stations_df: pd.DataFrame, base_url: str, out
     # --- API CALL 1: Get Metadata
     
     stations_df['metadata'] = stations_df['station_id'].apply(
-        lambda id: get_station_metadata(id, base_url)
+        lambda id: _get_station_metadata(id, base_url)
     )
     
     # Convert metadata from string to dict using ast (API returns dict as str)
@@ -127,8 +127,8 @@ def fetch_and_process_station_data(stations_df: pd.DataFrame, base_url: str, out
     
     # --- API CALL 2: Get Measures
 
-    # Apply get_station_measures using df.apply with axis=1 to pass the whole row
-    stations_df['measures'] = stations_df.apply(lambda row: get_station_measures(row), axis=1)
+    # Apply _get_station_measures using df.apply with axis=1 to pass the whole row
+    stations_df['measures'] = stations_df.apply(lambda row: _get_station_measures(row), axis=1)
     logger.info("Extracting flattened columns from metadata and measures...\n")
     
     # Convert measures from string to dict using ast
@@ -149,7 +149,7 @@ def fetch_and_process_station_data(stations_df: pd.DataFrame, base_url: str, out
     return stations_df
 
 # Call DEFRA API and retrieve raw gwl timeseries station data
-def download_gwl_ts_readings(measure_uri: str, startdate_str: str, enddate_str: str,
+def _download_gwl_ts_readings(measure_uri: str, startdate_str: str, enddate_str: str,
                       max_per_request: int = 50000):
     """
     Download hydrological readings for each station from DEFRA Hydrology API within given dates.
@@ -235,7 +235,7 @@ def download_and_save_station_readings(stations_df: pd.DataFrame, start_date: st
         logging.info(f"({count}/{len(processed_stations_df)}) Processing measure: {uri+'/readings'}")
         
         # Download timeseries data and assign name
-        df_readings = download_gwl_ts_readings(uri, start_date, end_date)
+        df_readings = _download_gwl_ts_readings(uri, start_date, end_date)
         
         # If valid response then save to csv
         if not df_readings.empty:
