@@ -318,7 +318,7 @@ try:
         
         logger.info(f"Slope and aspect data derived at node level for {catchment} catchment.\n")
         
-        # Geological Maps [DIGIMAPS Geology]
+        # Geological Maps (including bedrock and superficial permeability) [DIGIMAPS Geology]
         
         mesh_geology_df = static_data_ingestion.load_and_process_geology_layers(
             base_dir=config[catchment]["paths"]["geology_dir"],
@@ -329,6 +329,8 @@ try:
             geo_output_dir=config[catchment]["paths"]["geology_df"],
             catchment=catchment
         )
+        
+        logger.info(f"Pipeline step 'Load and preprocess geology data' complete for {catchment} catchment.\n")
         
         # Plot geology features as interactive map
         
@@ -346,12 +348,44 @@ try:
             layer_labels=layer_labels
         )
         
-        # [FUTURE] Soil type [CEH's Grid-to-Grid soil maps / HOST soil classes / CAMELS-GB / BFIHOST]
+        """ PREVIOUSLY TO mesh_geology_df """
+        
+        # Aquifer Productivity [BGS 625k Hydrogeological Data]
+
+        productivity_gdf = static_data_ingestion.ingest_and_process_productivity(
+            productivity_dir=config[catchment]["paths"]["productivity_dir"],
+            csv_path=config[catchment]['paths']['productivity_csv_path'],
+            mesh_cells_gdf_polygons=mesh_cells_gdf_polygons,
+            catchment=catchment   
+        )
+        
+        logger.info(f"Pipeline step 'Load and preprocess aquifer productvity data' complete for {catchment} catchment.\n")
+        
+        # Distance from River (Derived) [OS Open Rivers]
+
+        dist_to_river_gdf, rivers_real = static_data_ingestion.derive_distance_to_river(
+            rivers_dir=config[catchment]["paths"]["rivers_dir"],
+            csv_path=config[catchment]['paths']['rivers_csv_path'],
+            catchment=catchment,
+            mesh_cells_gdf_polygons=mesh_cells_gdf_polygons,
+            catchment_polygon=catchment_polygon,
+            mesh_nodes_gdf=mesh_nodes_gdf
+        )
+
+        logger.info(f"Pipeline step 'Derive distance from river' complete for {catchment} catchment.\n")
+                
+        # Superficial Thickness [BGS] - Skipped due to insufficient data coverage
+        
+        # Soil type [CEH's Grid-to-Grid soil maps / HOST soil classes / CAMELS-GB / BFIHOST]
+        
+        
+        
+        # [FUTURE] Depth to bedrock [BGS]
+        
         # [FUTURE] Aquifer Properties (tbd - depth? type? transmissivity? storage coefficientet?) [DEFRA/BGS]
         # [Future] Gridded infiltration rates / hydraulic conductivity
-        # [FUTURE] Distance from River (Derived) [DEFRA/DIGIMAP]
-        
-        # Mean thickness, Max thicknes, Binary 'has_superficial' assignment
+        # [Future] Mean thickness, Max thicknes, Binary 'has_superficial' assignment?
+        # [Time Series] Gridded infiltration rates / hydraulic conductivity
         
         # --- 4c. Preprocess Time Series Features ---
         

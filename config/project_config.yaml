@@ -136,9 +136,19 @@ eden:
     aet_raw_output_dir: "data/01_raw/eden/hydroclimatic/aet/"
     output_polygon_dir: "data/02_processed/eden/gis/"
     elevation_geojson_path: "data/02_processed/eden/static/elevation/elevation.geojson"
-    geology_dir: "data/01_raw/eden/static/geology"
+    geology_dir: "data/01_raw/eden/static/geology/data"
     permeability_dir: "data/01_raw/eden/static/permeability"
     geology_df: "data/02_processed/eden/static/geology"
+    productivity_dir: "data/01_raw/eden/static/aquifer_productivity/hydrogeology625k/"
+    productivity_csv_path: "data/02_processed/eden/static/aquifer_productivity/"
+    rivers_dir: "data/01_raw/eden/static/rivers/data/"
+    rivers_csv_path: "data/02_processed/eden/static/distance_to_river/"
+    sup_thickness_dir: "data/01_raw/eden/static/superficial_thickness/advanced/astm_v5/astm_gb/"
+    sup_thickness_csv_path: "data/02_processed/eden/static/superficial_thickness/"
+    soil_dir: "data/01_raw/eden/static/soil_hydrology/dominant_class/"
+    soil_csv_path: "data/02_processed/eden/static/soil_hydrology/"
+    soil_type_dir: "data/01_raw/eden/static/soil_type/"
+    soil_type_csv_path: "data/02_processed/eden/static/soil_type/"
 
     # --- ERA5-Land API Ingestion ---
     aet_processed_output_dir: "data/02_processed/eden/hydroclimatic/aet/"
@@ -183,6 +193,7 @@ eden:
     aet_boxcox_lambda: 0.4931417208883217
     mean_elevation_boxcox_lambda: 0.43791794465031564
     mean_slope_deg_boxcox_lambda: -0.24587351671403726
+    distance_to_river_boxcox_lambda: 0.32372267347270717
 
   # --- VISUALISATION OUTPUT SETTINGS ---
   visualisations:
@@ -257,7 +268,7 @@ eden:
     num_epochs: 200  # Start here, may need to increase depending on computation times
     early_stopping_patience: 25  # Early Stopping: Number of epochs to wait for improvement in validation loss before stopping training.
     lr_scheduler_factor: 0.5  # ReduceLROnPlateau: Factor by which the learning rate will be reduced.
-    lr_scheduler_patience: 5  # Patience for ReduceLROnPlateau: Number of epochs with no improvement in validation
+    lr_scheduler_patience: 8  # Patience for ReduceLROnPlateau: Number of epochs with no improvement in validation
     min_lr: 0.000001  # Min learning rate bound (Generally recommended: 1e-6)
     loss_delta: 0.0001  # Minimum change in loss required to count as improvement
     gradient_clip_max_norm: 1.0  # Gradient Clipping Max Norm: Maximum norm of the gradients for gradient clipping (help prevent exploding grad.)

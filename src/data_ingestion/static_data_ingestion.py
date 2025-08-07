@@ -11,10 +11,17 @@ import xarray as xr
 import pandas as pd
 import geopandas as gpd
 import xrspatial as xrs
+import matplotlib.pyplot as plt
+
 from pathlib import Path
+from shapely import force_2d
 from rasterio.merge import merge
 from rasterstats import zonal_stats
+from scipy.stats import skew, boxcox
+from shapely.ops import nearest_points
+from shapely.geometry import LineString
 
+from src.preprocessing.hydroclimatic_feature_engineering import _save_lambda_to_config
 from src.data_ingestion.spatial_transformations import easting_northing_to_lat_long, \
     find_catchment_boundary
     
@@ -280,33 +287,6 @@ def load_process_elevation_data(dir_path: str, csv_path: str, catchment: str, ca
     
     return mesh_cells_gdf_polygons, clipped_dtm
 
-# --- Various ---
-
-def cap_data_between_limits(gdf: gpd.GeoDataFrame, max_limit: float, min_limit: float, catchment: str,
-                            column_name: str):
-    
-    # Define bounds
-    logging.info(f"Check {catchment} catchment {column_name} sits in known bounds: "
-                 f"{min_limit} - {max_limit}...")
-    
-    # Count if any averages sit outside bounds
-    capped_lower_count = (gdf[column_name] < min_limit).sum()
-    capped_upper_count = (gdf[column_name] > max_limit).sum()
-    
-    # Cap to catchment bounds
-    if capped_lower_count > 0 or capped_upper_count > 0:
-        logger.warning(f"WARNING: Capping {capped_lower_count} nodes below {min_limit:.2f} and "
-                       f"{capped_upper_count} nodes above {max_limit:.2f}.")
-        
-        # Clipping data
-        gdf[column_name] = np.clip(gdf[column_name], a_min=min_limit, a_max=max_limit)
-        
-    else:
-        logger.info(f"All 'mean_elevation' values within known bounds ({min_limit:.2f} -"
-                    f" {max_limit:.2f}). No capping performed.\n")
-    
-    return gdf
-
 # --- Slope and Aspect ---
 
 def preprocess_slope_data(slope_gdf: gpd.GeoDataFrame, catchment: str):
@@ -493,6 +473,202 @@ def derive_slope_data(high_res_raster: xr.DataArray, mesh_cells_gdf_polygons: gp
     logger.info(f"Slope magnitue and aspect csv saved to {slope_output_path}.")
     
     return slope_gdf, directional_edge_weights
+
+# --- Distance to River ---
+
+def _calc_nearest_river_dist(mesh_nodes_gdf: gpd.GeoDataFrame,
+                                     rivers_gdf: gpd.GeoDataFrame):
+    """
+    Corrected and enhanced version to compute the distance to the nearest river segment
+    using the spatial index with a manual check to find the true nearest geometry.
+    """
+    logger.info("Starting vectorised distance calculations...\n")
+    logger.info(f"Number of mesh nodes for calculation: {len(mesh_nodes_gdf)}")
+    logger.info(f"Number of river segments for calculation: {len(rivers_gdf)}\n")
+
+    rivers_sindex = rivers_gdf.sindex
+    distances = []
+
+    # Selected nodes to print for debugging
+    sample_node_indices = [0, 50, 1350, 2749]
+    
+    for i, node_geom in enumerate(mesh_nodes_gdf.geometry):
+        
+        # Get all candidate river indices within a certain search radius (can likely reduce val if confident)
+        possible_matches = list(rivers_sindex.query(node_geom.buffer(50000)))
+        
+        # Detailed debugging (can remove if not needed)
+        if i in sample_node_indices:
+            logger.info(f"--- Debugging for node index {i} ---")
+            logger.info(f"Node geometry: {node_geom.wkt}")
+            logger.info(f"Number of possible matches found: {len(possible_matches)}")
+        if not possible_matches:
+            distances.append(np.inf)
+            if i in sample_node_indices:
+                logger.info("No river matches found. Distance set to infinity.")
+            continue
+        
+        candidate_geoms = rivers_gdf.geometry.iloc[possible_matches]
+        min_dist = np.inf
+        
+        # calculate nearest distance using selected candidates
+        for geom in candidate_geoms:
+            dist = node_geom.distance(geom)
+            if dist < min_dist:
+                min_dist = dist
+        distances.append(min_dist)
+
+        # Print for debugging (can remove if not needed)
+        if i in sample_node_indices:
+            logger.info(f"Final calculated minimum distance for node {i}: {min_dist:.2f}m\n")
+    
+    mesh_nodes_gdf['distance_to_river'] = distances
+    mesh_nodes_gdf['distance_to_river'] = mesh_nodes_gdf['distance_to_river'].astype(int)
+    
+    logger.info("Vectorised distance calculation complete.")
+    logger.info(f"Minimum calculated distance: {mesh_nodes_gdf['distance_to_river'].min()}m")
+    logger.info(f"Maximum calculated distance: {mesh_nodes_gdf['distance_to_river'].max()}m")
+
+    return mesh_nodes_gdf[['node_id', 'distance_to_river', 'geometry']]
+
+def _check_crs_match(rivers_gdf, mesh_nodes_gdf, mesh_cells_gdf_polygons):
+    logger.info(f"Initial river CRS: {rivers_gdf.crs}")
+    logger.info(f"Initial mesh nodes CRS: {mesh_nodes_gdf.crs}\n")
+    
+    if rivers_gdf.crs != mesh_cells_gdf_polygons.crs:
+        rivers_gdf = rivers_gdf.to_crs(mesh_cells_gdf_polygons.crs)
+        logger.info(f"Rivers GeoDataFrame converted to crs {mesh_cells_gdf_polygons.crs}")
+    
+    if mesh_nodes_gdf.crs != rivers_gdf.crs:
+        logger.info(f"Reprojecting mesh nodes from {mesh_nodes_gdf.crs} to match river CRS {rivers_gdf.crs}.")
+        mesh_nodes_gdf = mesh_nodes_gdf.to_crs(rivers_gdf.crs)
+    
+    return rivers_gdf, mesh_nodes_gdf
+
+def _transform_skewed_data(processed_df, catchment):
+    """
+    Transform skew of distance data.
+    """
+    col = 'distance_to_river'
+
+    logger.info(f"Tranforming {col} data for {catchment} catchment...\n")
+    logger.info(f"    Initial {col} Skewness: {skew(processed_df[col]):.4f}")
+    
+    # Apply box cox transform to raw data column and use .loc to avoid the warning
+    transformed_vals, lambda_val = boxcox(processed_df[col] + 1)
+    processed_df.loc[:, col] = transformed_vals # Use .loc here
+    logger.info(f"    Transformed {col} Skewness (Box-Cox, lambda={lambda_val:.4f}):"
+                f" {skew(processed_df[col]):.4f}\n")
+
+    # Save lambda for mathematical inversion after modelling
+    config_path = "config/project_config.yaml"
+    _save_lambda_to_config(lambda_val, config_path, catchment, col)
+    
+    return processed_df
+
+def derive_distance_to_river(rivers_dir: str, csv_path: str, catchment: str,
+                             mesh_cells_gdf_polygons: gpd.GeoDataFrame,
+                             catchment_polygon: gpd.GeoDataFrame,
+                             mesh_nodes_gdf: gpd.GeoDataFrame):
+    """
+    Derive distance to nearest river for each centroid in a catchment mesh.
+    """
+    logger.info(f"Loading spatial watercourse link (river) data for {catchment} catchment...\n")
+    
+    # Define catchment bounding box
+    minx, miny, maxx, maxy = catchment_polygon.total_bounds
+    logger.info(f"Loading bounding box: {minx:.2f}, {miny:.2f}, {maxx:.2f}, {maxy:.2f}")
+    
+    # Load in watercourse data
+    watercourse_path = os.path.join(rivers_dir, 'WatercourseLink.shp')
+    rivers_gdf = gpd.read_file(watercourse_path)
+        
+    # Clip to catchment polygon
+    rivers_gdf = gpd.overlay(rivers_gdf, catchment_polygon, how='intersection')
+    logger.info(f"National OS river data clipped to {catchment} catchment polygon. New count: {len(rivers_gdf)}\n")
+    
+    # Ensure all CRSs align (they should, but keep defensive in pipeline)
+    rivers_gdf, mesh_nodes_gdf = _check_crs_match(rivers_gdf, mesh_nodes_gdf, mesh_cells_gdf_polygons)
+
+    # Filter out ficticious links to retain only observed, surface level rivers
+    rivers_real = rivers_gdf[rivers_gdf['fictitious'] == 'false'].copy()
+    
+    # Explode geometry to perform calculations
+    logger.info(f"Number of rivers before explode: {len(rivers_real)}")
+    logger.info(f"Sample of river geometries before explode: {[g.geom_type for g in rivers_real.head().geometry]}")
+    rivers_real = rivers_real.explode(index_parts=False).reset_index(drop=True)
+    logger.info(f"Rivers_real after filtering and explode: {len(rivers_real)} features.")
+    
+    # Force geometry to 2D and run distance calculations
+    rivers_real['geometry'] = [force_2d(geom) for geom in rivers_real['geometry']]
+    dist_to_river_gdf = _calc_nearest_river_dist(mesh_nodes_gdf, rivers_real)
+    
+    logger.info(f"Distance to nearest river calculated by centroid.\n")
+    
+    # Transform the data for model stability and save for mathematical inversion after modelling
+    _transform_skewed_data(dist_to_river_gdf, catchment)
+    
+    # Drop geometry
+    dist_to_river_gdf = dist_to_river_gdf.drop(columns='geometry')
+    
+    # Save data
+    save_path = os.path.join(csv_path, 'distance_to_river.csv')
+    dist_to_river_gdf.to_csv(save_path)
+    logger.info(f"Distance to nearest river saved to {save_path}.\n")
+    
+    return dist_to_river_gdf, rivers_real
+
+def plot_nearest_river_for_node(node_to_plot_gdf: gpd.GeoDataFrame,
+                                 rivers_real_for_plot: gpd.GeoDataFrame):
+    """
+    Plots a single mesh node, the nearest river segment, and the distance line.
+    Uses the calculated distance from the main function.
+    """
+    node_point = node_to_plot_gdf.geometry.iloc[0]
+    node_id = node_to_plot_gdf['node_id'].iloc[0]
+    # Use the pre-calculated distance from the DataFrame for the label
+    calculated_distance = node_to_plot_gdf['distance_to_river'].iloc[0] 
+    
+    rivers_sindex = rivers_real_for_plot.sindex
+    
+    # Get all candidate river indices within a large buffer
+    possible_matches_idx = list(rivers_sindex.query(node_point.buffer(50000)))
+    if not possible_matches_idx:
+        print("No nearest river found for this node.")
+        return
+
+    # Manually find the true nearest river among the candidates
+    min_dist = np.inf
+    nearest_river_geom = None
+    
+    for idx in possible_matches_idx:
+        geom = rivers_real_for_plot.geometry.iloc[idx]
+        dist = node_point.distance(geom)
+        if dist < min_dist:
+            min_dist = dist
+            nearest_river_geom = geom
+            
+    # Use nearest_points to find the closest points on the two geometries for the line
+    p1, p2 = nearest_points(node_point, nearest_river_geom)
+    distance_line = LineString([p1, p2])
+    
+    fig, ax = plt.subplots(1, 1, figsize=(12, 12))
+
+    rivers_real_for_plot.plot(ax=ax, color='lightblue', label='River network') 
+    
+    gpd.GeoSeries([nearest_river_geom], crs=rivers_real_for_plot.crs).plot(
+        ax=ax, color='blue', linewidth=3, label='Nearest River Segment')
+    gpd.GeoSeries([node_point], crs=node_to_plot_gdf.crs).plot(
+        ax=ax, color='red', markersize=50, label='Selected Node')
+    gpd.GeoSeries([distance_line], crs=node_to_plot_gdf.crs).plot(
+        ax=ax, color='red', linestyle='--', linewidth=1, label=f'Distance Line ({calculated_distance:.2f} m)')
+
+    ax.set_title(f"Nearest River Segment to Node ID {node_id}")
+    ax.set_xlabel("Easting (m)")
+    ax.set_ylabel("Northing (m)")
+    ax.legend()
+    plt.grid(True)
+    plt.show()
 
 # --- Geology Feature Set ---
 
@@ -884,6 +1060,147 @@ def ingest_and_process_permeability(perm_dir: str, mesh_cells_gdf_polygons: gpd.
     bedrock_perm_agg, superficial_perm_agg = _encode_agg_clean_perm(bedrock_join, superficial_join)
 
     return bedrock_perm_agg, superficial_perm_agg
+
+# --- Groundwater Productivity [BGS Hydrogeology] ---
+
+def _resolve_aquifer_productivity(prod_list):
+    """
+    Resolve aquifer productivity list into a single class using hydrological priority,
+    assigning 'Mixed' to cases with 3 or more categories.
+    """
+    priority = ['High', 'Moderate', 'Low', 'None']
+    
+    if len(prod_list) >= 3:
+        return 'Mixed'
+    
+    for category in priority:
+        if category in prod_list:
+            return category
+
+def _join_and_agg_by_node_id(productivity_gdf, polygon_gdf, catchment):
+    """
+    Aggregate each gdf to 1km mesh
+    """
+    logger.info(f"Joining and Aggregating data for {catchment} catchment...\n")
+    logger.info(f"Pre join data point count: {len(productivity_gdf)}")
+
+    productivity_join = gpd.sjoin(
+        polygon_gdf,
+        productivity_gdf,
+        how='left',
+        predicate='intersects'
+    )
+    logger.info(f"Joined hydrogeological productivity: {len(productivity_join)} rows.")
+    
+    # Aggregate bedrock permeability by node_id
+    productivity_agg = (
+        productivity_join.groupby(['node_id'])['aquifer_productivity']
+        .agg(lambda x: x.mode().tolist())
+        .reset_index(name='aquifer_productivity')
+    )
+    
+    # Resolve mixed category lists
+    productivity_agg['aquifer_productivity'] = productivity_agg['aquifer_productivity'].apply(_resolve_aquifer_productivity)
+    logger.info(f"Aggregated aquifer productivity: {len(productivity_agg)} nodes.\n")
+    
+    return productivity_agg
+
+def _map_prod_cols_to_cats(productivity_gdf: gpd.GeoDataFrame):
+    """
+    Map heterogeous and highly imbalanced categories to main categorisations
+    while retaining hydrological meaning.
+    """
+    # Define bedrock gdf column mappings
+    productivity_map = {
+        'Low productivity aquifer': 'Low',
+        'Low productive aquifer': 'Low',
+        'Moderately productive aquifer': 'Moderate',
+        'Highly productive aquifer': 'High',
+        'Rocks with essentially no groundwater': 'None'
+    }
+
+    # Apply bedrock mappings
+    original_prod_cats = productivity_gdf["CHARACTER"].nunique()
+    productivity_gdf["aquifer_productivity"] = productivity_gdf["CHARACTER"].map(productivity_map).fillna("unknown")
+    simplified_prod_cats = productivity_gdf["aquifer_productivity"].nunique()
+    productivity_gdf = productivity_gdf.drop(columns=["CHARACTER"])
+    logging.info(f"Mapped CHARACTER from {original_prod_cats} to {simplified_prod_cats} categories.")
+    
+    return productivity_gdf
+
+def ingest_and_process_productivity(productivity_dir: str, csv_path: str,
+                                    mesh_cells_gdf_polygons: gpd.GeoDataFrame, catchment: str):
+    """
+    Read in BGS Prodictivity data from the 625k Hydrogeology dataset.
+    """
+    logger.info(f"Reading in 625k hydrogeological productivity data for {catchment} catchment...\n")
+    
+    # Get data path(s) to load in
+    productivity_path = os.path.join(productivity_dir, "HydrogeologyUK_IoM_v5.shp")
+
+    # --- Load permeability shapefiles ---
+
+    # Define columns of interest
+    cols = ['CHARACTER', 'geometry']
+
+    # Read in productivity data
+    logger.info("Loading 625k hydrogeological productivity shapefile...")
+    productivity_gdf = gpd.read_file(productivity_path)[cols]
+    logger.info(f"Loaded hydrogeological productivity: {len(productivity_gdf)} features.")
+    
+    productivity_gdf = _map_prod_cols_to_cats(productivity_gdf)
+
+    # --- Reproject crs if required ---
+
+    mesh_crs = mesh_cells_gdf_polygons.crs
+    if productivity_gdf.crs != mesh_crs:
+        logger.info("Reprojecting hydrogeological productivity to mesh CRS...\n")
+        productivity_gdf = productivity_gdf.to_crs(mesh_crs)
+
+    # --- Prepare mesh polygons for join ---
+
+    polygon_gdf = mesh_cells_gdf_polygons.copy().drop(columns=['mean_elevation'])
+
+    # --- Spatial joins by type and aggregate by node ID ---
+    
+    final_productivity_gdf = _join_and_agg_by_node_id(productivity_gdf, polygon_gdf, catchment)
+    logger.info(f"Category distribution:\n\n {final_productivity_gdf['aquifer_productivity'].value_counts()}\n")
+    
+    # --- Save as .csv ---
+    save_path = os.path.join(csv_path, 'productivity_data.csv')
+    final_productivity_gdf.to_csv(save_path)
+    logger.info(f"Final aquifer productivity dataframe saved to {save_path}")
+    
+    return final_productivity_gdf
+
+# --- Superficial Thickness (via Digimaps) ---
+
+# --- Various ---
+
+def cap_data_between_limits(gdf: gpd.GeoDataFrame, max_limit: float, min_limit: float, catchment: str,
+                            column_name: str):
+    
+    # Define bounds
+    logging.info(f"Check {catchment} catchment {column_name} sits in known bounds: "
+                 f"{min_limit} - {max_limit}...")
+    
+    # Count if any averages sit outside bounds
+    capped_lower_count = (gdf[column_name] < min_limit).sum()
+    capped_upper_count = (gdf[column_name] > max_limit).sum()
+    
+    # Cap to catchment bounds
+    if capped_lower_count > 0 or capped_upper_count > 0:
+        logger.warning(f"WARNING: Capping {capped_lower_count} nodes below {min_limit:.2f} and "
+                       f"{capped_upper_count} nodes above {max_limit:.2f}.")
+        
+        # Clipping data
+        gdf[column_name] = np.clip(gdf[column_name], a_min=min_limit, a_max=max_limit)
+        
+    else:
+        logger.info(f"All 'mean_elevation' values within known bounds ({min_limit:.2f} -"
+                    f" {max_limit:.2f}). No capping performed.\n")
+    
+    return gdf
 
 # --- Save final static data csv ---
 
