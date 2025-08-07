@@ -196,6 +196,7 @@ eden:
     mean_elevation_boxcox_lambda: 0.43791794465031564
     mean_slope_deg_boxcox_lambda: -0.24587351671403726
     distance_to_river_boxcox_lambda: 0.32372267347270717
+    daily_streamflow_m3_s_boxcox_lambda: -0.19592529692363342
 
   # --- VISUALISATION OUTPUT SETTINGS ---
   visualisations:
