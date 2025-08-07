@@ -3,6 +3,7 @@ import logging
 import pandas as pd
 from pyproj import CRS
 import geopandas as gpd
+from typing import Union
 from pyproj import Transformer
 from shapely.geometry import Point
 
@@ -50,7 +51,7 @@ def grid_ref_to_coords(grid_ref: str, grid_letters: dict):
 
 # Reprojection helper
 def _reproject_df_coords(df: pd.DataFrame, input_x_col: str, input_y_col: str,
-                         source_crs: str | int | CRS, target_crs_val: str | int | CRS,
+                         source_crs: Union[str, int, CRS], target_crs_val: Union[str, int, CRS],
                          transformed_x_col: str, transformed_y_col: str):
     """
     Internal helper to reproject x, y coordinates in a DataFrame.

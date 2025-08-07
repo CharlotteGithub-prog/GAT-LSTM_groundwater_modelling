@@ -44,7 +44,23 @@ logger = logging.getLogger(__name__)
 config = load_project_config(config_path="config/project_config.yaml")
 notebook = False
 
-# --- 1d. Set up seeding to define global states ---
+# --- 1d. Set up root directory paths in config ---
+
+raw_data_root = config["global"]["paths"]["raw_data_root"]
+
+# Update all values in global paths
+for key, val in config["global"]["paths"].items():
+    if isinstance(val, str):
+        config["global"]["paths"][key] = val.format(raw_data_root=raw_data_root)
+
+# Update all catchment paths
+catchments_to_process = config["global"]["pipeline_settings"]["catchments_to_process"]
+for catchment in catchments_to_process:
+    for key, val in config[catchment]["paths"].items():
+        if isinstance(val, str):
+            config[catchment]["paths"][key] = val.format(raw_data_root=raw_data_root)
+            
+# --- 1e. Set up seeding to define global states ---
 random_seed = config["global"]["pipeline_settings"]["random_seed"]
 random.seed(random_seed)
 np.random.seed(random_seed)
@@ -53,7 +69,7 @@ torch.cuda.manual_seed_all(random_seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-# --- 1e. Define catchment(s) and API calls to Process --
+# --- 1f. Define catchment(s) and API calls to Process --
 catchments_to_process = config["global"]["pipeline_settings"]["catchments_to_process"]
 run_defra_API_calls = config["global"]["pipeline_settings"]["run_defra_api"]
 run_camels_API_calls = config["global"]["pipeline_settings"]["run_camels_api"]

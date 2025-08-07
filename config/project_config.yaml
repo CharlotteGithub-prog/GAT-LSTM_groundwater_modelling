@@ -16,8 +16,9 @@ global:
 
   # --- FILE PATHS ---
   paths:
+    raw_data_root: "../msc-groundwater-gwl-data/01_raw"  # Alternative: data/01_raw
     # --- Specific INPUT files ---
-    gis_os_grid_squares: "data/01_raw/global/os_grid_squares.csv"
+    gis_os_grid_squares: "{raw_data_root}/global/os_grid_squares.csv"
     defra_station_base_url: "https://environment.data.gov.uk/hydrology/id/stations"
     HAD_UK_rainfall_url: "https://dap.ceda.ac.uk/thredds/dodsC/badc/ukmo-hadobs/data/insitu/MOHC/HadOBS/HadUK-Grid/v1.3.0.ceda/1km/rainfall/day/v20240514/rainfall_hadukgrid_uk_1km_day_"
     CDSAPI_path: "~/Desktop/Dissertation_Code/.cdsapirc"
@@ -25,7 +26,7 @@ global:
       # currently none, remove in future if not used
     # --- Data Directories ---
     data_dir: "data/"
-    raw_data_dir: "data/01_raw/"
+    raw_data_dir: "{raw_data_root}/"
     processed_data_dir: "data/02_processed/"
     external_data_dir: "data/03_external/"
     # --- Results Directories ---
@@ -112,14 +113,13 @@ eden:
   # --- FILE PATHS ---
   paths:
     # --- Specific INPUT files ---
-    # gis_catchment_boundary: "data/01_raw/eden/gis/eden_catchment_boundary/NRFA_catchments.shp"
-    gis_catchment_boundary: "data/01_raw/eden/gis/eden_catchment_boundary/WFD_Surface_Water_Operational_Catchments_Cycle_2.shp"
-    gis_catchment_dir: "data/01_raw/eden/gis/eden_catchment_boundary/"
-    gwl_station_list: "data/01_raw/eden/gwl_stations/station_list.csv"
-    raw_land_cover_path: "data/01_raw/eden/static/land_cover/gb2023lcm1km_dominant_aggregate.tif"
-    elevation_dir_path: "data/01_raw/eden/static/elevation/"
-    rainfall_filename_dir: "data/01_raw/eden/hydroclimatic/rainfall/"
-    stream_flow_station: "data/01_raw/eden/hydroclimatic/streamflow/flow_stations_list.csv"
+    # gis_catchment_boundary: "{raw_data_root}/eden/gis/eden_catchment_boundary/NRFA_catchments.shp"
+    gis_catchment_boundary: "{raw_data_root}/eden/gis/eden_catchment_boundary/WFD_Surface_Water_Operational_Catchments_Cycle_2.shp"
+    gis_catchment_dir: "{raw_data_root}/eden/gis/eden_catchment_boundary/"
+    gwl_station_list: "{raw_data_root}/eden/gwl_stations/station_list.csv"
+    raw_land_cover_path: "{raw_data_root}/eden/static/land_cover/gb2023lcm1km_dominant_aggregate.tif"
+    elevation_dir_path: "{raw_data_root}/eden/static/elevation/"
+    rainfall_filename_dir: "{raw_data_root}/eden/hydroclimatic/rainfall/"
 
     # --- Specific OUPUT (processed) files ---
     mesh_nodes_output: "data/02_processed/eden/gis_and_mesh/catchment_mesh_nodes"  # ensure no specific file extension
@@ -127,36 +127,36 @@ eden:
     gwl_station_list_output: "data/02_processed/eden/gwl_station_data/updated_station_list_with_coords.csv"
     gwl_station_metadata_measures: "data/02_processed/eden/gwl_station_data/gwl_station_metadata_measures.csv"
     snapped_station_node_mapping: "data/02_processed/eden/gwl_station_data/snapped_station_node_mapping.csv"
-    gwl_data_output_dir: "data/01_raw/eden/gwl_stations/API_data/"
+    gwl_data_output_dir: "{raw_data_root}/eden/gwl_stations/API_data/"
     gwl_outlier_dict: "data/02_processed/eden/gwl_station_data/dict_witout_outliers.pkl"
     trimmed_output_dir: "data/02_processed/eden/gwl_timeseries/"
     land_cover_csv_path: "data/02_processed/eden/static/land_cover/land_cover.csv"
     elevation_tif_path: "data/02_processed/eden/static/elevation/elevation.tif"
     direction_edge_weights_path: "data/02_processed/eden/static/slope/direction_edge_weights.csv"
     slope_path: "data/02_processed/eden/static/slope/slope_magnitude_aspect.csv"
-    aet_raw_output_dir: "data/01_raw/eden/hydroclimatic/aet/"
+    aet_raw_output_dir: "{raw_data_root}/eden/hydroclimatic/aet/"
     output_polygon_dir: "data/02_processed/eden/gis/"
     elevation_geojson_path: "data/02_processed/eden/static/elevation/elevation.geojson"
-    geology_dir: "data/01_raw/eden/static/geology/data"
-    permeability_dir: "data/01_raw/eden/static/permeability"
+    geology_dir: "{raw_data_root}/eden/static/geology/data"
+    permeability_dir: "{raw_data_root}/eden/static/permeability"
     geology_df: "data/02_processed/eden/static/geology"
-    productivity_dir: "data/01_raw/eden/static/aquifer_productivity/hydrogeology625k/"
+    productivity_dir: "{raw_data_root}/eden/static/aquifer_productivity/hydrogeology625k/"
     productivity_csv_path: "data/02_processed/eden/static/aquifer_productivity/"
-    rivers_dir: "data/01_raw/eden/static/rivers/data/"
+    rivers_dir: "{raw_data_root}/eden/static/rivers/data/"
     rivers_csv_path: "data/02_processed/eden/static/distance_to_river/"
-    sup_thickness_dir: "data/01_raw/eden/static/superficial_thickness/advanced/astm_v5/astm_gb/"
+    sup_thickness_dir: "{raw_data_root}/eden/static/superficial_thickness/advanced/astm_v5/astm_gb/"
     sup_thickness_csv_path: "data/02_processed/eden/static/superficial_thickness/"
-    soil_dir: "data/01_raw/eden/static/soil_hydrology/dominant_class/"
+    soil_dir: "{raw_data_root}/eden/static/soil_hydrology/dominant_class/"
     soil_csv_path: "data/02_processed/eden/static/soil_hydrology/"
-    soil_type_dir: "data/01_raw/eden/static/soil_type/"
+    soil_type_dir: "{raw_data_root}/eden/static/soil_type/"
     soil_type_csv_path: "data/02_processed/eden/static/soil_type/"
     stream_flow_csv: "data/02_processed/eden/hydroclimatic/streamflow"
 
     # --- ERA5-Land API Ingestion ---
     aet_processed_output_dir: "data/02_processed/eden/hydroclimatic/aet/"
-    2t_raw_output_dir: "data/01_raw/eden/hydroclimatic/2meter_temp/"
+    2t_raw_output_dir: "{raw_data_root}/eden/hydroclimatic/2meter_temp/"
     2t_processed_output_dir: "data/02_processed/eden/hydroclimatic/2meter_temp/"
-    sp_raw_output_dir: "data/01_raw/eden/hydroclimatic/surface_pressure/"
+    sp_raw_output_dir: "{raw_data_root}/eden/hydroclimatic/surface_pressure/"
     sp_processed_output_dir: "data/02_processed/eden/hydroclimatic/surface_pressure/"
     aet_csv_path: "data/02_processed/eden/hydroclimatic/aet/aet_daily_catchment_sum.csv"
     aet_fig_path: "results/figures/eden/time_series/hydroclimatic/aet_timeseries.png"
