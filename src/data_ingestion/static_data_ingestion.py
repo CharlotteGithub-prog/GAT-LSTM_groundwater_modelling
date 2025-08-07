@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 
 from pathlib import Path
 from shapely import force_2d
+from matplotlib import pyplot
 from rasterio.merge import merge
 from rasterstats import zonal_stats
 from scipy.stats import skew, boxcox
@@ -1175,6 +1176,116 @@ def ingest_and_process_productivity(productivity_dir: str, csv_path: str,
 
 # --- Superficial Thickness (via Digimaps) ---
 
+# Superficial Thickness skipped due to insufficient coverage
+
+# --- Soil Hydrology [HOST] ---
+
+def _get_HOST_mappings():
+    """
+    Defined HOST soil mappings to aggregated and better balanced classes. Using
+    See: https://nora.nerc.ac.uk/id/eprint/7369/1/IH_126.pdf for more details on classes.
+    """
+    host_to_aggregated_category = {
+        # Freely Draining Soils
+        1.0: 'freely_draining_soils',
+        2.0: 'freely_draining_soils',
+        3.0: 'freely_draining_soils',
+        4.0: 'freely_draining_soils',
+        5.0: 'freely_draining_soils',
+        # Impeded/Saturated Subsurface Flow
+        6.0: 'impeded_saturated_subsurface_flow',
+        7.0: 'impeded_saturated_subsurface_flow',
+        8.0: 'impeded_saturated_subsurface_flow',
+        9.0: 'impeded_saturated_subsurface_flow',
+        12.0: 'impeded_saturated_subsurface_flow',
+        13.0: 'impeded_saturated_subsurface_flow',
+        15.0: 'impeded_saturated_subsurface_flow',
+        16.0: 'impeded_saturated_subsurface_flow',
+        17.0: 'impeded_saturated_subsurface_flow',
+        18.0: 'impeded_saturated_subsurface_flow',
+        19.0: 'impeded_saturated_subsurface_flow',
+        20.0: 'impeded_saturated_subsurface_flow',
+        21.0: 'impeded_saturated_subsurface_flow',
+        22.0: 'impeded_saturated_subsurface_flow',
+        23.0: 'impeded_saturated_subsurface_flow',
+        25.0: 'impeded_saturated_subsurface_flow',
+        # High Runoff (Impermeable)
+        24.0: 'high_runoff_(impermeable)',
+        26.0: 'high_runoff_(impermeable)',
+        27.0: 'high_runoff_(impermeable)',
+        98.0: 'high_runoff_(impermeable)',  # Urban/No Data
+        # Peat Soils
+        10.0: 'peat_soils',
+        11.0: 'peat_soils',
+        14.0: 'peat_soils',
+        28.0: 'peat_soils',
+        29.0: 'peat_soils',
+        99.0: 'peat_soils'   # Water bodies (highly permeable)
+    }
+    
+    return host_to_aggregated_category
+
+def load_process_soil_hydrology(soil_dir: str, csv_path: str, catchment: str,
+                                mesh_cells_gdf_polygons: gpd.GeoDataFrame,
+                                catchment_polygon: gpd.GeoDataFrame,
+                                mesh_nodes_gdf: gpd.GeoDataFrame):
+    """
+    Load in and preprocess hydrology of soil types data from digimaps environment map >
+    miscellaneous data for the UK.
+    """
+    logger.info(f"Loading hydrology of soil type data for {catchment} catchment...\n")
+    
+    # Define aggregation mapping based on hydrological pathways
+    host_to_aggregated_category = _get_HOST_mappings()
+    
+    # Read in HOST raster file
+    file_path = os.path.join(soil_dir, "host_classes_dom.asc")
+    with rasterio.open(file_path) as src:
+        
+        # Plot input data
+        soil_arr = src.read(1)
+        pyplot.imshow(soil_arr, cmap='pink')
+        pyplot.show()
+        
+        # Ensure the mesh nodes are also in the same CRS
+        raster_crs = 'EPSG:27700'
+        if mesh_nodes_gdf.crs is None or str(mesh_nodes_gdf.crs) != raster_crs:
+            logger.info(f"Reprojecting mesh nodes to raster CRS {raster_crs}...")
+            mesh_nodes_reprojected = mesh_nodes_gdf.to_crs(raster_crs)
+        else:
+            logger.info("Mesh nodes already in the correct CRS.")
+            mesh_nodes_reprojected = mesh_nodes_gdf
+        
+        # Get the coordinates of each reprojected node (x, y tuples)
+        coords = [(x, y) for x, y in zip(mesh_nodes_reprojected.geometry.x, mesh_nodes_reprojected.geometry.y)]
+        
+        # Sample the raster at each coordinate
+        soil_class_values = [val[0] for val in src.sample(coords)]
+
+    # Create df to hold extracted vals
+    soil_hydrology_df = pd.DataFrame({
+        'node_id': mesh_nodes_gdf['node_id'],
+        'host_class_code': soil_class_values
+    })
+    
+    # Apply the agg mapping to create a new aggregated col
+    soil_hydrology_df['host_aggregated_category'] = soil_hydrology_df['host_class_code'].map(host_to_aggregated_category)
+    logger.info(f"Extracted HOST class codes for {len(soil_hydrology_df)} nodes.\n")
+    
+    # Print counts for the new aggregated categories
+    logger.info(f"Counts of each HOST Aggregated Category:")
+    logger.info(f"{soil_hydrology_df['host_aggregated_category'].value_counts().sort_index()}\n")
+    
+    # Drop original class column
+    soil_hydrology_df = soil_hydrology_df.drop(columns='host_class_code')
+    
+    # Save to .csv
+    save_path = os.path.join(csv_path, "soil_hydrology.csv")
+    soil_hydrology_df.to_csv(save_path)
+    logger.info(f"Soil Hydrology data save to {save_path}")
+    
+    return soil_hydrology_df
+ 
 # --- Various ---
 
 def cap_data_between_limits(gdf: gpd.GeoDataFrame, max_limit: float, min_limit: float, catchment: str,
