@@ -373,19 +373,28 @@ try:
         )
 
         logger.info(f"Pipeline step 'Derive distance from river' complete for {catchment} catchment.\n")
-                
-        # Superficial Thickness [BGS] - Skipped due to insufficient data coverage
         
-        # Soil type [CEH's Grid-to-Grid soil maps / HOST soil classes / CAMELS-GB / BFIHOST]
-        
-        
+        # Soil Hydrology [HOST, via Digimaps]
+
+        soil_hydrology_df = static_data_ingestion.load_process_soil_hydrology(
+            soil_dir=config[catchment]["paths"]["soil_dir"],
+            csv_path=config[catchment]['paths']['soil_csv_path'],
+            catchment=catchment,
+            mesh_cells_gdf_polygons=mesh_cells_gdf_polygons,
+            catchment_polygon=catchment_polygon,
+            mesh_nodes_gdf=mesh_nodes_gdf
+        )
+
+        logger.info(f"Pipeline step 'Load Soil Hydrology Data' complete for {catchment} catchment.\n")
         
         # [FUTURE] Depth to bedrock [BGS]
         
+        """ ADD IN ONCE GIVEN LICENCE """
+        
+        # [SKIPPED] Superficial Thickness [BGS] - Skipped due to insufficient data coverage
+        # [SKIPPED] Soil Type [CEH's Grid-to-Grid soil maps] - Skipped due to insufficient data coverage
         # [FUTURE] Aquifer Properties (tbd - depth? type? transmissivity? storage coefficientet?) [DEFRA/BGS]
-        # [Future] Gridded infiltration rates / hydraulic conductivity
-        # [Future] Mean thickness, Max thicknes, Binary 'has_superficial' assignment?
-        # [Time Series] Gridded infiltration rates / hydraulic conductivity
+        # [FUTURE] Gridded infiltration rates / hydraulic conductivity - Skipped for now due to insufficient data
         
         # --- 4c. Preprocess Time Series Features ---
         
@@ -468,9 +477,19 @@ try:
             
         logger.info(f"Pipeline step 'Load 2m Surface Temp Data' complete for {catchment} catchment.\n")
         
-        # [FUTURE] River Flow / Streamflow / River Stage [DEFRA / NRFA]
-        # [FUTURE] Others from HAD-UK (CEDA) / ERA5-Land?
+        # DEFRA Hydrology API daily total streamflow at station closest to catchment ouflow (lumped hydrological modelling, m^3/s)
+
+        stream_flow_df = timeseries_data_ingestion.download_and_save_flow_data(
+            station_csv=config[catchment]["paths"]["stream_flow_station"],
+            start_date=config["global"]["data_ingestion"]["model_start_date"],
+            end_date=config["global"]["data_ingestion"]["model_end_date"],
+            output_dir=config[catchment]["paths"]["stream_flow_csv"],
+            catchment=catchment
+        )
+
+        logger.info(f"Pipeline step 'Ingest Streamflow Data' complete for {catchment} catchment.\n")
         
+        # [FUTURE] Others from HAD-UK (CEDA) / ERA5-Land?
         """
         ERA5-Land:
             - snowLying: snow depth / presence
@@ -491,8 +510,8 @@ try:
             
         logger.info(f"Pipeline step 'Derive Rainfall Lag and Averages' complete for {catchment} catchment.\n")
         
-        # [Future] Calculate ET / temperature rolling averages? [DERIVED]
-        # [Future] Pour point (catchment) by node -> see notion notes (important to consider)
+        # [FUTURE] Calculate ET / temperature rolling averages? [DERIVED]
+        # [FUTURE] Pour point (catchment) by node -> see notion notes (important to consider)
             # - Use flow accumulation from the DEM (e.g., richdem, whitebox, or TauDEM)
             # - Aggregate this to mesh by zonal mean/sum (most likely sum? Decide + Justify).
         
@@ -556,10 +575,9 @@ try:
         
         logger.info(f"Geology data snapped to mesh nodes (centroids).\n")
         
-        # Snap Slope to Mesh [TODO: THIS IS CURRENTLY ACTING AS FINAL STATIC DF, UPDATE IN FUTURE]
+        # Snap Slope to Mesh
         
-        # merged_gdf_nodes_slope = merged_gdf_nodes_elevation.merge(
-        static_features = merged_gdf_nodes_geology.merge(
+        merged_gdf_nodes_slope = merged_gdf_nodes_geology.merge(
             slope_gdf[['node_id', 'mean_slope_degrees', 'mean_aspect_sin', 'mean_aspect_cos']],
             on='node_id',
             how='left'  # left join to keep all centroids, even if NaN
@@ -567,10 +585,39 @@ try:
 
         logger.info(f"Slope degrees and sinusoidal aspect data snapped to mesh nodes (centroids).\n")
         
-        # [FUTURE] Snap Soil type to Mesh
-        # [FUTURE] Snap Aquifer Properties to Mesh
+        # Snap Soil Hydrology to Mesh
+        
+        merged_gdf_nodes_soil = merged_gdf_nodes_slope.merge(
+            soil_hydrology_df[['node_id', 'HOST_soil_class']],
+            on='node_id',
+            how='left'  # left join to keep all centroids, even if NaN
+        )
+        
+        logger.info(f"Soil Hydrology data snapped to mesh nodes (centroids).\n")
+        
+        # Snap Aquifer Productivity to Mesh
+        
+        merged_gdf_nodes_productivity = merged_gdf_nodes_soil.merge(
+            productivity_gdf[['node_id', 'aquifer_productivity']],
+            on='node_id',
+            how='left'  # left join to keep all centroids, even if NaN
+        )
+        
+        logger.info(f"Aquifer Productivity data snapped to mesh nodes (centroids).\n")
+        
+        # Snap Distance from River to Mesh
+        
+        static_features = merged_gdf_nodes_productivity.merge(
+            dist_to_river_gdf[['node_id', 'distance_to_river']],
+            on='node_id',
+            how='left'  # left join to keep all centroids, even if NaN
+        )
+        
+        logger.info(f"Distance from river data snapped to mesh nodes (centroids).\n")
+        
         # [FUTURE] Snap Infiltration Rate to Mesh
-        # [FUTURE] Snap Distance from River to Mesh
+        # [FUTURE] Snap Soil Type Maps to Mesh
+        # [FUTURE] Snap Depth to Groundwater to Mesh
         
         # Finalise final_static_df for merge
         
@@ -623,7 +670,7 @@ try:
         
         # Snap Surface Pressure to timestep
 
-        final_merged_ts_df = data_merging.merge_timeseries_data_to_df(
+        merged_ts_sp = data_merging.merge_timeseries_data_to_df(
             model_start_date=config["global"]["data_ingestion"]["model_start_date"],
             model_end_date=config["global"]["data_ingestion"]["model_end_date"],
             feature_csv=config[catchment]["paths"]["sp_csv_path"],
@@ -632,6 +679,18 @@ try:
         )
         
         logger.info(f"Surface pressure data snapped to graph timesteps (daily aggregate).\n")
+        
+        # Snap Streamflow to timestep
+        
+        final_merged_ts_df = data_merging.merge_timeseries_data_to_df(
+            model_start_date=config["global"]["data_ingestion"]["model_start_date"],
+            model_end_date=config["global"]["data_ingestion"]["model_end_date"],
+            feature_csv=os.path.join(config[catchment]["paths"]["stream_flow_csv"], 'daily_streamflow.csv'),
+            feature='streamflow',
+            timeseries_df=merged_ts_sp
+        )
+        
+        logger.info(f"Streamflow data snapped to graph timesteps (daily aggregate).\n")
         
         save_path = config[catchment]["paths"]["final_df_path"] + 'final_timeseries_df.csv'
         final_merged_ts_df.to_csv(save_path)
