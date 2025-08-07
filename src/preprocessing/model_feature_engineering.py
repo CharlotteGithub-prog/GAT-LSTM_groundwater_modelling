@@ -34,13 +34,15 @@ def _group_features_by_type(processed_df):
                         'rainfall_volume_m3', 'rainfall_lag_1', 'rainfall_lag_2', 'rainfall_lag_3',
                         'rainfall_lag_4', 'rainfall_lag_5', 'rainfall_lag_6', 'rainfall_lag_7',
                         'rolling_30', 'rolling_60', '2m_temp', 'aet_volume', 'surface_pressure',
-                        'season_sin', 'season_cos', 'bedrock_perm_avg', 'superficial_perm_avg']
+                        'season_sin', 'season_cos', 'bedrock_perm_avg', 'superficial_perm_avg',
+                        'distance_to_river', 'daily_streamflow_m3_s']
     # Check list defensively
     numerical_features = [feat for feat in numerical_features if feat in processed_df.columns]
 
     # Define categorical feature list
     categorical_features = ['land_cover_code', 'geo_bedrock_type', 'geo_superficial_type',
-                            'bedrock_flow_type', 'superficial_flow_type']
+                            'bedrock_flow_type', 'superficial_flow_type', 'HOST_soil_class',
+                            'aquifer_productivity']
     categorical_features = [feat for feat in categorical_features if feat in processed_df.columns]
 
     # Define groundwater data feature list
@@ -101,7 +103,7 @@ def _plot_standardised_data_aligned(processed_df, random_seed, violin_plt_path):
         'mean_elevation', 'mean_slope_deg', 'mean_aspect_sin', 'mean_aspect_cos',
         'rainfall_volume_m3', 'rainfall_lags',  'rolling_30', 'rolling_60', '2m_temp',
         'aet_volume', 'surface_pressure','season_sin', 'season_cos', 'bedrock_perm_avg',
-        'superficial_perm_avg'
+        'superficial_perm_avg', 'aquifer_productivity', 'daily_streamflow_m3_s'
     ]
 
     # Filter plot_df to include only the columns that actually exist and are in the desired list

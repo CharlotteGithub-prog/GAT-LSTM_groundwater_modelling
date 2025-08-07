@@ -546,12 +546,10 @@ def _check_crs_match(rivers_gdf, mesh_nodes_gdf, mesh_cells_gdf_polygons):
     
     return rivers_gdf, mesh_nodes_gdf
 
-def _transform_skewed_data(processed_df, catchment):
+def _transform_skewed_data(processed_df, catchment, col: str = 'distance_to_river'):
     """
     Transform skew of distance data.
     """
-    col = 'distance_to_river'
-
     logger.info(f"Tranforming {col} data for {catchment} catchment...\n")
     logger.info(f"    Initial {col} Skewness: {skew(processed_df[col]):.4f}")
     
@@ -607,7 +605,7 @@ def derive_distance_to_river(rivers_dir: str, csv_path: str, catchment: str,
     logger.info(f"Distance to nearest river calculated by centroid.\n")
     
     # Transform the data for model stability and save for mathematical inversion after modelling
-    _transform_skewed_data(dist_to_river_gdf, catchment)
+    dist_to_river_gdf = _transform_skewed_data(dist_to_river_gdf, catchment)
     
     # Drop geometry
     dist_to_river_gdf = dist_to_river_gdf.drop(columns='geometry')
@@ -1174,10 +1172,6 @@ def ingest_and_process_productivity(productivity_dir: str, csv_path: str,
     
     return final_productivity_gdf
 
-# --- Superficial Thickness (via Digimaps) ---
-
-# Superficial Thickness skipped due to insufficient coverage
-
 # --- Soil Hydrology [HOST] ---
 
 def _get_HOST_mappings():
@@ -1278,6 +1272,7 @@ def load_process_soil_hydrology(soil_dir: str, csv_path: str, catchment: str,
     
     # Drop original class column
     soil_hydrology_df = soil_hydrology_df.drop(columns='host_class_code')
+    soil_hydrology_df = soil_hydrology_df.rename(columns={'host_aggregated_category': 'HOST_soil_class'})
     
     # Save to .csv
     save_path = os.path.join(csv_path, "soil_hydrology.csv")
@@ -1332,3 +1327,5 @@ def save_final_static_data(static_features: pd.DataFrame, dir_path: str):
 
     logger.info(f"Final merged static dataframe saved to {save_path}")
 
+# --- Superficial Thickness (via Digimaps) ---
+# Superficial Thickness skipped due to insufficient coverage

@@ -26,9 +26,16 @@ def reorder_static_columns(df: pd.DataFrame):
                     'lon', 'lat', 'land_cover_code', 'mean_elevation',
                     'mean_slope_degrees', 'mean_aspect_sin', 'mean_aspect_cos',
                     'geo_bedrock_type', 'geo_superficial_type', 'bedrock_flow_type',
-                    'bedrock_perm_avg', 'superficial_flow_type', 'superficial_perm_avg']
+                    'bedrock_perm_avg', 'superficial_flow_type', 'superficial_perm_avg',
+                    'HOST_soil_class', 'aquifer_productivity', 'distance_to_river']
 
-    return df[desired_order]
+    # Keep only the columns from desired_order that are in df
+    available = [col for col in desired_order if col in df.columns]
+
+    # Add remaining columns not in desired_order
+    remaining = [col for col in df.columns if col not in desired_order]
+
+    return df[available + remaining]
 
 # Snapping stations to centroid nodes
 def _obtain_snapping_data(polygon_geometry_path: str, catchment: str, station_list_path: str):

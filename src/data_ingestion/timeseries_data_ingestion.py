@@ -6,6 +6,7 @@ import cdsapi  # ERA5-Land API
 import logging
 import zipfile
 import datetime
+import requests
 import calendar
 import regionmask
 import numpy as np
@@ -14,7 +15,9 @@ import pandas as pd
 from pyproj import Geod
 import concurrent.futures
 import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
 
+from src.data_ingestion.static_data_ingestion import _transform_skewed_data
 from src.data_ingestion.spatial_transformations import easting_northing_to_lat_long, \
     find_catchment_boundary
     
@@ -30,6 +33,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Find HADUK file names
+
 def find_haduk_file_names(start_date: str, end_date: str, base_url: str):
     """
     NOTE: HADUK Data should be ingested through API, but ongoing credential issues
@@ -58,6 +62,7 @@ def find_haduk_file_names(start_date: str, end_date: str, base_url: str):
     return urls
 
 # Load in HAD-UK 1km gridded rainfall Data
+
 def _save_haduk_graph(csv_path, fig_path, catchment):
     # Load the processed CSV
     df = pd.read_csv(csv_path, index_col=0, parse_dates=True)
@@ -210,6 +215,7 @@ def load_rainfall_data(rainfall_dir, shape_filepath, processed_output_dir, fig_p
     total_volume_m3.to_dataframe().to_csv(final_csv_path)
 
 # Load in various ERA5-Land API features
+
 def _get_bbox_and_polygon(catchment, shape_filepath, required_crs):
     # Derive full path
     temp_geojson_path = f"{catchment}_combined_boundary.geojson"
@@ -674,3 +680,194 @@ def load_era5_land_data(catchment: str, shape_filepath: float, required_crs: int
     else:
         
         logging.info(f"No {feat_name} data was retrieved or processed.\n")
+
+# DEFRA streamflow ingestion and preprocessing
+
+def _get_daily_flow_measure_uri(station_id: str, station_name: str):
+    """
+    Call DEFRA API and get daily average flow specific URI for the targeet station.
+    """
+    measures_url = f"https://environment.data.gov.uk/hydrology/id/stations/{station_id}/measures"
+    
+    params = {
+        'parameterName': 'Flow',
+        'periodName': 'daily'
+    }
+    
+    logger.info(f"Retrieving daily mean flow URI for station: {station_name}")
+    
+    try:
+        response = requests.get(measures_url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Look for the measure URI in the API response
+        if data and 'items' in data and data['items']:
+            # Iterate through the returned daily flow measures to find the mean
+            for item in data['items']:
+                measure_uri = item.get('@id', '')
+                if "flow-mean" in measure_uri:
+                    logger.info(f"  Found URI: {measure_uri}")
+                    return measure_uri
+                
+        return measure_uri
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"API request failed for station {station_id}. Error: {e}")
+        return None
+    except (ValueError, IndexError) as e:
+        logger.error(f"Failed to process API response for station {station_id}. Error: {e}")
+        return None
+    
+def _download_flow_readings(measure_uri: str, startdate_str: str, enddate_str: str,
+                      max_per_request: int = 50000):
+    """
+    Download streamflow readings for each station from DEFRA Hydrology API within given dates.
+    Max requests set at 50000 with pagination used when readings exceeed this.
+    """
+    # Initialise list to store reading and offset tracker for pagination
+    all_readings = []
+    offset = 0
+    
+    # Get final day
+    end_date_obj = datetime.strptime(enddate_str, "%Y-%m-%dT%H:%M:%S")
+    final_day = end_date_obj + timedelta(days=1)
+    final_day_str = final_day.strftime("%Y-%m-%dT%H:%M:%S")
+    
+    # Define params to use in API call
+    params = {
+        '_limit': max_per_request,
+        '_offset': offset,
+        'min-dateTime': startdate_str,
+        'max-dateTime': final_day_str
+    }
+    
+    # Call API with defined params
+    while True:
+        try:
+            response = requests.get(f"{measure_uri}/readings", params=params)
+            response.raise_for_status()
+            readings = response.json().get('items', [])
+            
+            # If readings are found append them to main list
+            if readings:
+                df_portion = pd.DataFrame(readings)
+                all_readings.append(df_portion)
+                logger.debug(f"        Downloaded {len(readings)} readings from offset {offset}.")
+
+                # Check if the readings length == max_readings_per_request (meaning more data might exist)
+                if len(readings) < max_per_request:
+                    break
+                
+                # If maximum hit, adjust offset and continue
+                else:
+                    offset += max_per_request
+            else:
+                logger.info(f"        No more data found for {measure_uri} from offset {offset}.")
+                break
+        
+        # Return errors for debugging
+        except requests.exceptions.RequestException as e:
+            logger.error(f"API request failed for {measure_uri} (offset {offset}). Error: {e}")
+            return pd.DataFrame()
+        except ValueError as e:
+            logger.error(f"Failed to decode JSON response for {measure_uri} (offset {offset}). Error: {e}")
+            return pd.DataFrame()
+    
+    # Required incase of pagination needing to be used
+    if all_readings:
+        final_df = pd.concat(all_readings, ignore_index=True)
+        return final_df
+    else:
+        return pd.DataFrame()
+
+def _preprocess_final_data(readings_df: pd.DataFrame, output_dir: str, start_date: str,
+                           end_date: str, station_name: str, catchment: str):
+    if readings_df.empty:
+        logger.warning(f"No readings downloaded for station {station_name}. Check download logs.")
+        return pd.DataFrame()
+    
+    # Save raw readings before preprocessing
+    os.makedirs(output_dir, exist_ok=True)
+    raw_output_path = os.path.join(output_dir, f"raw_streamflow.csv")
+    readings_df['station_name'] = station_name.title().strip()
+    readings_df.to_csv(raw_output_path, index=False)
+    logger.info(f"Saving {len(readings_df)} raw readings for {station_name} to {raw_output_path}")
+        
+    # Convert to daily total streamflow
+    readings_df['daily_streamflow_m3_s'] = readings_df['value'] * 86400
+    
+    # Confirm data length is as expected
+    expected_dates = pd.date_range(start=start_date, end=end_date)
+    expected_days = len(expected_dates)
+    
+    # Sort and truncate readings before assigning the date
+    readings_df = readings_df.sort_values("dateTime").reset_index(drop=True)
+    readings_df = readings_df.iloc[:expected_days]
+    
+    if len(readings_df) != expected_days:
+        logger.warning(f"Length mismatch after slicing. Expected {expected_days}, got {len(readings_df)}.")
+
+    # Assigned expected dates as new index
+    readings_df['date'] = expected_dates
+    
+    # Fill NaNsusing interpolation if only a few
+    missing_count = readings_df['daily_streamflow_m3_s'].isna().sum()
+    total_count = len(readings_df)
+    missing_ratio = missing_count / total_count
+
+    # Check less than 1% missing before filling
+    if missing_ratio < 0.01:
+        logger.info(f"Filling {missing_count} missing values (<1%) using linear interpolation.")
+        readings_df['daily_streamflow_m3_s'] = readings_df['daily_streamflow_m3_s'].interpolate(method='linear')
+    else:
+        logger.warning(f"Too many missing values in 'daily_streamflow_m3_s' ({missing_ratio:.2%}). Skipping interpolation.")
+        
+    # Drop unneeded columns (keeping defensive to avoid crash)
+    drop_cols = ['measure', 'valid', 'invalid', 'missing', 'completeness',
+                'quality', 'station_name', 'value', 'dateTime']
+    readings_df = readings_df.drop(columns=[col for col in drop_cols if col in readings_df.columns])
+        
+    # Boxcox transform skewed streamflow data
+    readings_df = _transform_skewed_data(readings_df, catchment, 'daily_streamflow_m3_s')
+    
+    # Rename date to time for merging
+    readings_df = readings_df.rename(columns={'date': 'time'})
+    readings_df = readings_df.set_index('time')
+    
+    logger.info("Streamflow ingestion pipeline complete.")
+    return readings_df
+
+def download_and_save_flow_data(station_csv: str, start_date: str, end_date: str, output_dir: str,
+                                catchment: str):
+    """
+    Downloads file using DEFRA hydrology API for flow station specified in flow station csv.
+    """
+    logger.info("Starting daily mean flow data pipeline...")
+    logging.info(f"Collecting data from {start_date[:-9]} to {end_date[:-9]}\n")
+
+    # Read the station information from the CSV
+    try:
+        station_df = pd.read_csv(station_csv)
+        station_id = station_df.iloc[0]["url_id"]
+        station_name = station_df.iloc[0]["station_name"]
+    except (FileNotFoundError, KeyError) as e:
+        logger.error(f"Error reading station CSV: {e}")
+        return
+    
+    # Get tmeasure URI  and download selected time series for daily mean flow
+    measure_uri = _get_daily_flow_measure_uri(station_id, station_name)
+    if not measure_uri:
+        logger.error(f"Could not retrieve a valid measure URI for station {station_name}.")
+        return pd.DataFrame()
+
+    readings_df = _download_flow_readings(measure_uri, start_date, end_date)
+    readings_df = _preprocess_final_data(readings_df, output_dir, start_date, end_date,
+                                         station_name, catchment)
+    
+    # Save as csv
+    save_path = os.path.join(output_dir, "daily_streamflow.csv")
+    readings_df.to_csv(save_path)
+    logger.info(f"Daily average streamflow saved to {save_path}.")
+    
+    return readings_df
