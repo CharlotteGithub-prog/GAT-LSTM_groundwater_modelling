@@ -119,6 +119,7 @@ eden:
     raw_land_cover_path: "data/01_raw/eden/static/land_cover/gb2023lcm1km_dominant_aggregate.tif"
     elevation_dir_path: "data/01_raw/eden/static/elevation/"
     rainfall_filename_dir: "data/01_raw/eden/hydroclimatic/rainfall/"
+    stream_flow_station: "data/01_raw/eden/hydroclimatic/streamflow/flow_stations_list.csv"
 
     # --- Specific OUPUT (processed) files ---
     mesh_nodes_output: "data/02_processed/eden/gis_and_mesh/catchment_mesh_nodes"  # ensure no specific file extension
@@ -149,6 +150,7 @@ eden:
     soil_csv_path: "data/02_processed/eden/static/soil_hydrology/"
     soil_type_dir: "data/01_raw/eden/static/soil_type/"
     soil_type_csv_path: "data/02_processed/eden/static/soil_type/"
+    stream_flow_csv: "data/02_processed/eden/hydroclimatic/streamflow"
 
     # --- ERA5-Land API Ingestion ---
     aet_processed_output_dir: "data/02_processed/eden/hydroclimatic/aet/"
