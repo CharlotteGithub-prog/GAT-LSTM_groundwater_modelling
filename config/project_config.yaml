@@ -12,7 +12,7 @@ global:
     run_era5_land_api: false  # Long!
     run_outlier_detection: false
     run_gwl_imputation: false
-    prediction_resolution: "weekly"  # Options: ["daily", "weekly", "monthly"]
+    prediction_resolution: "daily"  # Options: ["daily", "weekly", "monthly"]
 
   # --- FILE PATHS ---
   paths:
@@ -192,15 +192,15 @@ eden:
     catchment_max_elevation: 945.40  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     catchment_min_elevation: 8.00  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     # --- Generated in Pipeline ---
-    rainfall_boxcox_lambda: 0.40507004437144584
-    aet_boxcox_lambda: 0.4228573720780577
+    rainfall_boxcox_lambda: 0.1701496697839992
+    aet_boxcox_lambda: 0.4931417208883217
     mean_elevation_boxcox_lambda: 0.43791793774665777
     mean_slope_deg_boxcox_lambda: -0.24587353302884188
     distance_to_river_boxcox_lambda: 0.32372267347270717
     streamflow_m3_s_boxcox_lambda: -0.19592529692363342
 
   # --- VISUALISATION OUTPUT SETTINGS ---
-    streamflow_total_m3_boxcox_lambda: -0.0588745657365882
+    streamflow_total_m3_boxcox_lambda: -0.19592529692363342
   visualisations:
     maps:  # ensure no specific file extensions here
       static_mesh_map_output: "results/figures/eden/maps/static_mesh_map"
@@ -221,7 +221,7 @@ eden:
       run_GAT: true  # Turn sections off for benchmarking and performance analysis (ablation studies)
       heads_gat: 12 # 
       dropout_gat: 0.4  # 40% dropped
-      hidden_channels_gat: 128  # FROM 64
+      hidden_channels_gat: 64  # FROM 64
       out_channels_gat: 64
       num_layers_gat: 2  # THEN 3 from 2
 
@@ -259,7 +259,7 @@ eden:
 
     data_partioning:
       test_station_shortlist: ["ainstable", "coupland", "scaleby"]  # Length ideally >= minimum station req count
-      val_station_shortlist: ["baronwood", "croglin", "great_musgrave"]  # Length ideally >= minimum station req count
+      val_station_shortlist: ["castle_carrock", "skirwith", "great_musgrave"]  # Length ideally >= minimum station req count
       percentage_train: 77
       percentage_val: 15  # 2 stations for validating
       percentage_test: 8  # 1 station tested at a time
