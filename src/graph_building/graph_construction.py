@@ -172,7 +172,8 @@ def define_catchment_polygon(england_catchment_gdf_path: str, target_mncat: str,
 
     logging.info(f"Combined {target_mncat} boundary saved to: {path}")
 
-def build_main_df(start_date: str, end_date: str, mesh_nodes_gdf: gpd.GeoDataFrame, catchment: str):
+def build_main_df(start_date: str, end_date: str, mesh_nodes_gdf: gpd.GeoDataFrame, catchment: str,
+                  pred_frequency: str = 'daily'):
     """
     Build a dataframe for merging features into with pairs of timestep and node_id
     acting as multiindex pairs. Convert to df to return for easy merging.
@@ -183,9 +184,17 @@ def build_main_df(start_date: str, end_date: str, mesh_nodes_gdf: gpd.GeoDataFra
     """
     logger.info(f"Building main model input dataframe for {catchment} catchment...\n")
 
-    # Get model date range
-    date_range = pd.date_range(start=start_date, end=end_date, freq='D')
-
+    # Get model date range (assumes daily, weekly or monthly timestep)
+    frequency_map = {'daily': 'D', 'weekly': 'W-MON', 'monthly': 'MS'}
+    clean_pred_frequency = pred_frequency.lower().strip()
+    
+    frequency = frequency_map.get(clean_pred_frequency)
+    if frequency is None:
+        raise ValueError(f"Invalid prediction frequency: {pred_frequency}. Must be 'daily', "
+                         f"'weekly', or 'monthly'.")
+    
+    date_range = pd.date_range(start=start_date, end=end_date, freq=frequency)
+    
     logger.info(f"Building timesteps from {start_date[0:10]} to {end_date[0:10]}")
 
     # Get unique node id's

@@ -40,7 +40,7 @@ global:
 
   # --- DATA INGESTION SETTINGS ---
   data_ingestion:
-    api_start_date: "2013-11-01T00:00:00"
+    api_start_date: "2013-10-01T00:00:00"
     api_end_date: "2025-02-28T23:59:59"
     model_start_date: "2014-01-01T00:00:00"
     model_end_date: "2024-12-31T23:59:59"
@@ -150,7 +150,8 @@ eden:
     soil_csv_path: "data/02_processed/eden/static/soil_hydrology/"
     soil_type_dir: "{raw_data_root}/eden/static/soil_type/"
     soil_type_csv_path: "data/02_processed/eden/static/soil_type/"
-    stream_flow_csv: "data/02_processed/eden/hydroclimatic/streamflow"
+    stream_flow_csv: "data/02_processed/eden/hydroclimatic/streamflow"  # {pred_frequency}_streamflow.csv
+    stream_flow_station: "{raw_data_root}/eden/hydroclimatic/streamflow/flow_stations_list.csv"
 
     # --- ERA5-Land API Ingestion ---
     aet_processed_output_dir: "data/02_processed/eden/hydroclimatic/aet/"
@@ -158,17 +159,17 @@ eden:
     2t_processed_output_dir: "data/02_processed/eden/hydroclimatic/2meter_temp/"
     sp_raw_output_dir: "{raw_data_root}/eden/hydroclimatic/surface_pressure/"
     sp_processed_output_dir: "data/02_processed/eden/hydroclimatic/surface_pressure/"
-    aet_csv_path: "data/02_processed/eden/hydroclimatic/aet/aet_daily_catchment_sum.csv"
+    aet_csv_path: "data/02_processed/eden/hydroclimatic/aet/"  # aet_{pred_frequency}_catchment_sum.csv
     aet_fig_path: "results/figures/eden/time_series/hydroclimatic/aet_timeseries.png"
-    2t_csv_path: "data/02_processed/eden/hydroclimatic/2meter_temp/2m_temp_daily_catchment_mean.csv"
+    2t_csv_path: "data/02_processed/eden/hydroclimatic/2meter_temp/"  # 2m_temp_{pred_frequency}_catchment_mean.csv
     2t_fig_path: "results/figures/eden/time_series/hydroclimatic/2m_temp_timeseries.png"
-    sp_csv_path: "data/02_processed/eden/hydroclimatic/surface_pressure/surface_pressure_daily_catchment_mean.csv"
+    sp_csv_path: "data/02_processed/eden/hydroclimatic/surface_pressure/"  # surface_pressure_{pred_frequency}_catchment_mean.csv
     sp_fig_path: "results/figures/eden/time_series/hydroclimatic/surface_pressure_timeseries.png"
 
     # --- HAD-UK data ingestion ---
     rainfall_processed_output_dir: "data/02_processed/eden/hydroclimatic/rainfall/"
     rainfall_fig_path: "results/figures/eden/time_series/hydroclimatic/rainfall_volume_timeseries.png"
-    rainfall_csv_path: "data/02_processed/eden/hydroclimatic/rainfall/rainfall_daily_catchment_sum_log_transform.csv"
+    rainfall_csv_path: "data/02_processed/eden/hydroclimatic/rainfall/"  # rainfall_{pred_frequency}_catchment_sum_log_transform.csv
 
     # --- Graph Paths ---
     final_df_path: "data/02_processed/eden/final_df/"
@@ -191,14 +192,15 @@ eden:
     catchment_max_elevation: 945.40  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     catchment_min_elevation: 8.00  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     # --- Generated in Pipeline ---
-    rainfall_boxcox_lambda: 0.1701496697839992
-    aet_boxcox_lambda: 0.4931417208883217
-    mean_elevation_boxcox_lambda: 0.43791794465031564
-    mean_slope_deg_boxcox_lambda: -0.24587351671403726
+    rainfall_boxcox_lambda: 0.40507004437144584
+    aet_boxcox_lambda: 0.4228573720780577
+    mean_elevation_boxcox_lambda: 0.43791793774665777
+    mean_slope_deg_boxcox_lambda: -0.24587353302884188
     distance_to_river_boxcox_lambda: 0.32372267347270717
-    daily_streamflow_m3_s_boxcox_lambda: -0.19592529692363342
+    streamflow_m3_s_boxcox_lambda: -0.19592529692363342
 
   # --- VISUALISATION OUTPUT SETTINGS ---
+    streamflow_total_m3_boxcox_lambda: -0.0588745657365882
   visualisations:
     maps:  # ensure no specific file extensions here
       static_mesh_map_output: "results/figures/eden/maps/static_mesh_map"
@@ -217,16 +219,16 @@ eden:
     architecture:
       # --- GAT ---
       run_GAT: true  # Turn sections off for benchmarking and performance analysis (ablation studies)
-      heads_gat: 12 # (2) - try 8, then 4
-      dropout_gat: 0.4  # 40% dropped - (1) To 0.4 next
-      hidden_channels_gat: 64
+      heads_gat: 12 # 
+      dropout_gat: 0.4  # 40% dropped
+      hidden_channels_gat: 128  # FROM 64
       out_channels_gat: 64
-      num_layers_gat: 2
+      num_layers_gat: 2  # THEN 3 from 2
 
       # --- LSTM ---
       run_LSTM: false
       dropout_lstm: 0.4  # TODO: PROPERLY INCORPORATE THIS BEFORE RUNNING LSTM AGAIN!!
-      hidden_channels_lstm: 32  # (3) - reduce to 32 (from 64)
+      hidden_channels_lstm: 32
       num_layers_lstm: 1  # stack layers later if needed for performance
       # --- Feature Definitions ---
       # NOTE: in_channels, temporal_lstm_input_dim, and static_and_other_dynamic_features_dim
@@ -251,13 +253,13 @@ eden:
       # --- Full Model ---
       output_dim: 1  # one station gwl prediction per timestep
       adam_learning_rate: 0.001
-      adam_weight_decay: 0.0005  # 5e-4 is common initial weight decay val - (0) currenlty 0.005 to 0.001
+      adam_weight_decay: 0.0005  # 5e-4 is common initial weight decay val - (0) currenlty 0.0005 to 0.005 > 0.001
       lambda_smooth: 0.0  # Set to 0.0 for no smoothing
       initialise_with_dipped: true
 
     data_partioning:
       test_station_shortlist: ["ainstable", "coupland", "scaleby"]  # Length ideally >= minimum station req count
-      val_station_shortlist: ["castle_carrock", "skirwith", "great_musgrave"]  # Length ideally >= minimum station req count
+      val_station_shortlist: ["baronwood", "croglin", "great_musgrave"]  # Length ideally >= minimum station req count
       percentage_train: 77
       percentage_val: 15  # 2 stations for validating
       percentage_test: 8  # 1 station tested at a time
@@ -269,7 +271,7 @@ eden:
   training:
     verbose: true  # Run logger to debug (increases computation)
     num_epochs: 200  # Start here, may need to increase depending on computation times
-    early_stopping_patience: 25  # Early Stopping: Number of epochs to wait for improvement in validation loss before stopping training.
+    early_stopping_patience: 25 # Early Stopping: Number of epochs to wait for improvement in validation loss before stopping training.
     lr_scheduler_factor: 0.5  # ReduceLROnPlateau: Factor by which the learning rate will be reduced.
     lr_scheduler_patience: 8  # Patience for ReduceLROnPlateau: Number of epochs with no improvement in validation
     min_lr: 0.000001  # Min learning rate bound (Generally recommended: 1e-6)

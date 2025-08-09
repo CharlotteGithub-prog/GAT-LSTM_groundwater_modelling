@@ -34,18 +34,21 @@ def build_lags(df_dict: dict, catchment: str):
     logging.info(f"Lagged data built for all stations in {catchment} catchment\n.")
     return df_dict
 
-def build_seasonality_features(df_dict: dict, catchment: str, init_with_dip_value: bool = True):
+def build_seasonality_features(df_dict: dict, catchment: str, pred_frequency: str):
     
     # Build sin and cos seasonality to always have a non-zero seasonality
     for station, df in df_dict.items():
         logging.info(f"Building seasonality features for {station}...")
         
-        # Calculate doy using DateTime index
-        day_of_year = df.index.dayofyear
-        
-        # Calculate cosine and sine feature values
-        df['season_sin'] = np.sin(2 * np.pi * day_of_year / 365.25)
-        df['season_cos'] = np.cos(2 * np.pi * day_of_year / 365.25)
+        # Calculate doy using DateTime index and the corresponding sine and cosine features
+        if pred_frequency.lower().strip() == 'monthly':
+            month_of_year = df.index.month
+            df['season_sin'] = np.sin(2 * np.pi * month_of_year / 12)
+            df['season_cos'] = np.cos(2 * np.pi * month_of_year / 12)
+        else:
+            day_of_year = df.index.dayofyear
+            df['season_sin'] = np.sin(2 * np.pi * day_of_year / 365.25)
+            df['season_cos'] = np.cos(2 * np.pi * day_of_year / 365.25)
     
     logging.info(f"Seasonality data built for all stations in {catchment} catchment\n.")
     return df_dict

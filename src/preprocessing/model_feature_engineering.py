@@ -35,7 +35,7 @@ def _group_features_by_type(processed_df):
                         'rainfall_lag_4', 'rainfall_lag_5', 'rainfall_lag_6', 'rainfall_lag_7',
                         'rolling_30', 'rolling_60', '2m_temp', 'aet_volume', 'surface_pressure',
                         'season_sin', 'season_cos', 'bedrock_perm_avg', 'superficial_perm_avg',
-                        'distance_to_river', 'daily_streamflow_m3_s']
+                        'distance_to_river', 'streamflow_total_m3']
     # Check list defensively
     numerical_features = [feat for feat in numerical_features if feat in processed_df.columns]
 
@@ -54,7 +54,7 @@ def _group_features_by_type(processed_df):
     # Check feature count as expected
     other = ['node_id', 'timestep', 'Unnamed: 0']
     other = [feat for feat in other if feat in processed_df.columns]
-    
+
     feature_count = len(numerical_features) + len(categorical_features) + len(gwl_features) + len(other)
     assert feature_count == len(processed_df.columns), \
         f"{len(processed_df.columns) - feature_count} features missing from definition."
@@ -103,7 +103,7 @@ def _plot_standardised_data_aligned(processed_df, random_seed, violin_plt_path):
         'mean_elevation', 'mean_slope_deg', 'mean_aspect_sin', 'mean_aspect_cos',
         'rainfall_volume_m3', 'rainfall_lags',  'rolling_30', 'rolling_60', '2m_temp',
         'aet_volume', 'surface_pressure','season_sin', 'season_cos', 'bedrock_perm_avg',
-        'superficial_perm_avg', 'aquifer_productivity', 'daily_streamflow_m3_s'
+        'superficial_perm_avg', 'aquifer_productivity', 'streamflow_total_m3'
     ]
 
     # Filter plot_df to include only the columns that actually exist and are in the desired list

@@ -162,7 +162,7 @@ def _save_ID_count_to_config(train_station_ids, val_station_ids, test_station_id
         config[catchment]['model']['data_partioning']["len_val"] = int(len(val_station_ids))
         config[catchment]['model']['data_partioning']["len_test"] = int(len(test_station_ids))
 
-        with open(config_path, 'w') as f:
+        with open(config_path, 'W-MON') as f:
             yaml.dump(config, f)
         
         logger.info(f"Saved len_train={len(train_station_ids)}, len_val={len(val_station_ids)},"

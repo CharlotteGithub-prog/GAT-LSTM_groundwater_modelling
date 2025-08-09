@@ -1,3 +1,4 @@
+import os
 import sys
 import joblib
 import logging
@@ -315,25 +316,34 @@ def outlier_detection(gwl_time_series_dict: dict, output_path: str, dpi: int, di
     joblib.dump(processed_gwl_time_series_dict, dict_output)
     return processed_gwl_time_series_dict
 
-def resample_daily_average(dict: dict, start_date: str, end_date: str, path: str,
-                           notebook: bool = False):
+def resample_timestep_average(gwl_data_dict: dict, start_date: str, end_date: str, path: str,
+                              pred_frequency: str = 'daily', notebook: bool = False):
     """
-    Resample the gwl data to a daily timestep for model.
+    Resample the gwl data to the user specified timestep for model.
     """
-    logger.info(f"Initalising resampling of gwl data to daily timestep.\n")
+    logger.info(f"Initalising resampling of gwl data to {pred_frequency} timestep.\n")
     
     # Initialise new dict to store resampled data
-    daily_dict = {}
+    timestep_dict = {}
+    
+    # Get model frequency
+    frequency_map = {'daily': 'D', 'weekly': 'W-MON', 'monthly': 'MS'}
+    clean_pred_frequency = pred_frequency.lower().strip()
+    
+    frequency = frequency_map.get(clean_pred_frequency)
+    if frequency is None:
+        raise ValueError(f"Invalid prediction frequency: {pred_frequency}. Must be 'daily', "
+                         f"'weekly', or 'monthly'.")
     
     # Define global date range for model
     start_date = pd.to_datetime(start_date)
     end_date = pd.to_datetime(end_date)
-    full_date_range = pd.date_range(start_date, end_date, freq='D')
+    full_date_range = pd.date_range(start_date, end_date, freq=frequency)
     
     # Loop through remaining gwl monitoring stations
-    for original_station_name, df in dict.items():
+    for original_station_name, df in gwl_data_dict.items():
         standardised_station_name = original_station_name.lower().replace(' ', '_')
-        logger.info(f"Resampling {standardised_station_name} to daily timestep...")
+        logger.info(f"Resampling {standardised_station_name} to {pred_frequency} timestep...")
         
         # Check sorted by date and set date as index
         df = df.dropna(subset=['dateTime'])
@@ -348,22 +358,24 @@ def resample_daily_average(dict: dict, start_date: str, end_date: str, path: str
             'quality': lambda x: x.mode().iloc[0] if not x.mode().empty else pd.NA,
             'measure': 'first'
         }
-        
+            
         # Resample and aggregate
-        daily_df = df.resample('1D').agg(agg_funcs)
-        daily_df = daily_df.reindex(full_date_range)  # All stations cover full time range
-        daily_df = daily_df.reset_index().rename(columns={'index': 'dateTime'})
+        timestep_df = df.resample(frequency).agg(agg_funcs)
+        
+        # Ensure all stations cover full time range
+        timestep_df = timestep_df.reindex(full_date_range)
+        timestep_df = timestep_df.reset_index().rename(columns={'index': 'dateTime'})
         
         # Ensure station names are lowercase to avoid issues later in the pipeline
-        if 'station_name' in daily_df.columns:
-            daily_df['station_name'] = standardised_station_name
+        if 'station_name' in timestep_df.columns:
+            timestep_df['station_name'] = standardised_station_name
             
-        # Add processed DataFrame to daily_dict using standardised name (standardisation is key!)
-        daily_dict[standardised_station_name] = daily_df
+        # Add processed DataFrame to timestep_dict using standardised name (standardisation is key!)
+        timestep_dict[standardised_station_name] = timestep_df
         
         # For logging
-        expected_days = (end_date - start_date).days + 1  # +1 to be inclusive
-        valid_days = daily_df['value'].notna().sum()
+        expected_days = len(full_date_range)
+        valid_days = timestep_df['value'].notna().sum()
         percent_complete = (valid_days / expected_days) * 100
 
         logger.info(f"    {standardised_station_name} resampled -> now contains "
@@ -371,26 +383,26 @@ def resample_daily_average(dict: dict, start_date: str, end_date: str, path: str
         logger.info(f"    Data covers {percent_complete:.1f}% of time period.\n")
 
     # Save time series aggragated plots
-    for plot_station_name, plot_df in daily_dict.items():
+    for plot_station_name, plot_df in timestep_dict.items():
         plot_timeseries(
             time_series_df=plot_df,
             station_name=plot_station_name,
             output_path=path,
             outlier_mask=None,
-            title_suffix=" - daily timestep",
-            save_suffix="_aggregated_daily",
+            title_suffix=f" - {pred_frequency} timestep",
+            save_suffix=f"_aggregated_{pred_frequency}",
             notebook=notebook,
             plot_outliers=False,
             legend_type='quality'
         )
         
         # For logging
-        save_path = f"{path}{plot_station_name}_aggregated_daily.png"
-        logger.info(f"{plot_station_name} time series data in daily timestep saved to {save_path}.\n")
+        save_path = os.path.join(path, f"{plot_station_name}_aggregated_{pred_frequency}.png")
+        logger.info(f"{plot_station_name} time series data in {pred_frequency} timestep saved to {save_path}.\n")
     
-    return daily_dict
+    return timestep_dict
 
-def remove_spurious_data(target_df: pd.DataFrame, station_name: str, path: str, notebook: bool = False):
+def remove_spurious_data(target_df: pd.DataFrame, station_name: str, path: str, pred_frequency: str, notebook: bool = False):
     """
     Remove predefined data points identified as spurious from domain-based
     analysis.
@@ -496,16 +508,16 @@ def remove_spurious_data(target_df: pd.DataFrame, station_name: str, path: str, 
             station_name=station_name,
             output_path=path,
             outlier_mask=None,
-            title_suffix=" - daily timestep",
-            save_suffix="_aggregated_daily",
+            title_suffix=f" - {pred_frequency} timestep",
+            save_suffix=f"_aggregated_{pred_frequency}",
             notebook=notebook,
             plot_outliers=False,
             legend_type='quality'
         )
         
         # For logging
-        save_path = f"{path}{station_name}_aggregated_daily.png"
-        logger.info(f"{station_name} time series data in daily timestep saved to {save_path}.\n")
+        save_path = f"{path}{station_name}_aggregated_{pred_frequency}.png"
+        logger.info(f"{station_name} time series data in {pred_frequency} timestep saved to {save_path}.\n")
     
     return target_df
 
@@ -530,8 +542,8 @@ def print_missing_gaps(df: pd.DataFrame, station_name: str, max_steps: int):
         
     return total_missing
 
-def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_steps: int = 30,
-                           notebook: bool = False):
+def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, pred_frequency: str,
+                           max_steps: int = 30, notebook: bool = False):
     """
     Interpolate missing points up to threshold defined in config using polynomial
     spline interpolation (specifically PCHIP) and flag all interpolated data for model
@@ -606,51 +618,52 @@ def interpolate_short_gaps(df: pd.DataFrame, station_name: str, path: str, max_s
             station_name=station_name,
             output_path=path,
             outlier_mask=None,
-            title_suffix=" - daily timestep",
-            save_suffix="_aggregated_daily",
+            title_suffix=f" - {pred_frequency} timestep",
+            save_suffix=f"_aggregated_{pred_frequency}",
             notebook=notebook,
             plot_outliers=False,
             legend_type='interpolation'
         )
 
-    logger.info(f"{station_name} updated plot saved to {path}{station_name}_aggregated_daily.png\n")
+    logger.info(f"{station_name} updated plot saved to {path}{station_name}_aggregated_{pred_frequency}.png\n")
 
     return gap, interpolated_df, max_uninterpolated_gap_length
 
-def handle_short_gaps(daily_data: dict, path: str, max_steps: int, start_date: str,
-                      end_date: str, notebook: bool=False):
+def handle_short_gaps(timestep_data: dict, path: str, max_steps: int, start_date: str,
+                      end_date: str, pred_frequency: str = 'daily', notebook: bool=False):
     """
     Handles short-gap imputation for groundwater level time series.
 
     - Interpolates small gaps (e.g., < max_steps days) using `interpolate_short_gaps`.
     - Logs and returns stations still requiring long-gap imputation.
-    - Reindexes all time series to a complete daily range for modelling.
+    - Reindexes all time series to a complete timestep range for modelling.
 
     Returns:
-        daily_data (dict): Updated time series per station.
+        timestep_data (dict): Updated time series per station.
         gaps_list (list): Stations still needing long-gap interpolation.
         station_max_gap_lengths_calculated (dict): Max gap lengths per station.
     """
-    for station_name, df_data in daily_data.items():
+    for station_name, df_data in timestep_data.items():
         if 'dateTime' in df_data.columns:
             df_data['dateTime'] = pd.to_datetime(df_data['dateTime'], errors='coerce')
             df_data = df_data.set_index('dateTime').sort_index()
-            daily_data[station_name] = df_data # Update the dict with the indexed DataFrame
+            timestep_data[station_name] = df_data # Update the dict with the indexed DataFrame
 
     gaps_list = []
     station_max_gap_lengths_calculated = {}
 
-    for station_name, df in daily_data.items():
+    for station_name, df in timestep_data.items():
         gap_status_for_large_interp, updated_df, max_gap_len_for_this_station = interpolate_short_gaps(
             df=df,
             station_name=station_name,
             path=path,
             max_steps=max_steps,
+            pred_frequency=pred_frequency,
             notebook=notebook
         )
         
-        # Update daily_data with the processed (interpolated) DataFrame
-        daily_data[station_name] = updated_df
+        # Update timestep_data with the processed (interpolated) DataFrame
+        timestep_data[station_name] = updated_df
 
         if gap_status_for_large_interp: # If the station still needs large gap interp
             gaps_list.append(station_name)
@@ -659,14 +672,23 @@ def handle_short_gaps(daily_data: dict, path: str, max_steps: int, start_date: s
             
     logging.info(f"Stations still needing interpolation: {gaps_list}\n")
     logging.info(f"Max uninterpolated gap lengths per station:\n{station_max_gap_lengths_calculated}\n")
+    
+    # Get model frequency
+    frequency_map = {'daily': 'D', 'weekly': 'W-MON', 'monthly': 'MS'}
+    clean_pred_frequency = pred_frequency.lower().strip()
+    
+    frequency = frequency_map.get(clean_pred_frequency)
+    if frequency is None:
+        raise ValueError(f"Invalid prediction frequency: {pred_frequency}. Must be 'daily', "
+                         f"'weekly', or 'monthly'.")
 
-    # Define the full date range based on your config
+    # Define full date range based on config
     start_date = pd.to_datetime(start_date)
     end_date = pd.to_datetime(end_date)
-    full_date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+    full_date_range = pd.date_range(start=start_date, end=end_date, freq=frequency)
 
-    for station_name, df_data in daily_data.items():
+    for station_name, df_data in timestep_data.items():
         df_data = df_data.reindex(full_date_range)
-        daily_data[station_name] = df_data  # Update the dict with the reindexed DataFrame
+        timestep_data[station_name] = df_data  # Update the dict with the reindexed DataFrame
             
-    return daily_data, gaps_list, station_max_gap_lengths_calculated
+    return timestep_data, gaps_list, station_max_gap_lengths_calculated
