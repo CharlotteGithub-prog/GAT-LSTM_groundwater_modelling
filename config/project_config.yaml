@@ -12,12 +12,12 @@ global:
     run_era5_land_api: false  # Long!
     run_outlier_detection: false
     run_gwl_imputation: false
-    prediction_resolution: "daily"  # Options: ["daily", "weekly", "monthly"]
+    prediction_resolution: "weekly"  # Options: ["daily", "weekly", "monthly"]
 
   # --- FILE PATHS ---
   paths:
-    raw_data_root: "../msc-groundwater-gwl-data"  # Alternative: "data"
-    results_root: "../msc-groundwater-gwl-results"  # Alternative: "results"
+    raw_data_root: "data"  # Alternative: "../msc-groundwater-gwl-data"
+    results_root: "results"  # Alternative: "../msc-groundwater-gwl-results"
     # --- Specific INPUT files ---
     gis_os_grid_squares: "{raw_data_root}/01_raw/global/os_grid_squares.csv"
     defra_station_base_url: "https://environment.data.gov.uk/hydrology/id/stations"
@@ -193,15 +193,15 @@ eden:
     catchment_max_elevation: 945.40  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     catchment_min_elevation: 8.00  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     # --- Generated in Pipeline ---
-    rainfall_boxcox_lambda: 0.1701496697839992
-    aet_boxcox_lambda: 0.4931417208883217
-    mean_elevation_boxcox_lambda: 0.43791794465031564
-    mean_slope_deg_boxcox_lambda: -0.24587351671403726
+    rainfall_boxcox_lambda: 0.40507004437144584
+    aet_boxcox_lambda: 0.4228573720780577
+    mean_elevation_boxcox_lambda: 0.43791793774665777
+    mean_slope_deg_boxcox_lambda: -0.24587353302884188
     distance_to_river_boxcox_lambda: 0.32372267347270717
-    streamflow_m3_s_boxcox_lambda: -0.19592529692363342
+    # streamflow_m3_s_boxcox_lambda: -0.19592529692363342
+    streamflow_total_m3_boxcox_lambda: -0.0588745657365882
 
   # --- VISUALISATION OUTPUT SETTINGS ---
-    streamflow_total_m3_boxcox_lambda: -0.19592529692363342
   visualisations:
     maps:  # ensure no specific file extensions here
       static_mesh_map_output: "{results_root}/figures/eden/maps/static_mesh_map"
