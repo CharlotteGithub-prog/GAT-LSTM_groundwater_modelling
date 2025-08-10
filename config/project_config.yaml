@@ -16,7 +16,8 @@ global:
 
   # --- FILE PATHS ---
   paths:
-    raw_data_root: "data"  # Alternative: "../msc-groundwater-gwl-data"
+    raw_data_root: "../msc-groundwater-gwl-data"  # Alternative: "data"
+    results_root: "../msc-groundwater-gwl-results"  # Alternative: "results"
     # --- Specific INPUT files ---
     gis_os_grid_squares: "{raw_data_root}/01_raw/global/os_grid_squares.csv"
     defra_station_base_url: "https://environment.data.gov.uk/hydrology/id/stations"
@@ -30,13 +31,13 @@ global:
     processed_data_dir: "{raw_data_root}/02_processed/"
     external_data_dir: "{raw_data_root}/03_external/"
     # --- Results Directories ---
-    results_dir: "results/"
-    logs_results_dir: "results/logs/"
-    temp_results_dir: "results/temp_plots/"
-    tables_results_dir: "results/tables/"
-    figures_results_dir: "results/figures/"
-    trained_model_results_dir: "results/trained_models/"
-    predictions_results_dir: "results/predictions/"
+    results_dir: "{results_root}/"
+    logs_results_dir: "{results_root}/logs/"
+    temp_results_dir: "{results_root}/temp_plots/"
+    tables_results_dir: "{results_root}/tables/"
+    figures_results_dir: "{results_root}/figures/"
+    trained_model_results_dir: "{results_root}/trained_models/"
+    predictions_results_dir: "{results_root}/predictions/"
 
   # --- DATA INGESTION SETTINGS ---
   data_ingestion:
@@ -160,15 +161,15 @@ eden:
     sp_raw_output_dir: "{raw_data_root}/01_raw/eden/hydroclimatic/surface_pressure/"
     sp_processed_output_dir: "{raw_data_root}/02_processed/eden/hydroclimatic/surface_pressure/"
     aet_csv_path: "{raw_data_root}/02_processed/eden/hydroclimatic/aet/"  # aet_{pred_frequency}_catchment_sum.csv
-    aet_fig_path: "results/figures/eden/time_series/hydroclimatic/aet_timeseries.png"
+    aet_fig_path: "{results_root}/figures/eden/time_series/hydroclimatic/aet_timeseries.png"
     2t_csv_path: "{raw_data_root}/02_processed/eden/hydroclimatic/2meter_temp/"  # 2m_temp_{pred_frequency}_catchment_mean.csv
-    2t_fig_path: "results/figures/eden/time_series/hydroclimatic/2m_temp_timeseries.png"
+    2t_fig_path: "{results_root}/figures/eden/time_series/hydroclimatic/2m_temp_timeseries.png"
     sp_csv_path: "{raw_data_root}/02_processed/eden/hydroclimatic/surface_pressure/"  # surface_pressure_{pred_frequency}_catchment_mean.csv
-    sp_fig_path: "results/figures/eden/time_series/hydroclimatic/surface_pressure_timeseries.png"
+    sp_fig_path: "{results_root}/figures/eden/time_series/hydroclimatic/surface_pressure_timeseries.png"
 
     # --- HAD-UK data ingestion ---
     rainfall_processed_output_dir: "{raw_data_root}/02_processed/eden/hydroclimatic/rainfall/"
-    rainfall_fig_path: "results/figures/eden/time_series/hydroclimatic/rainfall_volume_timeseries.png"
+    rainfall_fig_path: "{results_root}/figures/eden/time_series/hydroclimatic/rainfall_volume_timeseries.png"
     rainfall_csv_path: "{raw_data_root}/02_processed/eden/hydroclimatic/rainfall/"  # rainfall_{pred_frequency}_catchment_sum_log_transform.csv
 
     # --- Graph Paths ---
@@ -203,16 +204,16 @@ eden:
     streamflow_total_m3_boxcox_lambda: -0.19592529692363342
   visualisations:
     maps:  # ensure no specific file extensions here
-      static_mesh_map_output: "results/figures/eden/maps/static_mesh_map"
-      interactive_mesh_map_output: "results/figures/eden/maps/interactive_mesh_map"
-      interactive_station_map_output: "results/figures/eden/maps/interactive_station_mesh_map"
-      interactive_directional_map_output: "results/figures/eden/maps/interactive_directional_map"
+      static_mesh_map_output: "{results_root}/figures/eden/maps/static_mesh_map"
+      interactive_mesh_map_output: "{results_root}/figures/eden/maps/interactive_mesh_map"
+      interactive_station_map_output: "{results_root}/figures/eden/maps/interactive_station_mesh_map"
+      interactive_directional_map_output: "{results_root}/figures/eden/maps/interactive_directional_map"
     ts_plots:
-      time_series_gwl_output: "results/figures/eden/time_series/"
+      time_series_gwl_output: "{results_root}/figures/eden/time_series/"
       dpi_save: 300  # Always adjust to 300 for final output run
       extension: "svg"
-    corr_dist_score_scatters: "results/figures/eden/scatter/"
-    violin_plt_path: "results/figures/eden/other/standardised_violins.png"
+    corr_dist_score_scatters: "{results_root}/figures/eden/scatter/"
+    violin_plt_path: "{results_root}/figures/eden/other/standardised_violins.png"
 
   # --- GRAPH CONSTRUCTION SETTINGS ---
   model:
