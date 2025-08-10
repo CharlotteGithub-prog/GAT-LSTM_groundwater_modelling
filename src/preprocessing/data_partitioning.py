@@ -171,8 +171,9 @@ def _save_ID_count_to_config(train_station_ids, val_station_ids, test_station_id
     except Exception as e:
         logger.error(f"Failed to save node ID list lengths to config.yaml: {e}")
          
-def define_station_id_splits(main_df_full: pd.DataFrame, catchment: str, test_station_shortlist: list, val_station_shortlist: list,
-                             random_seed: int, perc_train: int = 70, perc_val: int = 15, perc_test: int = 15):
+def define_station_id_splits(main_df_full: pd.DataFrame, catchment: str, test_station_shortlist: list,
+                             val_station_shortlist: list, random_seed: int, perc_train: int = 70,
+                             perc_val: int = 15, perc_test: int = 15):
     """
     Split station nodes into training, validation and testing sets by node ID. Prioritises stations from ordered
     shortlists (see catchment model config), then fills remaining slots randomly.
@@ -264,7 +265,8 @@ def define_station_id_splits(main_df_full: pd.DataFrame, catchment: str, test_st
     return train_station_ids_output, val_station_ids_output, test_station_ids_output
 
 # Divide preprocessing datafame into PyG data objects using train/val/test station id subsets
-def _build_x_tensor(df_snapshot, gwl_x_features, sentinel_value, val_station_ids, test_station_ids):
+def _build_x_tensor(df_snapshot, gwl_x_features, sentinel_value, val_station_ids, test_station_ids,
+                    gwl_ohe_cols):
     """
     For validation and test stations, set their GWL-specific features in x to sentinels/zeros.
     All non-station nodes are already 'masked' to sentinel value (num) / 0.0 (cat)
@@ -279,8 +281,8 @@ def _build_x_tensor(df_snapshot, gwl_x_features, sentinel_value, val_station_ids
     # prepare the 'x' feat matrix
     temp_df = df_snapshot.copy()
     
-    # Add a single 'gwl_data_is_observed' indicator column, initialised to observed for all nodes
-    temp_df['gwl_data_is_observed'] = 1.0
+    # Convert cols list to set (as is O(1) and handles any incorrect duplicates)
+    gwl_ohe_cols = set(gwl_ohe_cols or [])
     
     # Apply GWL feature masking for identified nodes within the `x` features
     for id_to_mask in training_masks_nodes:
@@ -301,17 +303,13 @@ def _build_x_tensor(df_snapshot, gwl_x_features, sentinel_value, val_station_ids
             for feat in gwl_x_features:
                 if feat in temp_df.columns:
                     
-                    # Set numerical features to sentinel filler value
-                    if temp_df[feat].dtype in ['float64', 'float32', 'int64', 'int32']:
-                        temp_df.loc[node_mask, feat] = sentinel_value
-                    
                     # Set OHE categorical features to 0.0 (Non-Occurrence)
-                    elif temp_df[feat].dtype == 'uint8':
+                    if feat in gwl_ohe_cols:
                         temp_df.loc[node_mask, feat] = 0.0
-    
-    # Ensure the indicator feature is included in the final x_df
-    all_x_features.append('gwl_data_is_observed')
-    
+                    
+                    # Set numerical features to sentinel filler value 
+                    else:
+                        temp_df.loc[node_mask, feat] = sentinel_value
     # prepare the 'x' feat matrix
     x_df = temp_df[all_x_features].copy()
                         
@@ -336,7 +334,7 @@ def _build_y_tensor(df_snapshot):
 def _build_object_masks(grouped_by_timestep, train_station_ids: list, val_station_ids: list,
                         test_station_ids: list, all_timesteps_list: list, gwl_x_features: list,
                         sentinel_value: float, mesh_node_count: int, all_node_ids: list,
-                        edge_index_tensor: torch.Tensor, edge_attr_tensor: torch.Tensor):
+                        edge_index_tensor: torch.Tensor, edge_attr_tensor: torch.Tensor, gwl_ohe_cols: list):
     """
     tbd
     """
@@ -352,7 +350,8 @@ def _build_object_masks(grouped_by_timestep, train_station_ids: list, val_statio
         df_snapshot = df_t.copy()
         
         # Apply Feature Masking within `x` for val and test stations
-        x = _build_x_tensor(df_snapshot, gwl_x_features, sentinel_value, val_station_ids, test_station_ids)
+        x = _build_x_tensor(df_snapshot, gwl_x_features, sentinel_value, val_station_ids,
+                            test_station_ids, gwl_ohe_cols)
         
         # Prepare the target `y` and its masks
         y = _build_y_tensor(df_snapshot)
@@ -404,7 +403,20 @@ def _build_object_masks(grouped_by_timestep, train_station_ids: list, val_statio
         # Map per-row node_id for this timestep
         snapshot_node_ids = df_snapshot["node_id"].tolist()
         node_id_tensor = torch.tensor([node_id_to_idx[n] for n in snapshot_node_ids], dtype=torch.long)
-
+        
+        # Set observed mask where gwl_val not nan then knock out rows masked to mean
+        valid_obs_mask_np = df_snapshot['gwl_value'].notna().to_numpy()
+        masked_any = df_snapshot['gwl_data_type_masked'].fillna(0).astype(float).gt(0.5).to_numpy()  # 0.5 avoids potential brittleness of 0.999 etc.
+        valid_obs_mask_np &= ~masked_any
+        
+        # Set valid observation mask
+        valid_obs_mask = torch.tensor(valid_obs_mask_np, dtype=torch.bool)
+        
+        # Define effective masks
+        train_effective_mask = train_mask & valid_obs_mask
+        val_effective_mask = val_mask & valid_obs_mask
+        test_effective_mask = test_mask & valid_obs_mask
+                
         # Create the PyG Data object for this timestep
         data = Data(
             x=x,
@@ -414,6 +426,9 @@ def _build_object_masks(grouped_by_timestep, train_station_ids: list, val_statio
             train_mask=train_mask,
             val_mask=val_mask,
             test_mask=test_mask,
+            train_effective_mask=train_effective_mask,
+            val_effective_mask=val_effective_mask,
+            test_effective_mask=test_effective_mask,
             timestep=timestep_t # Store directly in data obj for easier temporal handling
         )
         
@@ -429,7 +444,7 @@ def _build_object_masks(grouped_by_timestep, train_station_ids: list, val_statio
     return all_timesteps_list
 
 def build_pyg_object(processed_df: pd.DataFrame, sentinel_value: float, train_station_ids: list,
-                     val_station_ids: list, test_station_ids: list, gwl_feats: list,
+                     val_station_ids: list, test_station_ids: list, gwl_feats: list, gwl_ohe_cols: list,
                      edge_index_tensor: torch.Tensor, edge_attr_tensor: torch.Tensor, catchment: str):
     """
     tbd
@@ -474,6 +489,6 @@ def build_pyg_object(processed_df: pd.DataFrame, sentinel_value: float, train_st
     all_timesteps_list = _build_object_masks(grouped_by_timestep, train_station_ids,
                         val_station_ids, test_station_ids, all_timesteps_list, gwl_x_features,
                         sentinel_value, mesh_node_count, all_node_ids, edge_index_tensor,
-                        edge_attr_tensor)
+                        edge_attr_tensor, gwl_ohe_cols)
     
     return all_timesteps_list
