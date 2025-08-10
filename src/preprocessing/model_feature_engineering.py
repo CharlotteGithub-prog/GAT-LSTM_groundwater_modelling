@@ -151,7 +151,7 @@ def _save_shared_feat_encoders(shared_scaler, shared_encoder, catchment, scaler_
 
     logger.info(f"Pipeline Step 'Save Scalers and Encoders' complete for {catchment} catchment.")
 
-def preprocess_shared_features(main_df_full, catchment, random_seed, violin_plt_path, scaler_dir):
+def preprocess_shared_features(main_df_full, catchment, random_seed, violin_plt_path, scaler_dir, aux_dir):
     """
     Apply final preprocessing to shared features only to reduce operation repetition after splitting
     while avoiding data leakage. GWL preprocessingn is undertaken post data split.
@@ -239,6 +239,9 @@ def preprocess_shared_features(main_df_full, catchment, random_seed, violin_plt_
     
     # Save Encoders
     _save_shared_feat_encoders(shared_scaler, shared_encoder, catchment, scaler_dir)
+    
+    # Save gwl_feats to access directly for training
+    joblib.dump(gwl_feats, os.path.join(aux_dir, "gwl_feats.joblib"))
     
     return processed_df, shared_scaler, shared_encoder, gwl_feats
 
@@ -443,7 +446,7 @@ def _save_gwl_encoders(gwl_scaler, gwl_encoder, target_scaler, catchment, scaler
     logger.info(f"Pipeline Step 'Save Scalers and Encoders' complete for {catchment} catchment.")
 
 def preprocess_gwl_features(processed_df, catchment, train_station_ids, val_station_ids, test_station_ids,
-                            sentinel_value, scaler_dir):
+                            sentinel_value, scaler_dir, parquet_path):
     """
     Preprocesses groundwater level (GWL) features by handling missing values with sentinels,
     standardising numerical features, and one-hot encoding categorical features using only training data
@@ -537,6 +540,11 @@ def preprocess_gwl_features(processed_df, catchment, train_station_ids, val_stat
     
     # Save Encoders
     _save_gwl_encoders(gwl_scaler, gwl_encoder, target_scaler, catchment, scaler_dir)
+    
+    # Save processed df for direct training access
+    logger.info(f"Saving processed_df for direct training access...")
+    processed_df.to_parquet(parquet_path, engine='pyarrow', index=False)
+    logger.info(f"processed_df saved to {parquet_path} for direct training access.\n")
 
     # Return the modified df and the fitted transformers for potential inverse transforms or inspection
     return processed_df, gwl_scaler, gwl_encoder

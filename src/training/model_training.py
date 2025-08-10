@@ -2,6 +2,7 @@ import os
 import sys
 import math
 import torch
+import joblib
 # import pickle
 import logging
 import numpy as np
@@ -343,5 +344,11 @@ def save_train_val_losses(output_analysis_dir, train_losses, val_losses, config,
     # Return npy filepaths
     relative_train_path = os.path.join(npy_losses_dir,  f"{dynamic_base_filename}_train_loss.npy")
     relative_val_path = os.path.join(npy_losses_dir,  f"{dynamic_base_filename}_val_loss.npy")
+    
+    # Save npy filepaths
+    loss_paths = (relative_train_path, relative_val_path)
+    loss_paths_filename = os.path.join(npy_losses_dir, f"{dynamic_base_filename}_loss_paths.joblib")
+    joblib.dump(loss_paths, loss_paths_filename)
+    logger.info(f"Loss file paths saved to: {loss_paths_filename}")
     
     return relative_train_path, relative_val_path

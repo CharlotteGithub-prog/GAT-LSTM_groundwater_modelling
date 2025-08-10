@@ -2,6 +2,7 @@
 import os
 import sys
 import torch
+import joblib
 import logging
 import datetime
 import numpy as np
@@ -162,7 +163,7 @@ def _save_ID_count_to_config(train_station_ids, val_station_ids, test_station_id
         config[catchment]['model']['data_partioning']["len_val"] = int(len(val_station_ids))
         config[catchment]['model']['data_partioning']["len_test"] = int(len(test_station_ids))
 
-        with open(config_path, 'W-MON') as f:
+        with open(config_path, 'w') as f:
             yaml.dump(config, f)
         
         logger.info(f"Saved len_train={len(train_station_ids)}, len_val={len(val_station_ids)},"
@@ -172,8 +173,8 @@ def _save_ID_count_to_config(train_station_ids, val_station_ids, test_station_id
         logger.error(f"Failed to save node ID list lengths to config.yaml: {e}")
          
 def define_station_id_splits(main_df_full: pd.DataFrame, catchment: str, test_station_shortlist: list,
-                             val_station_shortlist: list, random_seed: int, perc_train: int = 70,
-                             perc_val: int = 15, perc_test: int = 15):
+                             val_station_shortlist: list, random_seed: int, output_dir: str,
+                             perc_train: int = 70, perc_val: int = 15, perc_test: int = 15):
     """
     Split station nodes into training, validation and testing sets by node ID. Prioritises stations from ordered
     shortlists (see catchment model config), then fills remaining slots randomly.
@@ -261,6 +262,12 @@ def define_station_id_splits(main_df_full: pd.DataFrame, catchment: str, test_st
     # --- Save station ID count by type to config ---
     
     _save_ID_count_to_config(train_station_ids, val_station_ids, test_station_ids, catchment)
+    
+    # --- Save outputs to access directly for training ---
+    
+    joblib.dump(train_station_ids_output, os.path.join(output_dir, "train_station_ids.joblib"))
+    joblib.dump(val_station_ids_output, os.path.join(output_dir, "val_station_ids.joblib"))
+    joblib.dump(test_station_ids_output, os.path.join(output_dir, "test_station_ids.joblib"))
 
     return train_station_ids_output, val_station_ids_output, test_station_ids_output
 
