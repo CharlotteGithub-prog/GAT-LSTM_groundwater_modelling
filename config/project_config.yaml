@@ -17,13 +17,13 @@ global:
 
   # --- FILE PATHS ---
   paths:
-    raw_data_root: "data"  # Alternative: "../msc-groundwater-gwl-data"
-    results_root: "results"  # Alternative: "../msc-groundwater-gwl-results"
+    raw_data_root: "../msc-groundwater-gwl-data"  # Alternative: "data"
+    results_root: "../msc-groundwater-gwl-results"  # Alternative: "results"
     # --- Specific INPUT files ---
     gis_os_grid_squares: "{raw_data_root}/01_raw/global/os_grid_squares.csv"
     defra_station_base_url: "https://environment.data.gov.uk/hydrology/id/stations"
     HAD_UK_rainfall_url: "https://dap.ceda.ac.uk/thredds/dodsC/badc/ukmo-hadobs/data/insitu/MOHC/HadOBS/HadUK-Grid/v1.3.0.ceda/1km/rainfall/day/v20240514/rainfall_hadukgrid_uk_1km_day_"
-    CDSAPI_path: "~/Desktop/Dissertation_Code/.cdsapirc"
+    CDSAPI_path: ".cdsapirc"
     # --- Specific OUTPUT files ---
       # currently none, remove in future if not used
     # --- Data Directories ---
