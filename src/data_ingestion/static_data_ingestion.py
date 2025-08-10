@@ -1246,8 +1246,8 @@ def load_process_soil_hydrology(soil_dir: str, csv_path: str, catchment: str,
         
         # Plot input data
         soil_arr = src.read(1)
-        pyplot.imshow(soil_arr, cmap='pink')
-        pyplot.show()
+        # pyplot.imshow(soil_arr, cmap='pink')
+        # pyplot.show()
         
         # Ensure the mesh nodes are also in the same CRS
         raster_crs = 'EPSG:27700'
