@@ -16,13 +16,13 @@ global:
 
   # --- FILE PATHS ---
   paths:
-    raw_data_root: "data"  # Alternative: "../msc-groundwater-gwl-data"
-    results_root: "results"  # Alternative: "../msc-groundwater-gwl-results"
+    raw_data_root: "../msc-groundwater-gwl-data"  # Alternative: "data"
+    results_root: "../msc-groundwater-gwl-results"  # Alternative: "results"
     # --- Specific INPUT files ---
     gis_os_grid_squares: "{raw_data_root}/01_raw/global/os_grid_squares.csv"
     defra_station_base_url: "https://environment.data.gov.uk/hydrology/id/stations"
     HAD_UK_rainfall_url: "https://dap.ceda.ac.uk/thredds/dodsC/badc/ukmo-hadobs/data/insitu/MOHC/HadOBS/HadUK-Grid/v1.3.0.ceda/1km/rainfall/day/v20240514/rainfall_hadukgrid_uk_1km_day_"
-    CDSAPI_path: "~/Desktop/Dissertation_Code/.cdsapirc"
+    CDSAPI_path: ".cdsapirc"
     # --- Specific OUTPUT files ---
       # currently none, remove in future if not used
     # --- Data Directories ---
@@ -197,7 +197,7 @@ eden:
     aet_boxcox_lambda: 0.4228573720780577
     mean_elevation_boxcox_lambda: 0.43791793774665777
     mean_slope_deg_boxcox_lambda: -0.24587353302884188
-    distance_to_river_boxcox_lambda: 0.32372267347270717
+    distance_to_river_boxcox_lambda: 0.3237226828300758
     # streamflow_m3_s_boxcox_lambda: -0.19592529692363342
     streamflow_total_m3_boxcox_lambda: -0.0588745657365882
 
@@ -273,7 +273,7 @@ eden:
     verbose: true  # Run logger to debug (increases computation)
     num_epochs: 200  # Start here, may need to increase depending on computation times
     early_stopping_patience: 25 # Early Stopping: Number of epochs to wait for improvement in validation loss before stopping training.
-    lr_scheduler_factor: 0.5  # ReduceLROnPlateau: Factor by which the learning rate will be reduced.
+    lr_scheduler_factor: 0.1  # ReduceLROnPlateau: Factor by which the learning rate will be reduced. PREVIOUSLY: 0.5
     lr_scheduler_patience: 8  # Patience for ReduceLROnPlateau: Number of epochs with no improvement in validation
     min_lr: 0.000001  # Min learning rate bound (Generally recommended: 1e-6)
     loss_delta: 0.0001  # Minimum change in loss required to count as improvement
