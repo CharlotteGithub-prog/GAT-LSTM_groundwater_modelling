@@ -169,7 +169,7 @@ def _process_rainfall_files(rainfall_dir, catchment, shape_filepath, required_cr
             # Check for nan
             if 'rainfall' in masked_data:
                 nan_count = masked_data['rainfall'].isnull().sum().item()
-                logging.info(f"    Total NaN values in 'rainfall': {nan_count}")
+                logging.info(f"    Total NaN values in 'rainfall': {nan_count} (of {len(masked_data)})")
             else:
                 logging.warning("'rainfall' variable not found in dataset!")
             
