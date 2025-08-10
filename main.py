@@ -788,12 +788,12 @@ try:
 
         logger.info(f"Groundwater Level data successfully merged into main_df for {catchment} catchment.\n")
         
-        # Save final dataframe to file - NB: TIME TO SAVE APPROX. 2.5 MINS - [FUTURE] SET FLAG?
+        # # Save final dataframe to file - NB: TIME TO SAVE APPROX. 2.5 MINS - [FUTURE] SET FLAG?
         
-        final_save_path = os.path.join(final_dir, 'final_df.csv')
-        main_df_full.to_csv(final_save_path)
+        # final_save_path = os.path.join(final_dir, 'final_df.csv')
+        # main_df_full.to_csv(final_save_path)
         
-        logger.info(f"Final merged dataframe saved to {final_save_path}")
+        # logger.info(f"Final merged dataframe saved to {final_save_path}")
         
         # --- 5e. Incorporate Edge Weighting (edge_weight if simple or only edge_att, using adjacency grid) ---
         
@@ -823,6 +823,7 @@ try:
             test_station_shortlist=config[catchment]["model"]["data_partioning"]["test_station_shortlist"],
             val_station_shortlist=config[catchment]["model"]["data_partioning"]["val_station_shortlist"],
             random_seed=config["global"]["pipeline_settings"]["random_seed"],
+            output_dir=config[catchment]["paths"]["aux_dir"],
             perc_train=config[catchment]["model"]["data_partioning"]["percentage_train"],
             perc_val=config[catchment]["model"]["data_partioning"]["percentage_val"],
             perc_test=config[catchment]["model"]["data_partioning"]["percentage_test"]
@@ -837,7 +838,8 @@ try:
             catchment=catchment,
             random_seed=config["global"]["pipeline_settings"]["random_seed"],
             violin_plt_path=config[catchment]["visualisations"]["violin_plt_path"],
-            scaler_dir = config[catchment]["paths"]["scalers_dir"]
+            scaler_dir = config[catchment]["paths"]["scalers_dir"],
+            aux_dir=config[catchment]["paths"]["aux_dir"]
         )
 
         logger.info(f"Pipeline Step 'Preprocess Final Shared Features' complete for {catchment} catchment.\n")
