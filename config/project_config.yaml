@@ -12,7 +12,8 @@ global:
     run_era5_land_api: false  # Long!
     run_outlier_detection: false
     run_gwl_imputation: false
-    prediction_resolution: "weekly"  # Options: ["daily", "weekly", "monthly"]
+    prediction_resolution: "daily"  # Options: ["daily", "weekly", "monthly"]
+    output_resolution: "weekly"  # Must be equal to or higher than prediction_resolution
 
   # --- FILE PATHS ---
   paths:
@@ -193,13 +194,13 @@ eden:
     catchment_max_elevation: 945.40  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     catchment_min_elevation: 8.00  # mAOD from https://nrfa.ceh.ac.uk/data/station/spatial/76007
     # --- Generated in Pipeline ---
-    rainfall_boxcox_lambda: 0.40507004437144584
-    aet_boxcox_lambda: 0.4228573720780577
-    mean_elevation_boxcox_lambda: 0.43791793774665777
-    mean_slope_deg_boxcox_lambda: -0.24587353302884188
+    rainfall_boxcox_lambda: 0.1701496697839992
+    aet_boxcox_lambda: 0.4931417208883217
+    mean_elevation_boxcox_lambda: 0.43791794465031564
+    mean_slope_deg_boxcox_lambda: -0.24587351671403726
     distance_to_river_boxcox_lambda: 0.32372267347270717
     # streamflow_m3_s_boxcox_lambda: -0.19592529692363342
-    streamflow_total_m3_boxcox_lambda: -0.0588745657365882
+    streamflow_total_m3_boxcox_lambda: -0.19592529692363342
 
   # --- VISUALISATION OUTPUT SETTINGS ---
   visualisations:
@@ -273,8 +274,8 @@ eden:
     verbose: true  # Run logger to debug (increases computation)
     num_epochs: 200  # Start here, may need to increase depending on computation times
     early_stopping_patience: 25 # Early Stopping: Number of epochs to wait for improvement in validation loss before stopping training.
-    lr_scheduler_factor: 0.5  # ReduceLROnPlateau: Factor by which the learning rate will be reduced.
-    lr_scheduler_patience: 8  # Patience for ReduceLROnPlateau: Number of epochs with no improvement in validation
+    lr_scheduler_factor: 0.1  # ReduceLROnPlateau: Factor by which the learning rate will be reduced. PREVIOUSLY: 0.5
+    lr_scheduler_patience: 7  # Patience for ReduceLROnPlateau: Number of epochs with no improvement in validation
     min_lr: 0.000001  # Min learning rate bound (Generally recommended: 1e-6)
     loss_delta: 0.0001  # Minimum change in loss required to count as improvement
     gradient_clip_max_norm: 1.0  # Gradient Clipping Max Norm: Maximum norm of the gradients for gradient clipping (help prevent exploding grad.)
