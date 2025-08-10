@@ -189,6 +189,7 @@ try:
                 target_df=df,
                 station_name=station_name,
                 path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
+                pred_frequency=config["global"]["pipeline_settings"]["prediction_resolution"],
                 notebook=True
             )
             
@@ -213,27 +214,31 @@ try:
         
         logger.info(f"Pipeline step 'Run outlier detection and cleaning' complete for {catchment} catchment.\n")
         
-        # Aggregate to daily time 
+        # Aggregate to specified timestep 
         
-        daily_data = gwl_preprocessing.resample_daily_average(
-            dict=processed_gwl_time_series_dict,
+        pred_frequency=config["global"]["pipeline_settings"]["prediction_resolution"]
+        
+        timestep_data = gwl_preprocessing.resample_timestep_average(
+            gwl_data_dict=processed_gwl_time_series_dict,
             start_date=config["global"]["data_ingestion"]["api_start_date"],
             end_date=config["global"]["data_ingestion"]["api_end_date"],
             path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
+            pred_frequency=pred_frequency,
             notebook=notebook
         )
         
-        logger.info(f"Pipeline step 'Resample to Daily Timesteps' complete for {catchment} catchment.\n")
+        logger.info(f"Pipeline step 'Resample to {pred_frequency} Timesteps' complete for {catchment} catchment.\n")
         
         # Interpolate across small gaps in the ts data (define threshold n/o missing time steps for interpolation
         # eligibility) + Add binary interpolation flag column
         
-        daily_data, gaps_list, station_max_gap_lengths_calculated = gwl_preprocessing.handle_short_gaps(
-            daily_data=daily_data,
+        timestep_data, gaps_list, station_max_gap_lengths_calculated = gwl_preprocessing.handle_short_gaps(
+            timestep_data=timestep_data,
             path=config[catchment]["visualisations"]["ts_plots"]["time_series_gwl_output"],
             max_steps=config["global"]["data_ingestion"]["max_interp_length"],
             start_date=config["global"]["data_ingestion"]["api_start_date"],
             end_date=config["global"]["data_ingestion"]["api_end_date"],
+            pred_frequency=pred_frequency,
             notebook=notebook
         )
             
@@ -242,7 +247,7 @@ try:
         # Resolve larger gaps in data through a more considered donor imputation process
         
         synthetic_imputation_performace, cleaned_df_dict = gap_imputation.handle_large_gaps(
-            df_dict=daily_data,
+            df_dict=timestep_data,
             gaps_list=gaps_list,
             catchment=catchment,
             spatial_path=config[catchment]["paths"]["gwl_station_list_with_coords"],
@@ -255,6 +260,7 @@ try:
             max_imputation_length_threshold=config["global"]["preprocessing"]["max_imputation_threshold"],
             min_around=config["global"]["preprocessing"]["min_data_points_around_gap"],
             station_max_gap_lengths=station_max_gap_lengths_calculated,
+            pred_frequency=pred_frequency,
             k_decay=config[catchment]["preprocessing"]["dist_corr_score_k_decay"],
             random_seed=config["global"]["pipeline_settings"]["random_seed"]
         )
@@ -272,7 +278,8 @@ try:
         
         df_with_seasons = gwl_feature_engineering.build_seasonality_features(
             df_dict=df_with_lags,
-            catchment=catchment
+            catchment=catchment,
+            pred_frequency=config["global"]["pipeline_settings"]["prediction_resolution"]
         )
 
         logger.info(f"Pipeline step 'Build Seasons and Lags' complete for {catchment} catchment.\n")
@@ -414,7 +421,7 @@ try:
         
         # --- 4c. Preprocess Time Series Features ---
         
-        # Precipitation (Daily Rainfall, mm, catchment total) [HadUK-GRID]
+        # Precipitation (Timestep Frequency Rainfall, mm, catchment total) [HadUK-GRID]
         
         timeseries_data_ingestion.load_rainfall_data(
             rainfall_dir=config[catchment]["paths"]["rainfall_filename_dir"],
@@ -422,12 +429,13 @@ try:
             processed_output_dir=config[catchment]["paths"]["rainfall_processed_output_dir"],
             fig_path=config[catchment]["paths"]["rainfall_fig_path"],
             required_crs=27700,
+            pred_frequency=config["global"]["pipeline_settings"]["prediction_resolution"],
             catchment=catchment
         )
             
         logger.info(f"Pipeline step 'Load Rainfall Data' complete for {catchment} catchment.\n")
         
-        # Surface Pressure (Daily Mean, hPa, catchment average) [HadUK-Grid]
+        # Surface Pressure (Timestep Frequency Mean, hPa, catchment average) [HadUK-Grid]
         
         timeseries_data_ingestion.load_era5_land_data(
             catchment=catchment,
@@ -440,7 +448,9 @@ try:
             raw_output_dir=config[catchment]["paths"]["sp_raw_output_dir"],
             processed_output_dir=config[catchment]["paths"]["sp_processed_output_dir"],
             csv_path=config[catchment]["paths"]["sp_csv_path"],
+            csv_name=f'surface_pressure_{pred_frequency}_catchment_mean.csv',
             fig_path=config[catchment]["paths"]["sp_fig_path"],
+            pred_frequency=pred_frequency,
             era5_feat='sp',
             era5_long='surface_pressure',
             feat_name='surface_pressure',
@@ -462,7 +472,9 @@ try:
             raw_output_dir=config[catchment]["paths"]["aet_raw_output_dir"],
             processed_output_dir=config[catchment]["paths"]["aet_processed_output_dir"],
             csv_path=config[catchment]["paths"]["aet_csv_path"],
+            csv_name=f'aet_{pred_frequency}_catchment_sum.csv',
             fig_path=config[catchment]["paths"]["aet_fig_path"],
+            pred_frequency=pred_frequency,
             era5_feat='e',
             era5_long='total_evaporation',
             feat_name='aet',
@@ -471,7 +483,10 @@ try:
             
         logger.info(f"Pipeline step 'Load Actual Evapotranspiration Data' complete for {catchment} catchment.\n")
         
-        # 2m Surface Temperature (Daily Mean Temperature, °C, catchment average) [HadUK-GRID]
+        # [FUTURE] Add PET with almost identical pipeline for higher level climate demand
+        # [FUTURE] Derive ET_deficit using PET - AET to capture cumulative drying and recharge patterns
+        
+        # 2m Surface Temperature (Timestep Frequency Mean Temperature, °C, catchment average) [HadUK-GRID]
         
         timeseries_data_ingestion.load_era5_land_data(
             catchment=catchment,
@@ -484,7 +499,9 @@ try:
             raw_output_dir=config[catchment]["paths"]["2t_raw_output_dir"],
             processed_output_dir=config[catchment]["paths"]["2t_processed_output_dir"],
             csv_path=config[catchment]["paths"]["2t_csv_path"],
+            csv_name=f'2m_temp_{pred_frequency}_catchment_mean.csv',
             fig_path=config[catchment]["paths"]["2t_fig_path"],
+            pred_frequency=pred_frequency,
             era5_feat='2t',
             era5_long='2m_temperature',
             feat_name='2m_temp',
@@ -493,13 +510,14 @@ try:
             
         logger.info(f"Pipeline step 'Load 2m Surface Temp Data' complete for {catchment} catchment.\n")
         
-        # DEFRA Hydrology API daily total streamflow at station closest to catchment ouflow (lumped hydrological modelling, m^3/s)
+        # DEFRA Hydrology API timestep frequency total streamflow at station closest to catchment ouflow (lumped hydrological modelling, m^3/s)
 
         stream_flow_df = timeseries_data_ingestion.download_and_save_flow_data(
             station_csv=config[catchment]["paths"]["stream_flow_station"],
             start_date=config["global"]["data_ingestion"]["model_start_date"],
             end_date=config["global"]["data_ingestion"]["model_end_date"],
             output_dir=config[catchment]["paths"]["stream_flow_csv"],
+            pred_frequency=pred_frequency,
             catchment=catchment
         )
 
@@ -521,6 +539,7 @@ try:
             start_date=config["global"]["data_ingestion"]["model_start_date"],
             end_date=config["global"]["data_ingestion"]["model_end_date"],
             config_path="config/project_config.yaml",
+            pred_frequency=config["global"]["pipeline_settings"]["prediction_resolution"],
             catchment=catchment
         )
             
@@ -645,7 +664,9 @@ try:
         
         logger.info(f"Full static feature dataframe finalised and ready to merge into main model dataframe.\n")
         
-        # --- 5c. Snap dynamic (timeseries) features to mesh nodes (equal across all for catchment) and daily timestep ---
+        # --- 5c. Snap dynamic (timeseries) features to mesh nodes (equal across all for catchment) and timestep frequency ---
+        
+        pred_frequency = config["global"]["pipeline_settings"]["prediction_resolution"]
         
         # Snap Precipitation, Lags and Averages to timestep
 
@@ -653,10 +674,12 @@ try:
             model_start_date=config["global"]["data_ingestion"]["model_start_date"],
             model_end_date=config["global"]["data_ingestion"]["model_end_date"],
             feature_csv=config[catchment]["paths"]["rainfall_csv_path"],
-            feature='all_precipitation'
+            csv_name=f'rainfall_{pred_frequency}_catchment_sum_log_transform.csv',
+            feature='all_precipitation',
+            pred_frequency=pred_frequency
         )
         
-        logger.info(f"Precipitation and derived data snapped to graph timesteps (daily aggregates).\n")
+        logger.info(f"Precipitation and derived data snapped to graph timesteps ({pred_frequency} aggregates).\n")
         
         # Snap 2m Temperature to timestep
 
@@ -664,11 +687,13 @@ try:
             model_start_date=config["global"]["data_ingestion"]["model_start_date"],
             model_end_date=config["global"]["data_ingestion"]["model_end_date"],
             feature_csv=config[catchment]["paths"]["2t_csv_path"],
+            csv_name=f'2m_temp_{pred_frequency}_catchment_mean.csv',
             feature='2m_temperature',
+            pred_frequency=pred_frequency,
             timeseries_df=merged_ts_precipitation
         )
         
-        logger.info(f"2m Temperature Data snapped to graph timesteps (daily aggregate).\n")
+        logger.info(f"2m Temperature Data snapped to graph timesteps ({pred_frequency} aggregate).\n")
         
         # Snap AET to timestep
 
@@ -676,13 +701,15 @@ try:
             model_start_date=config["global"]["data_ingestion"]["model_start_date"],
             model_end_date=config["global"]["data_ingestion"]["model_end_date"],
             feature_csv=config[catchment]["paths"]["aet_csv_path"],
+            csv_name=f'aet_{pred_frequency}_catchment_sum.csv',
             feature='aet',
+            pred_frequency=pred_frequency,
             timeseries_df=merged_ts_tsm
         )
         
         merged_ts_aet = hydroclimatic_feature_engineering.transform_aet_data(merged_ts_aet, catchment)
         
-        logger.info(f"Actual evapotranspiration data snapped to graph timesteps (daily aggregate).\n")
+        logger.info(f"Actual evapotranspiration data snapped to graph timesteps ({pred_frequency} aggregate).\n")
         
         # Snap Surface Pressure to timestep
 
@@ -690,23 +717,26 @@ try:
             model_start_date=config["global"]["data_ingestion"]["model_start_date"],
             model_end_date=config["global"]["data_ingestion"]["model_end_date"],
             feature_csv=config[catchment]["paths"]["sp_csv_path"],
+            csv_name=f'surface_pressure_{pred_frequency}_catchment_mean.csv',
             feature='surface_pressure',
+            pred_frequency=pred_frequency,
             timeseries_df=merged_ts_aet
         )
         
-        logger.info(f"Surface pressure data snapped to graph timesteps (daily aggregate).\n")
+        logger.info(f"Surface pressure data snapped to graph timesteps ({pred_frequency} aggregate).\n")
         
         # Snap Streamflow to timestep
         
         final_merged_ts_df = data_merging.merge_timeseries_data_to_df(
             model_start_date=config["global"]["data_ingestion"]["model_start_date"],
             model_end_date=config["global"]["data_ingestion"]["model_end_date"],
-            feature_csv=os.path.join(config[catchment]["paths"]["stream_flow_csv"], 'daily_streamflow.csv'),
+            feature_csv=os.path.join(config[catchment]["paths"]["stream_flow_csv"], f'{pred_frequency}_streamflow.csv'),
             feature='streamflow',
+            pred_frequency=pred_frequency,
             timeseries_df=merged_ts_sp
         )
         
-        logger.info(f"Streamflow data snapped to graph timesteps (daily aggregate).\n")
+        logger.info(f"Streamflow data snapped to graph timesteps ({pred_frequency} aggregate).\n")
         
         save_path = config[catchment]["paths"]["final_df_path"] + 'final_timeseries_df.csv'
         final_merged_ts_df.to_csv(save_path)
@@ -720,7 +750,8 @@ try:
             start_date=config["global"]["data_ingestion"]["model_start_date"],
             end_date=config["global"]["data_ingestion"]["model_end_date"],
             mesh_nodes_gdf=mesh_nodes_gdf,
-            catchment=catchment
+            catchment=catchment,
+            pred_frequency=pred_frequency
         )
 
         # Merge static data into main_df
@@ -830,6 +861,7 @@ try:
         # --- 6d. Creat PyG data object using partioned station IDs (from 6a) ---
         
         # Run time approx. 12.5 mins to build 4018 timesteps of objects (0.19s per Object)
+        gwl_ohe_cols = joblib.load(os.path.join(config[catchment]["paths"]["scalers_dir"], "gwl_ohe_cols.pkl"))
         all_timesteps_list = data_partitioning.build_pyg_object(
             processed_df=processed_df,
             sentinel_value=config["global"]["graph"]["sentinel_value"],
@@ -837,6 +869,7 @@ try:
             val_station_ids=val_station_ids,
             test_station_ids=test_station_ids,
             gwl_feats=gwl_feats,
+            gwl_ohe_cols=gwl_ohe_cols,
             edge_index_tensor=edge_index_tensor,
             edge_attr_tensor=edge_attr_tensor,
             catchment=catchment

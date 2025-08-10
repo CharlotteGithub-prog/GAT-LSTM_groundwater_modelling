@@ -16,6 +16,7 @@ from pyproj import Geod
 import concurrent.futures
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
+import datetime as dt
 
 from src.data_ingestion.static_data_ingestion import _transform_skewed_data
 from src.data_ingestion.spatial_transformations import easting_northing_to_lat_long, \
@@ -63,7 +64,7 @@ def find_haduk_file_names(start_date: str, end_date: str, base_url: str):
 
 # Load in HAD-UK 1km gridded rainfall Data
 
-def _save_haduk_graph(csv_path, fig_path, catchment):
+def _save_haduk_graph(csv_path, fig_path, pred_frequency, catchment):
     # Load the processed CSV
     df = pd.read_csv(csv_path, index_col=0, parse_dates=True)
     
@@ -73,7 +74,7 @@ def _save_haduk_graph(csv_path, fig_path, catchment):
     # Plot time series
     plt.figure(figsize=(12, 5))
     plt.plot(df.index, df.values, label="Catchment Rainfall Volume", color='tab:blue')
-    plt.title(f"Daily {catchment} Catchment - Total Rainfall Volume")
+    plt.title(f"{pred_frequency} {catchment} Catchment - Total Rainfall Volume")
     plt.xlabel("Date")
     plt.ylabel("Volume (m³)")
     plt.grid(True)
@@ -177,7 +178,8 @@ def _process_rainfall_files(rainfall_dir, catchment, shape_filepath, required_cr
     
     return rainfall_data_all
 
-def load_rainfall_data(rainfall_dir, shape_filepath, processed_output_dir, fig_path, required_crs, catchment):
+def load_rainfall_data(rainfall_dir, shape_filepath, processed_output_dir, fig_path, required_crs,
+                       pred_frequency, catchment):
 
     # --- open rainfall files across file time period ---
 
@@ -207,12 +209,12 @@ def load_rainfall_data(rainfall_dir, shape_filepath, processed_output_dir, fig_p
     # Save as csv
     final_csv_path = f"{processed_output_dir}rainfall_daily_catchment_sum.csv"
     logging.info(f"Saving catchment-summed daily rainfall to CSV: {final_csv_path}")
+    
+    # Save as csv to merge into main model df -> No return here, just saved to access later  
+    total_volume_m3.to_dataframe().to_csv(final_csv_path)
 
     # Save as ties series graph to view
-    _save_haduk_graph(final_csv_path, fig_path, catchment)
-
-    # Save as csv merge into main model df -> No return, just saved to csv file to access later  
-    total_volume_m3.to_dataframe().to_csv(final_csv_path)
+    _save_haduk_graph(final_csv_path, fig_path, pred_frequency, catchment)
 
 # Load in various ERA5-Land API features
 
@@ -321,14 +323,14 @@ def _compute_weighted_aggregation_1D(full_da, feat_name, aggregation_type):
     
     return catchment_aggregated_data
 
-def _combine_and_aggregate_daily_data(all_daily_dataarrays, processed_output_dir,start_year, end_year,
-                                      feat_name, aggregation_type, catchment):
+def _combine_and_aggregate_timestep_data(all_timestep_dataarrays, processed_output_dir,start_year, end_year,
+                                      feat_name, aggregation_type, pred_frequency, catchment):
     # Concatenate all monthly DataArrays into a single xarray.DataArray along the time dimension
-    full_da = xr.concat(all_daily_dataarrays, dim='time')
+    full_da = xr.concat(all_timestep_dataarrays, dim='time')
 
     # Save the combined data to a single NetCDF file for the entire period
-    final_nc_path = f"{processed_output_dir}{feat_name}_daily_{start_year}-{end_year}_era5land.nc"
-    logging.info(f"Saving combined daily {feat_name} from {start_year}-{end_year} to: {final_nc_path}")
+    final_nc_path = f"{processed_output_dir}{feat_name}_{pred_frequency}_{start_year}-{end_year}_era5land.nc"
+    logging.info(f"Saving combined {pred_frequency} {feat_name} from {start_year}-{end_year} to: {final_nc_path}")
     full_da.to_netcdf(final_nc_path)
     
     logging.info(f"ERA5-Land {feat_name} data retrieval and processing complete.")
@@ -336,8 +338,8 @@ def _combine_and_aggregate_daily_data(all_daily_dataarrays, processed_output_dir
     # --- Save processed data as csv ---
 
     # Save as csv
-    final_csv_path = f"{processed_output_dir}{feat_name}_daily_catchment_{aggregation_type}.csv"
-    logging.info(f"Saving catchment-summed daily {feat_name} to CSV: {final_csv_path}")
+    final_csv_path = f"{processed_output_dir}{feat_name}_{pred_frequency}_catchment_{aggregation_type}.csv"
+    logging.info(f"Saving catchment-summed {pred_frequency} {feat_name} to CSV: {final_csv_path}")
     
     # Compute total volume loss for area using weighted area per grid cell (not uniform)
     catchment_sum_data = _compute_weighted_aggregation_1D(full_da, feat_name, aggregation_type)
@@ -385,7 +387,7 @@ def _extract_zip_file(zip_filename, raw_output_dir, year, month, feat_name):
 
     return None
 
-def _apply_catchment_mask(catchment_polygon, daily_data_sliced):
+def _apply_catchment_mask(catchment_polygon, timestep_data_sliced):
     """
     Mask from whole bounding box to catchment polygon before aggregating to catchment
     totals to avoid external bounding box data leaking into polygon.
@@ -395,8 +397,8 @@ def _apply_catchment_mask(catchment_polygon, daily_data_sliced):
     
     mask_da = regionmask.mask_geopandas(
         polygon_4326,
-        daily_data_sliced.longitude.copy(), # Pass xarray.DataArray for coordinates, not just values
-        daily_data_sliced.latitude.copy()   # Pass xarray.DataArray for coordinates, not just values
+        timestep_data_sliced.longitude.copy(), # Pass xarray.DataArray for coordinates, not just values
+        timestep_data_sliced.latitude.copy()   # Pass xarray.DataArray for coordinates, not just values
     )
     
     # Ensure consistent naming ('latitude', 'longitude') before applying the mask
@@ -405,8 +407,8 @@ def _apply_catchment_mask(catchment_polygon, daily_data_sliced):
     elif 'latitude' not in mask_da.dims and 'longitude' not in mask_da.dims:
         pass # Or raise an error if expected dims are missing
     
-    # Apply the 2D mask to the daily_mm df (Xarray handles broadcasting)
-    masked_data = daily_data_sliced.where(~np.isnan(mask_da))
+    # Apply the 2D mask to the df (Xarray handles broadcasting)
+    masked_data = timestep_data_sliced.where(~np.isnan(mask_da))
     
     return masked_data
 
@@ -415,7 +417,7 @@ def _call_era5_api(start_year, end_year, start_date, end_date, total_months, raw
     # Initialise API call counter
     call_count = 0
     
-    # Get daily feature data (aet: mm/day, temp: av degrees, snow: ?)
+    # Get feature data (aet: mm/timestep, temp: av degrees, snow: ?)
     for year in range(start_year, end_year + 1):
         
         # Get month range:
@@ -484,7 +486,7 @@ def _call_era5_api(start_year, end_year, start_date, end_date, total_months, raw
             except Exception as e:
                 logging.error(f"Error retrieving or processing {feat_name} data for {month:02d}/{year}: {e}\n")
 
-def _resample_by_time_and_step(ds, era5_feat, aggregation_type):
+def _resample_by_time_and_step(ds, era5_feat, aggregation_type, pred_frequency):
     # Mapping from  internal era5_feat to actual variable name in the xarray dataset loaded by cfgrib
     grib_variable_map = {
         '2t': 't2m',
@@ -517,17 +519,28 @@ def _resample_by_time_and_step(ds, era5_feat, aggregation_type):
     else:
         raise ValueError(f"No specific transformation defined for feature: {era5_feat}")
         
-    # Return daily data aggregated by type
+    # Get model frequency
+    frequency_map = {'daily': 'D', 'weekly': 'W-MON', 'monthly': 'MS'}
+    clean_pred_frequency = pred_frequency.lower().strip()
+    
+    frequency = frequency_map.get(clean_pred_frequency)
+    if frequency is None:
+        raise ValueError(f"Invalid prediction frequency: {pred_frequency}. Must be 'daily', "
+                         f"'weekly', or 'monthly'.")
+    
+    # Return timestep frequency data aggregated by type
     if aggregation_type == 'sum':
-        return transformed_data.resample(valid_time="1D").sum()
+        return transformed_data.resample(valid_time=frequency).sum()
     elif aggregation_type == 'mean':
-        return transformed_data.resample(valid_time="1D").mean()
+        return transformed_data.resample(valid_time=frequency).mean()
     else:
         raise ValueError(f"No specific aggregation defined for type: {aggregation_type}")
         
-def _save_era5_graph(csv_path, fig_path, feat_name, catchment, aggregation_type):
+def _save_era5_graph(csv_path, csv_name, fig_path, feat_name, catchment,
+                     aggregation_type, pred_frequency):
     # Load the processed CSV
-    df = pd.read_csv(csv_path, index_col=0, parse_dates=True)
+    filepath = os.path.join(csv_path, csv_name)
+    df = pd.read_csv(filepath, index_col=0, parse_dates=True)
     
     print(f"Max value in dataset: {df.max().values}")
     print(f"Min value in dataset: {df.min().values}")
@@ -555,7 +568,7 @@ def _save_era5_graph(csv_path, fig_path, feat_name, catchment, aggregation_type)
     # Plot time series
     plt.figure(figsize=(12, 5))
     plt.plot(df.index, df.values, label=plot_label, color='tab:blue')
-    plt.title(f"Daily {catchment} Catchment - {title_suffix}")
+    plt.title(f"{pred_frequency} {catchment} Catchment - {title_suffix}")
     plt.xlabel("Date")
     plt.ylabel(y_label)
     plt.grid(True)
@@ -565,18 +578,18 @@ def _save_era5_graph(csv_path, fig_path, feat_name, catchment, aggregation_type)
     # Save figure to results
     plt.savefig(fig_path)
 
-def _process_local_grib_files(raw_output_dir, catchment_polygon, all_daily_dataarrays,
-                              era5_feat, aggregation_type, feat_name):
+def _process_local_grib_files(raw_output_dir, catchment_polygon, all_timestep_dataarrays,
+                              era5_feat, aggregation_type, feat_name, pred_frequency):
     
     for fname in sorted(os.listdir(raw_output_dir)):
         if fname.endswith(".grib"):
             grib_path = os.path.join(raw_output_dir, fname)
             logging.info(f"Processing GRIB: {fname}")
             
-            # Aggregate to daily totals and mask to polygon boundings not bbox
+            # Aggregate to timestep frequency totals and mask to polygon boundings not bbox
             try:
                 ds = xr.open_dataset(grib_path, engine='cfgrib', backend_kwargs={"decode_timedelta": True})
-                daily_data = _resample_by_time_and_step(ds, era5_feat, aggregation_type)
+                timestep_data = _resample_by_time_and_step(ds, era5_feat, aggregation_type, pred_frequency)
                 
                 # Extract year and month from the filename (e.g., aet_2024_04_era5land.grib)
                 parts = fname.split('_')
@@ -585,19 +598,19 @@ def _process_local_grib_files(raw_output_dir, catchment_polygon, all_daily_dataa
                 
                 # # Define the start and end of the actual data for the current month (to avoid introducing 0's)
                 last_day_of_month = calendar.monthrange(current_year, current_month)[1]
-                month_start_date = datetime.datetime(current_year, current_month, 1)
-                month_end_date = datetime.datetime(current_year, current_month, last_day_of_month)
+                month_start_date = dt.datetime(current_year, current_month, 1)
+                month_end_date = dt.datetime(current_year, current_month, last_day_of_month)
                 
-                # Slice daily_data using these dates and mask
-                daily_data_sliced = daily_data.sel(valid_time=slice(month_start_date, month_end_date))
-                masked = _apply_catchment_mask(catchment_polygon, daily_data_sliced)
+                # Slice timestep_data using these dates and mask
+                timestep_data_sliced = timestep_data.sel(valid_time=slice(month_start_date, month_end_date))
+                masked = _apply_catchment_mask(catchment_polygon, timestep_data_sliced)
                 
-                # Clean and ensure consistent structure before appending to all_daily_aet_dataarrays
+                # Clean and ensure consistent structure before appending to all_{pred_frequency}_aet_dataarrays
                 masked = masked.drop_vars(['number', 'surface'], errors='ignore')
                 masked = masked.rename({'valid_time': 'time'})
                 masked = masked.astype('float32')
                 
-                all_daily_dataarrays.append(masked)  # Append masked daily AET DataArray to monthly list
+                all_timestep_dataarrays.append(masked)  # Append masked AET DataArray to monthly list
                 
             except Exception as e:
                 logging.error(f"Error processing {fname}: {e}")
@@ -618,8 +631,9 @@ def _handle_outlying_values(catchment_agg, catchment):
 
 def load_era5_land_data(catchment: str, shape_filepath: float, required_crs: int, cdsapi_path: str,
                   start_date: str, end_date: str, run_era5_land_api: bool, raw_output_dir: str,
-                  processed_output_dir: str, csv_path: str, fig_path: str, era5_feat: str = 'e',
-                  era5_long: str = 'total_evaporation', feat_name: str = 'aet', aggregation_type: str = 'sum'):    
+                  processed_output_dir: str, csv_path: str, csv_name: str, fig_path: str, pred_frequency: str,
+                  era5_feat: str = 'e', era5_long: str = 'total_evaporation', feat_name: str = 'aet',
+                  aggregation_type: str = 'sum'):    
     """
     Downloads, preprocesses, aggregates and saves specified data
     from the ERA5-Land reanalysis dataset.
@@ -647,8 +661,8 @@ def load_era5_land_data(catchment: str, shape_filepath: float, required_crs: int
     
     ## --- Call CDS API monthyl to retrieve AET data --- 
 
-    # List to hold processed daily xarray DataArrays from each year
-    all_daily_dataarrays = []
+    # List to hold processed xarray DataArrays from each year
+    all_timestep_dataarrays = []
 
     # Ensure the output directories exist
     os.makedirs(raw_output_dir, exist_ok=True)
@@ -660,22 +674,20 @@ def load_era5_land_data(catchment: str, shape_filepath: float, required_crs: int
         # NOTE: Calling API in parallel does not speed up performance due to ERA5 internal queuing.
         _call_era5_api(start_year, end_year, start_date, end_date, total_months, raw_output_dir,
                        north, west, south, east, c, era5_feat, feat_name, era5_long, aggregation_type)
-        
-    
     
     # Always process data
-    _process_local_grib_files(raw_output_dir, catchment_polygon, all_daily_dataarrays,
-                              era5_feat, aggregation_type, feat_name)
+    _process_local_grib_files(raw_output_dir, catchment_polygon, all_timestep_dataarrays,
+                              era5_feat, aggregation_type, feat_name, pred_frequency)
     
-    if all_daily_dataarrays:
+    if all_timestep_dataarrays:
         
-        # --- Aggregate to daily values for catchment ---
-        catchment_agg = _combine_and_aggregate_daily_data(
-            all_daily_dataarrays, processed_output_dir,start_year, end_year,
-            feat_name, aggregation_type, catchment)
+        # --- Aggregate to pred frequency values for catchment ---
+        catchment_agg = _combine_and_aggregate_timestep_data(
+            all_timestep_dataarrays, processed_output_dir,start_year, end_year,
+            feat_name, aggregation_type, pred_frequency, catchment)
         
         # --- Save time series data to results ---
-        _save_era5_graph(csv_path, fig_path, feat_name, catchment, aggregation_type)
+        _save_era5_graph(csv_path, csv_name, fig_path, feat_name, catchment, aggregation_type, pred_frequency)
 
     else:
         
@@ -730,7 +742,7 @@ def _download_flow_readings(measure_uri: str, startdate_str: str, enddate_str: s
     offset = 0
     
     # Get final day
-    end_date_obj = datetime.strptime(enddate_str, "%Y-%m-%dT%H:%M:%S")
+    end_date_obj = dt.datetime.strptime(enddate_str, "%Y-%m-%dT%H:%M:%S")
     final_day = end_date_obj + timedelta(days=1)
     final_day_str = final_day.strftime("%Y-%m-%dT%H:%M:%S")
     
@@ -782,7 +794,7 @@ def _download_flow_readings(measure_uri: str, startdate_str: str, enddate_str: s
         return pd.DataFrame()
 
 def _preprocess_final_data(readings_df: pd.DataFrame, output_dir: str, start_date: str,
-                           end_date: str, station_name: str, catchment: str):
+                           end_date: str, station_name: str, pred_frequency: str, catchment: str):
     if readings_df.empty:
         logger.warning(f"No readings downloaded for station {station_name}. Check download logs.")
         return pd.DataFrame()
@@ -793,9 +805,9 @@ def _preprocess_final_data(readings_df: pd.DataFrame, output_dir: str, start_dat
     readings_df['station_name'] = station_name.title().strip()
     readings_df.to_csv(raw_output_path, index=False)
     logger.info(f"Saving {len(readings_df)} raw readings for {station_name} to {raw_output_path}")
-        
+    
     # Convert to daily total streamflow
-    readings_df['daily_streamflow_m3_s'] = readings_df['value'] * 86400
+    readings_df['streamflow_total_m3'] = readings_df['value'] * 86400  # to daily total is correct here and aggregated later
     
     # Confirm data length is as expected
     expected_dates = pd.date_range(start=start_date, end=end_date)
@@ -812,38 +824,53 @@ def _preprocess_final_data(readings_df: pd.DataFrame, output_dir: str, start_dat
     readings_df['date'] = expected_dates
     
     # Fill NaNsusing interpolation if only a few
-    missing_count = readings_df['daily_streamflow_m3_s'].isna().sum()
+    missing_count = readings_df['streamflow_total_m3'].isna().sum()
     total_count = len(readings_df)
     missing_ratio = missing_count / total_count
 
     # Check less than 1% missing before filling
     if missing_ratio < 0.01:
         logger.info(f"Filling {missing_count} missing values (<1%) using linear interpolation.")
-        readings_df['daily_streamflow_m3_s'] = readings_df['daily_streamflow_m3_s'].interpolate(method='linear')
+        readings_df['streamflow_total_m3'] = readings_df['streamflow_total_m3'].interpolate(method='linear')
     else:
-        logger.warning(f"Too many missing values in 'daily_streamflow_m3_s' ({missing_ratio:.2%}). Skipping interpolation.")
+        logger.warning(f"Too many missing values in 'streamflow_total_m3' ({missing_ratio:.2%}). Skipping interpolation.")
         
     # Drop unneeded columns (keeping defensive to avoid crash)
     drop_cols = ['measure', 'valid', 'invalid', 'missing', 'completeness',
                 'quality', 'station_name', 'value', 'dateTime']
     readings_df = readings_df.drop(columns=[col for col in drop_cols if col in readings_df.columns])
-        
+    
+    # Ensure datetime index for resampling
+    readings_df['date'] = pd.to_datetime(readings_df['date'])
+    readings_df = readings_df.set_index('date').sort_index()
+    
+    # Aggregate to necessary timestep
+    frequency_map = {'daily': 'D', 'weekly': 'W-MON', 'monthly': 'MS'}
+    clean_pred_frequency = pred_frequency.lower().strip()
+    frequency = frequency_map.get(clean_pred_frequency)
+    if frequency is None:
+        raise ValueError(f"Invalid prediction frequency: {pred_frequency}. Must be 'daily', "
+                         f"'weekly', or 'monthly'.")
+    
+    # Apply resampling
+    readings_df = readings_df.resample(frequency).sum()
+    logger.info(f"Total streamflow aggregated to {pred_frequency} timestep.")
+    
     # Boxcox transform skewed streamflow data
-    readings_df = _transform_skewed_data(readings_df, catchment, 'daily_streamflow_m3_s')
+    readings_df = _transform_skewed_data(readings_df, catchment, 'streamflow_total_m3')
     
     # Rename date to time for merging
-    readings_df = readings_df.rename(columns={'date': 'time'})
-    readings_df = readings_df.set_index('time')
+    readings_df.index.name = 'time'
     
     logger.info("Streamflow ingestion pipeline complete.")
     return readings_df
 
 def download_and_save_flow_data(station_csv: str, start_date: str, end_date: str, output_dir: str,
-                                catchment: str):
+                                pred_frequency: str, catchment: str):
     """
     Downloads file using DEFRA hydrology API for flow station specified in flow station csv.
     """
-    logger.info("Starting daily mean flow data pipeline...")
+    logger.info("Starting streamflow data pipeline...")
     logging.info(f"Collecting data from {start_date[:-9]} to {end_date[:-9]}\n")
 
     # Read the station information from the CSV
@@ -855,7 +882,7 @@ def download_and_save_flow_data(station_csv: str, start_date: str, end_date: str
         logger.error(f"Error reading station CSV: {e}")
         return
     
-    # Get tmeasure URI  and download selected time series for daily mean flow
+    # Get tmeasure URI  and download selected time series for streamflow
     measure_uri = _get_daily_flow_measure_uri(station_id, station_name)
     if not measure_uri:
         logger.error(f"Could not retrieve a valid measure URI for station {station_name}.")
@@ -863,11 +890,11 @@ def download_and_save_flow_data(station_csv: str, start_date: str, end_date: str
 
     readings_df = _download_flow_readings(measure_uri, start_date, end_date)
     readings_df = _preprocess_final_data(readings_df, output_dir, start_date, end_date,
-                                         station_name, catchment)
+                                         station_name, pred_frequency, catchment)
     
     # Save as csv
-    save_path = os.path.join(output_dir, "daily_streamflow.csv")
+    save_path = os.path.join(output_dir, f"{pred_frequency}_streamflow.csv")
     readings_df.to_csv(save_path)
-    logger.info(f"Daily average streamflow saved to {save_path}.")
+    logger.info(f"{pred_frequency} total streamflow saved to {save_path}.")
     
     return readings_df

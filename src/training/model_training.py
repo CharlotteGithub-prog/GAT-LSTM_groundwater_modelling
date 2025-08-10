@@ -31,7 +31,6 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
     
     # Initialise model to correct mode
     model.train() if is_training else model.eval()
-    mask_attr = 'train_mask' if is_training else 'val_mask'
     description = 'Training' if is_training else 'Validation'
     
     total_loss = 0.0
@@ -65,15 +64,22 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
             # Move data to device and run forward pass
             data = data.to(device)
             
+            mask_attr = 'train_effective_mask' if is_training else 'val_effective_mask'
+            if not hasattr(data, mask_attr):
+                mask_attr = 'train_mask' if is_training else 'val_mask'  # Fallback shouldn't ever execute
+            
             # Select the correct nodes to process for this phase (training or validation)
-            mask = getattr(data, mask_attr)
-            if not mask.any():
+            mask_for_loss_and_metrics = getattr(data, mask_attr)
+            if not mask_for_loss_and_metrics.any():
                 logger.debug(f"Epoch {epoch+1}, Timestep {data.timestep.date()}: No {description} nodes. Skipping.")
                 continue
         
             x_full = data.x
             node_ids_in_current_timestep = data.node_id  # Global IDs for all nodes in x_full
-            mask_for_loss_and_metrics = getattr(data, mask_attr)  # Boolean mask for relevant nodes within x_full
+            if not mask_for_loss_and_metrics.any():
+                logger.debug(f"Epoch {epoch+1}, Timestep {data.timestep.date()}: No "
+                             f"{('Training' if is_training else 'Validation')} nodes. Skipping.")
+                continue
 
             # --- Run Model Pass ---
             
@@ -95,7 +101,10 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
             # NOTE: This assumes predictions are for the same node (e.g. test station) across timesteps
             # If using multiple nodes or changing masks in future, must align predictions by node ID
             if lambda_smooth > 0.0 and previous_predictions is not None:    
-                smoothness_loss = F.mse_loss(predictions_all_nodes, previous_predictions)
+                smoothness_loss = F.mse_loss(
+                    predictions_all_nodes[mask_for_loss_and_metrics],
+                    previous_predictions[mask_for_loss_and_metrics]
+                )
                 loss += lambda_smooth * smoothness_loss  # May need scaling in future, check this.
             previous_predictions = predictions_all_nodes.detach() # Update for next timestep
 

@@ -174,19 +174,29 @@ def snap_stations_to_mesh(station_list_path: str, polygon_geometry_path: str, ou
     return station_node_mapping
 
 # Merging timeseries data into full timeseries df
-def merge_timeseries_data_to_df(model_start_date: str, model_end_date: str, feature_csv: str,
-                                feature: str, timeseries_df: pd.DataFrame = None):
+def merge_timeseries_data_to_df(model_start_date: str, model_end_date: str, feature_csv: str, csv_name: str,
+                                feature: str, pred_frequency: str = 'daily', timeseries_df: pd.DataFrame = None):
     # Log feature being processed
     logging.info(f"Merging {feature} data into main timeseries dataframe...")
+    
+    # Get model frequency
+    frequency_map = {'daily': 'D', 'weekly': 'W-MON', 'monthly': 'MS'}
+    clean_pred_frequency = pred_frequency.lower().strip()
+    
+    frequency = frequency_map.get(clean_pred_frequency)
+    if frequency is None:
+        raise ValueError(f"Invalid prediction frequency: {pred_frequency}. Must be 'daily', "
+                         f"'weekly', or 'monthly'.")
 
     # Initialise timeseries df on first run
     if timeseries_df is None:
-        date_range = pd.date_range(start=model_start_date, end=model_end_date, freq='D')
+        date_range = pd.date_range(start=model_start_date, end=model_end_date, freq=frequency)
         timeseries_df = pd.DataFrame(index=date_range)
         timeseries_df.index.name = 'time'
 
     # Read in timeseries feature data (parse date objs to convert to datetime as they are read in)
-    feature_df = pd.read_csv(feature_csv, parse_dates=['time'])
+    file_path = os.path.join(feature_csv, csv_name)
+    feature_df = pd.read_csv(file_path, parse_dates=['time'])
 
     # Normalise the 'time' column to remove raw time components (which would cause mismatch with main df)
     feature_df['time'] = feature_df['time'].dt.normalize() 

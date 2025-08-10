@@ -410,7 +410,7 @@ def weighted_imputation(nan_timestamps: pd.DatetimeIndex, imputation_method: str
             
         # Handle different types of gaps based on boundary availability (3 potential cases)
 
-        # Case 1: Gap at the very start of the data (left-sided open gap)
+        # Case 1 => Gap at the very start of the data (left-sided open gap)
         if (gap_start_date == gappy_station_df.index.min()) and not pd.isna(value_after_gap):
             
             # Check if seasonal means are available and not empty
@@ -449,7 +449,7 @@ def weighted_imputation(nan_timestamps: pd.DatetimeIndex, imputation_method: str
             #     logging.warning(f"  Seasonal means are empty for {gappy_station_name}. Cannot perform seasonal extrapolation for start-of-data gap. Segment retains initial imputed values.")
 
 
-        # Case 2: Gap at the very end of the data (right-sided open gap)
+        # Case 2 => Gap at the very end of the data (right-sided open gap)
         elif not pd.isna(value_before_gap) and (gap_end_date == gappy_station_df.index.max()):
             logging.info(f"  Handling end-of-data gap (last segment in DataFrame) for {gappy_station_name} (from {gap_start_date.date()} to {gap_end_date.date()}).")
             
@@ -458,7 +458,7 @@ def weighted_imputation(nan_timestamps: pd.DatetimeIndex, imputation_method: str
             gappy_station_df.loc[segment_timestamps, 'value'] += shift_amount
             imputed_segment_values_current = gappy_station_df.loc[segment_timestamps, 'value'] # Update after shift
 
-        # Case 3: Gap in the middle of data (two-sided closed gap)
+        # Case 3 => Gap in the middle of data (two-sided closed gap)
         else: 
                         
             # Apply Boundary Shift
@@ -900,7 +900,7 @@ def calc_validation_performance_metrics(original_values_masked: pd.Series, imput
     # Return metrics tuple
     return rmse, mae, imputed_values_at_synthetic_gaps
 
-def correct_suspect_variance_scaleby(df_dict: dict):
+def correct_suspect_variance_scaleby(df_dict: dict, pred_frequency: str):
     """
     Use seasonal imputation for end of year portion of scaleby dataset to reduce excess
     donor variance.
@@ -924,9 +924,14 @@ def correct_suspect_variance_scaleby(df_dict: dict):
 
     # Replace in original dataframe
     df.loc[gap_mask, 'value'] = gap_dates['doy'].map(climate_data)
-    df.loc['2024-12-31', 'value'] = min(df['value'].mean(), 41.0)
+    
+    # Apply correction only if matched resolution
+    if pred_frequency.lower().strip() == 'daily':
+        df.loc['2024-12-31', 'value'] = min(df['value'].mean(), 41.0)
+    
+    # gap_mask = df['masked'] & (df['data_type'] == 'gap_long')
     df.loc[gap_mask, 'data_type'] = 'imputed_long'
-    df.loc[gap_mask, 'masked'] = False
+    # df.loc[gap_mask, 'masked'] = False
 
     df_dict['scaleby'] = df
     print(f"Applied seasonal imputation for scaleby from {gap_start.date()} to {gap_end.date()}")
@@ -952,7 +957,7 @@ def correct_suspect_variance_renwick(df_dict: dict):
 def synthetic_gap_imputation_validation(df_dict_original: dict, gaps_list: list, min_around: int,
                                         predefined_large_gap_lengths: list, max_imputation_length_threshold: int,
                                         filtered_scores: dict, validation_plot_path: str, imputation_plot_path: str,
-                                        station_max_gap_lengths: dict = None, random_seed: int = None):
+                                        pred_frequency: str, station_max_gap_lengths: dict = None, random_seed: int = None):
     """
     1. Mask data portions (across max. imputation gap for each)
     2. Imputate data across synthetic gaps using impute_across_large_gaps
@@ -1048,7 +1053,7 @@ def synthetic_gap_imputation_validation(df_dict_original: dict, gaps_list: list,
         imputation_method='weighted_average'
     )
     
-    imputed_df_dict_synthetic_run = correct_suspect_variance_scaleby(imputed_df_dict_synthetic_run)
+    imputed_df_dict_synthetic_run = correct_suspect_variance_scaleby(imputed_df_dict_synthetic_run, pred_frequency)
     imputed_df_dict_synthetic_run = correct_suspect_variance_renwick(imputed_df_dict_synthetic_run)
     
     logging.info("Global imputation for synthetic data complete.\n")
@@ -1143,7 +1148,7 @@ def mask_data_gaps(df_dict: dict):
 def handle_large_gaps(df_dict: pd.DataFrame, gaps_list: list, catchment: str, spatial_path: str, path: str,
                       threshold_m: int, radius: int, output_path: str, threshold: float, predefined_large_gap_lengths: list,
                       max_imputation_length_threshold: int, min_around: int, station_max_gap_lengths: dict,
-                      k_decay: float = 0.1, random_seed: int = None):
+                      pred_frequency: str, k_decay: float = 0.1, random_seed: int = None):
     """
     Handle large gap prcoessing pipeline.
     """
@@ -1181,6 +1186,7 @@ def handle_large_gaps(df_dict: pd.DataFrame, gaps_list: list, catchment: str, sp
         filtered_scores=filtered_scores,
         validation_plot_path=output_path,
         imputation_plot_path=path,
+        pred_frequency=pred_frequency,
         station_max_gap_lengths=station_max_gap_lengths,
         random_seed=random_seed
     )
