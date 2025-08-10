@@ -22,6 +22,7 @@ temp_plots/
 results/figures/
 notebooks/00_archive/
 results/trained_models/
+slurm/logs/
 
 # --- Data Directories (structure retained with .gitkeep) ---
 /data/01_raw/*
