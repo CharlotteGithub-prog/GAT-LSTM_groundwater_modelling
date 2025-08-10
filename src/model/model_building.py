@@ -106,35 +106,31 @@ def _assert_instantiation_vals(model, all_timesteps_list, device, output_dim, hi
         # Initial hidden/cell states for LSTM (will be zeros if None)
         dummy_h_c_state = None
 
-        # Run forward pass
-        output_predictions, new_h_c_state = model(dummy_x, dummy_edge_index, dummy_edge_attr, dummy_h_c_state)
-        logger.info(f"Output predictions shape: {output_predictions.shape}")
-        logger.info(f"New LSTM hidden/cell state shapes: h_n={new_h_c_state[0].shape}, c_n={new_h_c_state[1].shape}")
-
-        # Expected output shape: (num_nodes, output_dim)
-        expected_output_shape = (len(all_timesteps_list[0].x), output_dim)
-        assert output_predictions.shape == expected_output_shape, \
-            f"Output shape mismatch! Expected {expected_output_shape}, got {output_predictions.shape}"
-        logger.info("Model forward pass successful with expected output shape.")
-
-        # Conditional Assertion for LSTM hidden/cell states (based on model architecture configuration)
+        # Correctly handle the return value based on whether LSTM is running
         if model.run_LSTM:
+            output_predictions, new_h_c_state = model(dummy_x, dummy_edge_index, dummy_edge_attr, dummy_h_c_state)
+            logger.info(f"Output predictions shape: {output_predictions.shape}")
+            logger.info(f"New LSTM hidden/cell state shapes: h_n={new_h_c_state[0].shape}, c_n={new_h_c_state[1].shape}")
             
             # Expected LSTM hidden/cell state shape: (num_layers_lstm, num_nodes, hidden_channels_lstm)
-            logger.info(f"New LSTM hidden/cell state shapes: h_n={new_h_c_state[0].shape}, c_n={new_h_c_state[1].shape}")
             expected_lstm_state_shape = (num_layers_lstm, len(all_timesteps_list[0].x), hidden_channels_lstm)
             assert new_h_c_state[0].shape == expected_lstm_state_shape, \
                 f"LSTM hidden state shape mismatch! Expected {expected_lstm_state_shape}, got {new_h_c_state[0].shape}"
             assert new_h_c_state[1].shape == expected_lstm_state_shape, \
                 f"LSTM cell state shape mismatch! Expected {expected_lstm_state_shape}, got {new_h_c_state[1].shape}"
             logger.info("LSTM hidden/cell states have expected shapes.\n")
-        
+
         else:
-            # If LSTM is not running, assert that the state is None
-            assert new_h_c_state is None, "new_h_c_state should be None when LSTM is not running."
-            logger.info("LSTM is disabled in the model; new_h_c_state is correctly None.\n")
+            output_predictions = model(dummy_x, dummy_edge_index, dummy_edge_attr, dummy_h_c_state)
+            logger.info(f"Output predictions shape: {output_predictions.shape}")
+            logger.info("LSTM is disabled in the model; a single output tensor is expected.\n")
 
-
+        # Check the output shape regardless of LSTM state
+        expected_output_shape = (len(all_timesteps_list[0].x), output_dim)
+        assert output_predictions.shape == expected_output_shape, \
+            f"Output shape mismatch! Expected {expected_output_shape}, got {output_predictions.shape}"
+        logger.info("Model forward pass successful with expected output shape.")
+        
     except Exception as e:
         logger.error(f"Error during model forward pass: {e}")
 
@@ -145,8 +141,10 @@ def _assert_instantiation_vals(model, all_timesteps_list, device, output_dim, hi
     logger.info(f"Device Type: {type(device)}")
     assert isinstance(device, torch.device), "Device is not a torch.device object"
     logger.info(f"Selected Device: {device}")
+    
+    # The fix: make this assertion less brittle
     if torch.cuda.is_available():
-        assert str(device) == 'cuda', "CUDA available but device not set to 'cuda'!"
+        assert str(device).startswith('cuda'), "CUDA available but device not set to a 'cuda' device!"
     else:
         assert str(device) == 'cpu', "CUDA not available but device not set to 'cpu'!"
     logger.info("Device setup is correct.\n")
@@ -158,12 +156,12 @@ def _assert_instantiation_vals(model, all_timesteps_list, device, output_dim, hi
     assert isinstance(optimizer, torch.optim.Adam), "Optimizer is not torch.optim.Adam"
     logger.info("Optimizer successfully instantiated as Adam.")
 
-    # Learnign rate assertion
+    # Learning rate assertion
     assert optimizer.param_groups[0]['lr'] == adam_learning_rate, \
         f"Optimizer LR mismatch! Expected {adam_learning_rate}, got {optimizer.param_groups[0]['lr']}"
     logger.info(f"Optimizer LR is correct: {optimizer.param_groups[0]['lr']}")
 
-    # Weght decay assertion
+    # Weight decay assertion
     assert optimizer.param_groups[0]['weight_decay'] == adam_weight_decay, \
         f"Optimizer Weight Decay mismatch! Expected {adam_weight_decay}, got {optimizer.param_groups[0]['weight_decay']}"
     logger.info(f"Optimizer Weight Decay is correct: {optimizer.param_groups[0]['weight_decay']}")
@@ -215,7 +213,8 @@ def instantiate_model_and_associated(all_timesteps_list, config, catchment):
     )
 
     # Set device if available
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:0')
     model.to(device)
 
     logger.info(f"Model instantiated and moved to device: {device}")
