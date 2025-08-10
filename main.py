@@ -861,6 +861,7 @@ try:
         # --- 6d. Creat PyG data object using partioned station IDs (from 6a) ---
         
         # Run time approx. 12.5 mins to build 4018 timesteps of objects (0.19s per Object)
+        gwl_ohe_cols = joblib.load(os.path.join(config[catchment]["paths"]["scalers_dir"], "gwl_ohe_cols.pkl"))
         all_timesteps_list = data_partitioning.build_pyg_object(
             processed_df=processed_df,
             sentinel_value=config["global"]["graph"]["sentinel_value"],
@@ -868,6 +869,7 @@ try:
             val_station_ids=val_station_ids,
             test_station_ids=test_station_ids,
             gwl_feats=gwl_feats,
+            gwl_ohe_cols=gwl_ohe_cols,
             edge_index_tensor=edge_index_tensor,
             edge_attr_tensor=edge_attr_tensor,
             catchment=catchment
