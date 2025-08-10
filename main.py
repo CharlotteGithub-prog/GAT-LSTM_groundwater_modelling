@@ -857,6 +857,14 @@ try:
         
         # --- 6d. Creat PyG data object using partioned station IDs (from 6a) ---
         
+        # For feature ablation
+        processed_df = processed_df.drop(columns=['streamflow_total_m3', 'HOST_soil_class_freely_draining_soils',
+                                                  'HOST_soil_class_high_runoff_(impermeable)',
+                                                  'HOST_soil_class_impeded_saturated_subsurface_flow',
+                                                  'HOST_soil_class_peat_soils', 'aquifer_productivity_High',
+                                                  'aquifer_productivity_Low', 'aquifer_productivity_Mixed',
+                                                  'aquifer_productivity_Moderate', 'aquifer_productivity_nan']).copy()
+        
         # Run time approx. 12.5 mins to build 4018 timesteps of objects (0.19s per Object)
         gwl_ohe_cols = joblib.load(os.path.join(config[catchment]["paths"]["scalers_dir"], "gwl_ohe_cols.pkl"))
         all_timesteps_list = data_partitioning.build_pyg_object(
