@@ -850,11 +850,24 @@ try:
         #     train_station_ids=train_station_ids,
         #     val_station_ids=val_station_ids,
         #     test_station_ids=test_station_ids,
-        #     sentinel_value = config["global"]["graph"]["sentinel_value"],
-        #     scaler_dir = config[catchment]["paths"]["scalers_dir"]
+        #     sentinel_value=config["global"]["graph"]["sentinel_value"],
+        #     scaler_dir=config[catchment]["paths"]["scalers_dir"],
+        #     parquet_path=os.path.join(config[catchment]["paths"]["final_df_path"], 'processed_df.parquet')
         # )
 
         # logger.info(f"Pipeline Step 'Preprocess Final GWL Features' complete for {catchment} catchment.\n")
+        
+        # --- Load training requirements ---
+        
+        parquet_path = os.path.join(config[catchment]["paths"]["final_df_path"], 'processed_df.parquet')
+        processed_df = pd.read_parquet(parquet_path, engine='pyarrow')
+        
+        train_station_ids = a
+        val_station_ids = a
+        test_station_ids = a
+        gwl_feats = a
+        edge_index_tensor = a
+        edge_attr_tensor = a
         
         # --- 6d. Creat PyG data object using partioned station IDs (from 6a) ---
         

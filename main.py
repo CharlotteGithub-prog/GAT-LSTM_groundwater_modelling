@@ -851,7 +851,8 @@ try:
             val_station_ids=val_station_ids,
             test_station_ids=test_station_ids,
             sentinel_value = config["global"]["graph"]["sentinel_value"],
-            scaler_dir = config[catchment]["paths"]["scalers_dir"]
+            scaler_dir = config[catchment]["paths"]["scalers_dir"],
+            parquet_path=os.path.join(config[catchment]["paths"]["final_df_path"], 'processed_df.parquet')
         )
 
         logger.info(f"Pipeline Step 'Preprocess Final GWL Features' complete for {catchment} catchment.\n")
