@@ -727,7 +727,8 @@ try:
         final_merged_ts_df = data_merging.merge_timeseries_data_to_df(
             model_start_date=config["global"]["data_ingestion"]["model_start_date"],
             model_end_date=config["global"]["data_ingestion"]["model_end_date"],
-            feature_csv=os.path.join(config[catchment]["paths"]["stream_flow_csv"], f'{pred_frequency}_streamflow.csv'),
+            feature_csv=config[catchment]["paths"]["stream_flow_csv"],
+            csv_name=f'{pred_frequency}_streamflow.csv',
             feature='streamflow',
             pred_frequency=pred_frequency,
             timeseries_df=merged_ts_sp
