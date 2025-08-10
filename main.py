@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 # --- 1b. Project Imports ---
-from src.utils.config_loader import load_project_config
+from src.utils.config_loader import load_project_config, deep_format, expanduser_tree
 from src.visualisation import mapped_visualisations
 from src.preprocessing import gwl_preprocessing, gap_imputation, gwl_feature_engineering, \
     hydroclimatic_feature_engineering, data_partitioning, model_feature_engineering
@@ -47,18 +47,15 @@ notebook = False
 # --- 1d. Set up root directory paths in config ---
 
 raw_data_root = config["global"]["paths"]["raw_data_root"]
+results_root = config["global"]["paths"]["results_root"]
 
-# Update all values in global paths
-for key, val in config["global"]["paths"].items():
-    if isinstance(val, str):
-        config["global"]["paths"][key] = val.format(raw_data_root=raw_data_root)
-
-# Update all catchment paths
-catchments_to_process = config["global"]["pipeline_settings"]["catchments_to_process"]
-for catchment in catchments_to_process:
-    for key, val in config[catchment]["paths"].items():
-        if isinstance(val, str):
-            config[catchment]["paths"][key] = val.format(raw_data_root=raw_data_root)
+# Reformat config roots
+config = deep_format(
+    config,
+    raw_data_root=raw_data_root,
+    results_root=results_root
+)
+config = expanduser_tree(config)
             
 # --- 1e. Set up seeding to define global states ---
 random_seed = config["global"]["pipeline_settings"]["random_seed"]
