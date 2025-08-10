@@ -553,6 +553,14 @@ def _transform_skewed_data(processed_df, catchment, col: str = 'distance_to_rive
     logger.info(f"Tranforming {col} data for {catchment} catchment...\n")
     logger.info(f"    Initial {col} Skewness: {skew(processed_df[col]):.4f}")
     
+    # Check no zero / negative vals are attempted to be transformed using boxcox
+    vals = processed_df[col].to_numpy()
+    min_v = np.nanmin(vals)
+    if min_v <= 0:
+        shift = 1 - min_v + 1e-6
+        logger.warning(f"{col} has non‑positive values; shifting by {shift:.6f} before Box-Cox.")
+        vals = vals + shift
+    
     # Apply box cox transform to raw data column and use .loc to avoid the warning
     transformed_vals, lambda_val = boxcox(processed_df[col] + 1)
     processed_df.loc[:, col] = transformed_vals # Use .loc here

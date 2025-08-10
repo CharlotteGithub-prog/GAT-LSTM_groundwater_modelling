@@ -58,6 +58,12 @@ def _group_features_by_type(processed_df):
     feature_count = len(numerical_features) + len(categorical_features) + len(gwl_features) + len(other)
     assert feature_count == len(processed_df.columns), \
         f"{len(processed_df.columns) - feature_count} features missing from definition."
+        
+    # Final tighter checks (remove above once happy)
+    defined = set(numerical_features) | set(categorical_features) | set(gwl_features) | set(other)
+    missing = [c for c in processed_df.columns if c not in defined]
+    if missing:
+        logger.warning(f"{len(missing)} columns not assigned to a type. First few: {missing[:10]}")
     
     return numerical_features, categorical_features, gwl_features
 
@@ -153,7 +159,7 @@ def preprocess_shared_features(main_df_full, catchment, random_seed, violin_plt_
     logger.info(f"Beginning preprocessing of shared data for {catchment} catchment (avoiding leakage)...\n")
 
     # Copy main df, dropping unneeded columns and renaming columns for clarity
-    processed_df = main_df_full.copy().drop(columns='station_name')
+    processed_df = main_df_full.copy().drop(columns='station_name', errors='ignore')
     processed_df = processed_df.rename(columns={
         '2m_temp_area_weighted_mean': '2m_temp',
         'aet_total_volume_m3': 'aet_volume',
@@ -182,6 +188,9 @@ def preprocess_shared_features(main_df_full, catchment, random_seed, violin_plt_
 
     # --- One Hot Encoding Categorical ---
 
+    # Initialise shared encoder for stability (if no cat feats)
+    shared_encoder = None
+
     if cat_feats:
         # Fit on all available data for feature(s)
         logger.info(f"Beginning one hot encoding of {len(cat_feats)} categorical features...")
@@ -196,6 +205,9 @@ def preprocess_shared_features(main_df_full, catchment, random_seed, violin_plt_
             index=processed_df.index
         )
         
+        shared_ohe_cols = shared_encoder.get_feature_names_out(cat_feats).tolist() if cat_feats else []
+        joblib.dump(shared_ohe_cols, os.path.join(scaler_dir, "shared_ohe_cols.pkl"))
+        
         # concat orginal df except cateogrical features with now one hot encoded cols
         processed_df = pd.concat([processed_df.drop(columns=cat_feats, axis=1), one_hot_df], axis=1)
         
@@ -209,12 +221,18 @@ def preprocess_shared_features(main_df_full, catchment, random_seed, violin_plt_
         
     # --- Clean up df and assert no final NaN values ---
 
-    processed_df[num_feats] = round(processed_df[num_feats], 4)
-    processed_df = processed_df.drop(columns='Unnamed: 0')
-    
+    # processed_df[num_feats] = round(processed_df[num_feats], 4)
+    # processed_df = processed_df.drop(columns='Unnamed: 0')
+       
+    processed_df = processed_df.drop(columns='Unnamed: 0', errors='ignore')
+
+    # Enforce float32 on numerics (cast OHE already float64 too for memory)
+    num_cols = processed_df.select_dtypes(include=[np.number]).columns
+    processed_df[num_cols] = processed_df[num_cols].astype(np.float32)
+
     assert processed_df[num_feats].isna().sum().sum() == 0, \
         f"{processed_df[num_feats].isna().sum().sum()} NaN values found in numerical features after preprocessing.\n"
-        
+            
     # --- Plot standardised features as violin plot to verify success ---
     
     _plot_standardised_data_aligned(processed_df, random_seed, violin_plt_path)
@@ -245,39 +263,63 @@ def _standardise_gwl_station_data(df, num_cols, sentinel_value, gwl_scaler, all_
     Standardise all OBSERVED GWL values using only training data to fit scaler to avoid leakage. df is
     modified in place so no return needed.
     """
-    if num_cols:
-        logger.info(f"Beginning standardisation of {len(num_cols)} numerical GWL features "
-                    f"(fitted on training data only)...")
-
-        # Select only training station nodes and confirm none contain NaN or seninel
-        train_data_for_std = df[df['node_id'].isin(train_station_ids)][num_cols].copy()
-        
-        # Check no training data has been fileed with sentinel vals, temporarily exclude if so
-        n_sentinels_in_train_num = (train_data_for_std == sentinel_value).sum().sum()
-        if n_sentinels_in_train_num > 0:
-            train_data_for_std.replace(sentinel_value, np.nan, inplace=True)
-            logger.warning(f"Found {n_sentinels_in_train_num} sentinel values in training numerical data for fitting.")
-            
-        # Check for persisting NaNs
-        n_nan_in_train_num_before_fit = train_data_for_std.isna().sum().sum()
-        assert n_nan_in_train_num_before_fit == 0, \
-            f"Original training numerical data contains {n_nan_in_train_num_before_fit} genuine NaN values (not sentinels)."
-
-        # Fit on training data
-        gwl_scaler.fit(train_data_for_std)
-        
-        # --- Apply transformation to ALL rows (train, val, test) for these cols ---
-    
-        # Create a boolean mask for rows to transform
-        mask_for_num_transform = df['node_id'].isin(all_gwl_station_ids)
-        
-        # Apply standardising transformation in-place using .loc (only applying to masked rows)
-        df.loc[mask_for_num_transform, num_cols] = gwl_scaler.transform(df.loc[mask_for_num_transform, num_cols])
-        logger.info(f"Successfully standardised {len(num_cols)} numerical GWL features across "
-                    f"{mask_for_num_transform.sum()} rows for observed GWL stations.\n")
-    
-    else:
+    if not num_cols:
         logger.info("No numerical GWL features found, skipping standardisation.\n")
+        return
+
+    logger.info(f"Beginning standardisation of {len(num_cols)} numerical GWL features "
+                f"(fitted on training data only)...")
+
+    # Select only training station nodes and confirm none contain NaN or sentinel
+    train_data_for_std = df[df['node_id'].isin(train_station_ids)][num_cols].copy()
+    
+    # Check no training data has been filled with sentinel vals, temporarily exclude if so
+    n_sentinels_in_train_num = (train_data_for_std == sentinel_value).sum().sum()
+    if n_sentinels_in_train_num > 0:
+        train_data_for_std.replace(sentinel_value, np.nan, inplace=True)
+        logger.warning(f"Found {n_sentinels_in_train_num} sentinel values in training numerical data for fitting.")
+        
+    # Check for persisting NaNs
+    n_nan_in_train_num_before_fit = train_data_for_std.isna().sum().sum()
+    assert n_nan_in_train_num_before_fit == 0, \
+        f"Original training numerical data contains {n_nan_in_train_num_before_fit} genuine NaN values (not sentinels)."
+
+    # Fit on training data
+    gwl_scaler.fit(train_data_for_std)
+    
+    # Guard against zero var outcomes (just set to 0) - very unlikely but causes break when insufficient stations
+    if np.any(np.isclose(gwl_scaler.scale_, 0)):
+        zero_cols = [num_cols[i] for i,s in enumerate(gwl_scaler.scale_) if np.isclose(s,0)]
+        logger.warning(f"Zero variance in training for: {zero_cols} — setting scaled values to 0 for those columns.")
+    
+    # --- Apply transformation to ALL rows (train, val, test) for these cols - NOT SENTINEL! ---
+    
+    # Create a boolean mask for rows to transform
+    obs_mask = df['node_id'].isin(all_gwl_station_ids)
+    
+    # Make copy of the observed rows/cols and record sentinels
+    X = df.loc[obs_mask, num_cols].copy()
+    sentinel_mask = (X == sentinel_value)
+    
+    # Temporarily replace sentinels with the per-column training mean so transform is stable
+    means = pd.Series(gwl_scaler.mean_, index=num_cols)
+    for col in num_cols:
+        X.loc[sentinel_mask[col], col] = means[col]
+        
+    # Transform all observed rows/cols (shape matches fit)
+    X_scaled = gwl_scaler.transform(X.values)
+
+    # Write back to df where observed (not sentinel originally)
+    df.loc[obs_mask, num_cols] = X_scaled
+    
+    # Restore original sentinel values
+    for col in num_cols:
+        mask = obs_mask & sentinel_mask[col]
+        df.loc[mask, col] = sentinel_value
+    
+    # Confirm expected sizes
+    n_restored = sum((df.loc[obs_mask, num_cols] == sentinel_value).sum())
+    logger.info(f"Standardised {len(num_cols)} GWL features; restored {n_restored} sentinel entries unchanged.")
 
 def _standardise_target_feat(df, target_scaler, train_station_ids, target_col='gwl_value'):
     """
@@ -458,6 +500,10 @@ def preprocess_gwl_features(processed_df, catchment, train_station_ids, val_stat
     gwl_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
     _encode_gwl_station_data(df, cat_cols, gwl_encoder, all_gwl_station_ids, train_station_ids)
     
+    # Save cols for later -999/0.0 fill type reference
+    gwl_ohe_cols = gwl_encoder.get_feature_names_out(cat_cols).tolist() if cat_cols else []
+    joblib.dump(gwl_ohe_cols, os.path.join(scaler_dir, "gwl_ohe_cols.pkl"))
+    
     # --- Final Sentinel Fill for any remaining NaNs in GWL X-Features ---
     
     final_gwl_x_features = num_cols + gwl_encoder.get_feature_names_out(cat_cols).tolist() if cat_cols else num_cols
@@ -482,6 +528,11 @@ def preprocess_gwl_features(processed_df, catchment, train_station_ids, val_stat
     # Clean up final df, col order and log completion of processing
     processed_df = processed_df.drop(columns='gwl_value_x').rename(columns={'gwl_value_y': 'gwl_value'})
     processed_df = _modify_final_col_order(processed_df)
+    
+    # Enforce float32 on numeric columns (includes scaled GWL features and target)
+    numeric_like_cols = processed_df.select_dtypes(include=[np.number]).columns
+    processed_df[numeric_like_cols] = processed_df[numeric_like_cols].astype(np.float32)
+
     logger.info(f"Updated processed_df with standardised and encoded GWL features.")
     
     # Save Encoders
