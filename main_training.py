@@ -790,8 +790,8 @@ try:
         
         # # Save final dataframe to file - NB: TIME TO SAVE APPROX. 2.5 MINS - [FUTURE] SET FLAG?
         
-        # final_save_path = os.path.join(final_dir, 'final_df.csv')
-        # main_df_full.to_csv(final_save_path)
+        # # final_save_path = os.path.join(final_dir, 'final_df.csv')
+        # # main_df_full.to_csv(final_save_path)
         
         # logger.info(f"Final merged dataframe saved to {final_save_path}")
         
@@ -823,6 +823,7 @@ try:
         #     test_station_shortlist=config[catchment]["model"]["data_partioning"]["test_station_shortlist"],
         #     val_station_shortlist=config[catchment]["model"]["data_partioning"]["val_station_shortlist"],
         #     random_seed=config["global"]["pipeline_settings"]["random_seed"],
+        #     output_dir=config[catchment]["paths"]["aux_dir"],
         #     perc_train=config[catchment]["model"]["data_partioning"]["percentage_train"],
         #     perc_val=config[catchment]["model"]["data_partioning"]["percentage_val"],
         #     perc_test=config[catchment]["model"]["data_partioning"]["percentage_test"]
@@ -837,7 +838,8 @@ try:
         #     catchment=catchment,
         #     random_seed=config["global"]["pipeline_settings"]["random_seed"],
         #     violin_plt_path=config[catchment]["visualisations"]["violin_plt_path"],
-        #     scaler_dir = config[catchment]["paths"]["scalers_dir"]
+        #     scaler_dir = config[catchment]["paths"]["scalers_dir"],
+        #     aux_dir=config[catchment]["paths"]["aux_dir"]
         # )
 
         # logger.info(f"Pipeline Step 'Preprocess Final Shared Features' complete for {catchment} catchment.\n")
@@ -857,40 +859,43 @@ try:
 
         # logger.info(f"Pipeline Step 'Preprocess Final GWL Features' complete for {catchment} catchment.\n")
         
-        # --- Load training requirements ---
+        # # --- Load training requirements ---
         
-        parquet_path = os.path.join(config[catchment]["paths"]["final_df_path"], 'processed_df.parquet')
-        processed_df = pd.read_parquet(parquet_path, engine='pyarrow')
+        # parquet_path = os.path.join(config[catchment]["paths"]["final_df_path"], 'processed_df.parquet')
+        # processed_df = pd.read_parquet(parquet_path, engine='pyarrow')
         
-        train_station_ids = a
-        val_station_ids = a
-        test_station_ids = a
-        gwl_feats = a
-        edge_index_tensor = a
-        edge_attr_tensor = a
+        # aux_dir = config[catchment]["paths"]["aux_dir"]
+        # train_station_ids = joblib.load(os.path.join(aux_dir, "train_station_ids.joblib"))
+        # val_station_ids = joblib.load(os.path.join(aux_dir, "val_station_ids.joblib"))
+        # test_station_ids = joblib.load(os.path.join(aux_dir, "test_station_ids.joblib"))
+        # gwl_feats = joblib.load(os.path.join(aux_dir, "gwl_feats.joblib"))
         
-        # --- 6d. Creat PyG data object using partioned station IDs (from 6a) ---
+        # graph_output_dir = config[catchment]["paths"]["graph_data_output_dir"]
+        # edge_index_tensor = torch.load(os.path.join(graph_output_dir, "edge_index_tensor.pt"))
+        # edge_attr_tensor = torch.load(os.path.join(graph_output_dir, "edge_attr_tensor.pt"))
         
-        # For feature ablation
-        processed_df_final = processed_df.drop(columns=['streamflow_total_m3']).copy()
+        # # --- 6d. Creat PyG data object using partioned station IDs (from 6a) ---
         
-        # Run time approx. 12.5 mins to build 4018 timesteps of objects (0.19s per Object)
-        gwl_ohe_cols = joblib.load(os.path.join(config[catchment]["paths"]["scalers_dir"], "gwl_ohe_cols.pkl"))
-        all_timesteps_list = data_partitioning.build_pyg_object(
-            processed_df=processed_df_final,
-            sentinel_value=config["global"]["graph"]["sentinel_value"],
-            train_station_ids=train_station_ids,
-            val_station_ids=val_station_ids,
-            test_station_ids=test_station_ids,
-            gwl_feats=gwl_feats,
-            gwl_ohe_cols=gwl_ohe_cols,
-            edge_index_tensor=edge_index_tensor,
-            edge_attr_tensor=edge_attr_tensor,
-            catchment=catchment
-        )
+        # # For feature ablation
+        # processed_df_final = processed_df.drop(columns=['streamflow_total_m3']).copy()
+        
+        # # Run time approx. 12.5 mins to build 4018 timesteps of objects (0.19s per Object)
+        # gwl_ohe_cols = joblib.load(os.path.join(config[catchment]["paths"]["scalers_dir"], "gwl_ohe_cols.pkl"))
+        # all_timesteps_list = data_partitioning.build_pyg_object(
+        #     processed_df=processed_df_final,
+        #     sentinel_value=config["global"]["graph"]["sentinel_value"],
+        #     train_station_ids=train_station_ids,
+        #     val_station_ids=val_station_ids,
+        #     test_station_ids=test_station_ids,
+        #     gwl_feats=gwl_feats,
+        #     gwl_ohe_cols=gwl_ohe_cols,
+        #     edge_index_tensor=edge_index_tensor,
+        #     edge_attr_tensor=edge_attr_tensor,
+        #     catchment=catchment
+        # )
 
-        torch.save(all_timesteps_list, config[catchment]["paths"]["pyg_object_path"])
-        logger.info(f"Pipeline Step 'Build PyG Data Objects' complete for {catchment} catchment.\n")
+        # torch.save(all_timesteps_list, config[catchment]["paths"]["pyg_object_path"])
+        # logger.info(f"Pipeline Step 'Build PyG Data Objects' complete for {catchment} catchment.\n")
 
         # --- 6e. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) ---
         # Already generated in Step 5e and incorporated into PyG objects in step 6d.
@@ -904,7 +909,8 @@ try:
         # ====================================================================================================
 
         # --- 7a. Build Data Loaders by Timestep ---
-
+        
+        all_timesteps_list = torch.load(config[catchment]["paths"]["pyg_object_path"])
         full_dataset_loader = model_building.build_data_loader(
             all_timesteps_list=all_timesteps_list,
             batch_size = config["global"]["model"]["data_loader_batch_size"],
