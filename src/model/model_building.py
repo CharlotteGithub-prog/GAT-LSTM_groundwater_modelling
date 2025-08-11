@@ -214,7 +214,8 @@ def instantiate_model_and_associated(all_timesteps_list, config, catchment):
 
     # Set device if available
     # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    device = torch.device('cuda:0')
+    # device = torch.device('cuda:0')
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
     logger.info(f"Model instantiated and moved to device: {device}")
