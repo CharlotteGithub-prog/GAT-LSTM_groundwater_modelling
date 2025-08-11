@@ -74,7 +74,13 @@ edge_attr_tensor = torch.load(os.path.join(graph_output_dir, "edge_attr_tensor.p
 # --- 6d. Creat PyG data object using partioned station IDs (from 6a) ---
 
 # For feature ablation
-processed_df_final = processed_df.drop(columns=['streamflow_total_m3']).copy()
+# processed_df_final = processed_df.drop(columns=['streamflow_total_m3']).copy()
+# processed_df_final = processed_df.drop(columns=['streamflow_total_m3', 'HOST_soil_class_freely_draining_soils', 'HOST_soil_class_high_runoff_(impermeable)', 
+#                                                'HOST_soil_class_impeded_saturated_subsurface_flow', 'HOST_soil_class_peat_soils', 'aquifer_productivity_High',
+#                                                'aquifer_productivity_Low', 'aquifer_productivity_Mixed', 'aquifer_productivity_Moderate',
+#                                                'aquifer_productivity_nan', 'gwl_mean', 'gwl_dip', 'distance_to_river']).copy()
+
+processed_df_final = processed_df.copy()
 
 # Run time approx. 12.5 mins to build 4018 timesteps of objects (0.19s per Object)
 gwl_ohe_cols = joblib.load(os.path.join(config[catchment]["paths"]["scalers_dir"], "gwl_ohe_cols.pkl"))
