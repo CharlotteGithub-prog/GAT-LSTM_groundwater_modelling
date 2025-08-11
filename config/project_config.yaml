@@ -17,8 +17,8 @@ global:
 
   # --- FILE PATHS ---
   paths:
-    raw_data_root: "../msc-groundwater-gwl-data"  # Alternative: "data"
-    results_root: "../msc-groundwater-gwl-results"  # Alternative: "results"
+    raw_data_root: "data"  # Alternative: "../msc-groundwater-gwl-data"
+    results_root: "results"  # Alternative: "../msc-groundwater-gwl-results"
     # --- Specific INPUT files ---
     gis_os_grid_squares: "{raw_data_root}/01_raw/global/os_grid_squares.csv"
     defra_station_base_url: "https://environment.data.gov.uk/hydrology/id/stations"
@@ -222,11 +222,11 @@ eden:
     architecture:
       # --- GAT ---
       run_GAT: true  # Turn sections off for benchmarking and performance analysis (ablation studies)
-      heads_gat: 12 # 
+      heads_gat: 12
       dropout_gat: 0.4  # 40% dropped
       hidden_channels_gat: 64  # FROM 64
       out_channels_gat: 64
-      num_layers_gat: 2  # THEN 3 from 2
+      num_layers_gat: 2
 
       # --- LSTM ---
       run_LSTM: false
@@ -274,9 +274,9 @@ eden:
   training:
     verbose: true  # Run logger to debug (increases computation)
     num_epochs: 200  # Start here, may need to increase depending on computation times
-    early_stopping_patience: 25 # Early Stopping: Number of epochs to wait for improvement in validation loss before stopping training.
+    early_stopping_patience: 30 # Early Stopping: Number of epochs to wait for improvement in validation loss before stopping training.
     lr_scheduler_factor: 0.5  # ReduceLROnPlateau: Factor by which the learning rate will be reduced. PREVIOUSLY: 0.5
-    lr_scheduler_patience: 6  # Patience for ReduceLROnPlateau: Number of epochs with no improvement in validation
+    lr_scheduler_patience: 10  # Patience for ReduceLROnPlateau: Number of epochs with no improvement in validation
     min_lr: 0.000001  # Min learning rate bound (Generally recommended: 1e-6)
     loss_delta: 0.0001  # Minimum change in loss required to count as improvement
     gradient_clip_max_norm: 1.0  # Gradient Clipping Max Norm: Maximum norm of the gradients for gradient clipping (help prevent exploding grad.)
