@@ -36,12 +36,6 @@ slurm/logs/
 /data/05_analysis/*
 !/data/05_analysis/.gitkeep
 
-# # --- Explicitly Unignore Manually Downloaded Data Paths ---
-# !/data/01_raw/eden/gis
-# !/data/01_raw/eden/gwl_stations
-# !/data/01_raw/eden/hydroclimatic/rainfall
-# !/data/01_raw/eden/static
-
 # --- Specific Files (e.g. Tests) ---
 notebooks/03_model_development/test.
 notebooks/02_graph_building_and_integration/05_snap_features_to_mesh_old.ipynb
