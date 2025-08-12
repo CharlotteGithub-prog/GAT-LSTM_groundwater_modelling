@@ -410,7 +410,8 @@ def _build_object_masks(grouped_by_timestep, train_station_ids: list, val_statio
 
 def build_pyg_object(processed_df: pd.DataFrame, sentinel_value: float, train_station_ids: list,
                      val_station_ids: list, test_station_ids: list, gwl_feats: list, gwl_ohe_cols: list,
-                     edge_index_tensor: torch.Tensor, edge_attr_tensor: torch.Tensor, catchment: str):
+                     edge_index_tensor: torch.Tensor, edge_attr_tensor: torch.Tensor, scalers_dir: str,
+                     catchment: str):
     
     logger.info(f"Starting PyG Data object creation for {catchment} catchment.\n")
 
@@ -418,7 +419,7 @@ def build_pyg_object(processed_df: pd.DataFrame, sentinel_value: float, train_st
         logger.info(f"Comverting 'timestep' dtype to datetime64[ns]")
         processed_df['timestep'] = pd.to_datetime(processed_df['timestep'])
 
-    all_node_ids = sorted(processed_df["node_id"].unique().tolist())
+    all_node_ids = sorted(processed_df["node_id"].unique().tolist())    
     mesh_node_count = len(all_node_ids)
     
     gwl_x_features_initial = [feat for feat in gwl_feats if feat != 'gwl_value']
@@ -441,6 +442,15 @@ def build_pyg_object(processed_df: pd.DataFrame, sentinel_value: float, train_st
                         val_station_ids, test_station_ids, gwl_x_features,
                         sentinel_value, mesh_node_count, all_node_ids, edge_index_tensor,
                         edge_attr_tensor, gwl_ohe_cols)
+    
+    # Sve all_node_ids for reference in training
+    joblib.dump(all_node_ids, os.path.join(scalers_dir, "all_node_ids.joblib"))
+    
+    # Save per-node raw means (one val per node)
+    gwl_mean_by_node = (processed_df[['node_id', 'gwl_mean']]
+                        .dropna(subset=['gwl_mean'])
+                        .groupby('node_id')['gwl_mean'].first().to_dict())
+    joblib.dump(gwl_mean_by_node, os.path.join(scalers_dir, "gwl_mean_by_node.joblib"))
     
     return all_timesteps_list
 

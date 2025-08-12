@@ -94,6 +94,7 @@ all_timesteps_list = build_pyg_object(
     gwl_ohe_cols=gwl_ohe_cols,
     edge_index_tensor=edge_index_tensor,
     edge_attr_tensor=edge_attr_tensor,
+    scalers_dir=config[catchment]["paths"]["scalers_dir"],
     catchment=catchment
 )
 

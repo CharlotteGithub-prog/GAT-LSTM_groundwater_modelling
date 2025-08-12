@@ -31,3 +31,4 @@ torch_geometric
 seaborn==0.13.2
 regionmask==0.11.0
 dask==2025.5.1
+permetrics==2.0.0

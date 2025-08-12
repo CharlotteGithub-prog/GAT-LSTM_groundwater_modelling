@@ -26,6 +26,29 @@ logger = logging.getLogger(__name__)
 from src.training.early_stopping_class import EarlyStopping
 
 # Implement Model Training and Validation Loops (8a)
+def _calc_drift_loss_correction(loss: torch.Tensor, gwl_node_mean: torch.Tensor, predictions_all_nodes: torch.Tensor,
+                                node_ids_in_current_timestep: torch.Tensor, current_mask: torch.Tensor, lambda_mean_align: float):
+    
+    # Defensive early exits to reduce unnecessary computation
+    if (lambda_mean_align <= 0.0) or (gwl_node_mean is None):
+        return loss
+    if current_mask is None or not current_mask.any():
+        return loss
+    
+    # squeeze predictions to [N] (remove dim of size 1)
+    preds = predictions_all_nodes.squeeze(-1)
+    
+    # get per-node static means for these rows, apply masks and get means
+    gwl_mean_rows = gwl_node_mean.index_select(0, node_ids_in_current_timestep)
+    preds_m = preds[current_mask].mean()
+    means_m = gwl_mean_rows[current_mask].mean()
+    
+    # get abs bias between pred mean level and static mean level then calc loss
+    mean_align_loss = (preds_m - means_m).abs()
+    loss = loss + (lambda_mean_align * mean_align_loss)
+    
+    return loss
+
 def _calc_smooth_curvature_loss(loss, data, previous_targets, sequential_mask, loss_type, pred_t,
                               lambda_curve, prev_pred, lambda_smooth):
     # First-difference (rate matching) penalty: discourages day-to-day jitter
@@ -59,7 +82,8 @@ def _calc_smooth_curvature_loss(loss, data, previous_targets, sequential_mask, l
     return loss
 
 def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_norm, model, device, criterion,
-                     optimizer, target_scaler, lambda_smooth, lambda_curve, loss_type, is_training=True):
+                     optimizer, target_scaler, lambda_smooth, lambda_curve, loss_type, lambda_mean_align,
+                     gwl_node_mean, is_training=True):
     
     # Initialise model to correct mode
     model.train() if is_training else model.eval()
@@ -146,6 +170,13 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
                         loss, data, previous_targets, sequential_mask, loss_type, pred_t,
                         lambda_curve, prev_pred, lambda_smooth
                     )
+            
+            # --- Apply mean drift alignment --- 
+            
+            effective_lambda = lambda_mean_align * min(1.0, epoch / 5.0)  # Prevents overapplication before patterns are learned
+            logger.info(f"[REF] gwl_node_mean target-space stats: min={gwl_node_mean.min():.2f}, max={gwl_node_mean.max():.2f}")
+            loss = _calc_drift_loss_correction(loss, gwl_node_mean, predictions_all_nodes, node_ids_in_current_timestep,
+                                               mask_for_loss_and_metrics, effective_lambda)
 
             total_loss += loss.item() * mask_count  # Scale by number of predictions in this batch so epoch avg is per-prediction
             num_predictions_processed += mask_count  # num_predictions is num node,timestep pairs
@@ -243,6 +274,22 @@ def _generate_model_filename(config, catchment):
     filename = f"model_{timestamp}_{param_string}"  # No specific extension -> added after for all cases
     return filename
 
+def _load_node_means(scalers_dir, target_scaler, device):
+    # Load node ids and means and make vector
+    all_node_ids = joblib.load(os.path.join(scalers_dir, "all_node_ids.joblib"))
+    gwl_mean_by_node = joblib.load(os.path.join(scalers_dir, "gwl_mean_by_node.joblib"))
+    gwl_mean_vec = np.array([gwl_mean_by_node[nid] for nid in all_node_ids], dtype=np.float32)
+    
+    # gwl_mean to target space
+    scale = target_scaler.scale_[0]
+    mean  = target_scaler.mean_[0]
+    gwl_mean_targetspace = (gwl_mean_vec - mean) / scale
+    
+    # To torch tensor (on same device)
+    gwl_node_mean = torch.tensor(gwl_mean_targetspace, dtype=torch.float32, device=device)
+    
+    return gwl_node_mean
+
 def run_training_and_validation(num_epochs: int, early_stopping_patience: int, lr_scheduler_factor: float,
                                 lr_scheduler_patience: int, min_lr: float, gradient_clip_max_norm: float,
                                 model_save_dir: str, loss_delta: float, verbose: bool, catchment: str,
@@ -283,6 +330,9 @@ def run_training_and_validation(num_epochs: int, early_stopping_patience: int, l
         logger.error(f"Error loading target scaler from {target_scaler_path}: {e}")
         target_scaler = None
     
+    # Get node means
+    gwl_node_mean = _load_node_means(scalers_dir, target_scaler, device)
+    
     # Initialise Early Stopping class (all set to False upon __init__)
     early_stopper = EarlyStopping(
         patience=early_stopping_patience,
@@ -312,6 +362,7 @@ def run_training_and_validation(num_epochs: int, early_stopping_patience: int, l
     # Retrieve smoothing and curvature params alongside loss type
     lambda_smooth=config[catchment]["model"]["architecture"]["lambda_smooth"]
     lambda_curve=config[catchment]["model"]["architecture"]["lambda_curve"]
+    lambda_mean_align=config[catchment]["model"]["architecture"]["lambda_mean_align"]
     loss_type = config[catchment]["training"]["loss"]
     
     # --- Run full training and validation loop ---
@@ -324,7 +375,7 @@ def run_training_and_validation(num_epochs: int, early_stopping_patience: int, l
                                                                   gradient_clip_max_norm, model, device,
                                                                   criterion, optimizer, target_scaler,
                                                                   lambda_smooth, lambda_curve, loss_type,
-                                                                  is_training=True)
+                                                                  lambda_mean_align, gwl_node_mean, is_training=True)
         
         train_losses.append(avg_train_loss)
         train_maes_unscaled.append(avg_train_mae_unscaled) 
@@ -335,7 +386,7 @@ def run_training_and_validation(num_epochs: int, early_stopping_patience: int, l
                                                               gradient_clip_max_norm, model, device,
                                                               criterion, optimizer, target_scaler,
                                                               lambda_smooth, lambda_curve, loss_type,
-                                                              is_training=False)
+                                                              lambda_mean_align, gwl_node_mean, is_training=False)
         val_losses.append(avg_val_loss)
         val_maes_unscaled.append(avg_val_mae_unscaled)
         
