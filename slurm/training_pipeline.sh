@@ -13,7 +13,7 @@
 #SBATCH --mem=20G
 
 #SBATCH --job-name=GWL_pipeline_run
-#SBATCH -o /home3/swlc12/msc-groundwater-gwl/slurm/logs/slurm-%j.out
+#SBATCH -o /home3/swlc12/msc-groundwater-gwl-parallel/slurm/logs/slurm-%j.out
 
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=swlc12@durham.ac.uk
