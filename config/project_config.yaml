@@ -223,7 +223,7 @@ eden:
       # --- GAT ---
       run_GAT: true  # Turn sections off for benchmarking and performance analysis (ablation studies)
       heads_gat: 12
-      dropout_gat: 0.45  # 40% dropped
+      dropout_gat: 0.4  # 40% dropped
       hidden_channels_gat: 64  # FROM 64
       out_channels_gat: 64
       num_layers_gat: 2
@@ -256,9 +256,10 @@ eden:
       # --- Full Model ---
       output_dim: 1  # one station gwl prediction per timestep
       adam_learning_rate: 0.001
-      adam_weight_decay: 0.0005  # 5e-4 is common initial weight decay val - (0) currenlty 0.0005 to 0.005 > 0.001
-      lambda_smooth: 0.1  # Relative to main loss; Set to 0.0 for no smoothing
-      lambda_curve: 0.02  # Set to 0.0 for no curvature smoothing
+      adam_weight_decay: 0.001  # 5e-4 is common initial weight decay val - (0) currenlty 0.0005 to 0.005 > 0.001
+      lambda_smooth: 0.1  # Relative to main loss; Set to 0.0 for no smoothing [0.1]
+      lambda_curve: 0.02  # Set to 0.0 for no curvature smoothing [0.02]
+      lambda_mean_align: 0.1
       initialise_with_dipped: true
 
     data_partioning:

@@ -102,6 +102,7 @@ try:
         #     gwl_ohe_cols=gwl_ohe_cols,
         #     edge_index_tensor=edge_index_tensor,
         #     edge_attr_tensor=edge_attr_tensor,
+        #     scalers_dir=config[catchment]["paths"]["scalers_dir"],
         #     catchment=catchment
         # )
 
@@ -110,6 +111,7 @@ try:
 
         # --- 6e. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) ---
         # Already generated in Step 5e and incorporated into PyG objects in step 6d.
+        # BUT: Build helper to add self loops (duplicate edges in both directions)
 
         # ====================================================================================================
         # SECTION 7: MODEL
@@ -148,7 +150,7 @@ try:
         # ==============================================================================
         
         # --- 8a. Implement Training Loop ---
-        
+
         train_losses, val_losses = model_training.run_training_and_validation(
             num_epochs=config[catchment]["training"]["num_epochs"],
             early_stopping_patience=config[catchment]["training"]["early_stopping_patience"],

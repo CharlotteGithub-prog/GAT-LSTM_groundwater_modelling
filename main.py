@@ -861,14 +861,6 @@ try:
         
         # --- 6d. Creat PyG data object using partioned station IDs (from 6a) ---
         
-        # For feature ablation
-        processed_df = processed_df.drop(columns=['streamflow_total_m3', 'HOST_soil_class_freely_draining_soils',
-                                                  'HOST_soil_class_high_runoff_(impermeable)',
-                                                  'HOST_soil_class_impeded_saturated_subsurface_flow',
-                                                  'HOST_soil_class_peat_soils', 'aquifer_productivity_High',
-                                                  'aquifer_productivity_Low', 'aquifer_productivity_Mixed',
-                                                  'aquifer_productivity_Moderate', 'aquifer_productivity_nan']).copy()
-        
         # Run time approx. 12.5 mins to build 4018 timesteps of objects (0.19s per Object)
         gwl_ohe_cols = joblib.load(os.path.join(config[catchment]["paths"]["scalers_dir"], "gwl_ohe_cols.pkl"))
         all_timesteps_list = data_partitioning.build_pyg_object(
@@ -881,14 +873,16 @@ try:
             gwl_ohe_cols=gwl_ohe_cols,
             edge_index_tensor=edge_index_tensor,
             edge_attr_tensor=edge_attr_tensor,
+            scalers_dir=config[catchment]["paths"]["scalers_dir"],
             catchment=catchment
         )
 
         torch.save(all_timesteps_list, config[catchment]["paths"]["pyg_object_path"])
         logger.info(f"Pipeline Step 'Build PyG Data Objects' complete for {catchment} catchment.\n")
-
+        
         # --- 6e. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) ---
         # Already generated in Step 5e and incorporated into PyG objects in step 6d.
+        # BUT TODO: Build helper to add self loops (duplicate edges in both directions)
 
         # ====================================================================================================
         # SECTION 7: MODEL
