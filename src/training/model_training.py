@@ -2,14 +2,13 @@ import os
 import sys
 import math
 import torch
-import joblib
 # import pickle
+import joblib
 import logging
 import numpy as np
 import pandas as pd
 import torch.nn as nn
 from tqdm import tqdm # For progress bars
-from joblib import load  # to load scalers
 from datetime import datetime
 import torch.nn.functional as F
 
@@ -27,8 +26,40 @@ logger = logging.getLogger(__name__)
 from src.training.early_stopping_class import EarlyStopping
 
 # Implement Model Training and Validation Loops (8a)
+def _calc_smooth_curvature_loss(loss, data, previous_targets, sequential_mask, loss_type, pred_t,
+                              lambda_curve, prev_pred, lambda_smooth):
+    # First-difference (rate matching) penalty: discourages day-to-day jitter
+    true_t = data.y - previous_targets
+    
+    # Scale to number of valid values (not masked gwl) in sequential mask - apply to next four calcs
+    n_seq = sequential_mask.sum().clamp(min=1)
+    
+    # Encourage a match to the rate of change in the training data
+    if loss_type == 'MAE':
+        rate_loss = torch.sum(torch.abs(pred_t[sequential_mask] - true_t[sequential_mask])) / n_seq
+    elif loss_type == 'MSE':
+        rate_loss = torch.sum((pred_t[sequential_mask] - true_t[sequential_mask]) ** 2) / n_seq
+    else:
+        error_message = f"Invalid loss_type: '{loss_type}. Must be 'MAE' or 'MSE'."
+        logger.error(error_message)
+        raise ValueError(error_message)
+    
+    # --- Apply secondary curvature if given ---
+    
+    if lambda_curve > 0.0 and prev_pred is not None:
+        pred_t_2 = pred_t - prev_pred
+        if loss_type == 'MAE':
+            curve_loss = torch.sum(torch.abs(pred_t_2[sequential_mask])) / n_seq
+        else:  # for MSE
+            curve_loss = torch.sum(pred_t_2[sequential_mask] ** 2) / n_seq
+        loss = loss + (lambda_smooth * rate_loss) + (lambda_curve * curve_loss)
+    else:
+        loss = loss + (lambda_smooth * rate_loss)
+    
+    return loss
+
 def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_norm, model, device, criterion,
-                     optimizer, target_scaler, lambda_smooth, is_training=True):
+                     optimizer, target_scaler, lambda_smooth, lambda_curve, loss_type, is_training=True):
     
     # Initialise model to correct mode
     model.train() if is_training else model.eval()
@@ -37,7 +68,7 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
     total_loss = 0.0
     total_mae_unscaled = 0.0
     num_nodes_processed = 0
-    num_timesteps_processed = 0
+    num_predictions_processed = 0
     
     # Initialise global LSTM state store at start of epoch (for Truncated Backpropagation Through Time (TBPTT))
     if model.run_LSTM:
@@ -55,8 +86,11 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
         scale = torch.tensor(target_scaler.scale_, device=device)
         mean = torch.tensor(target_scaler.mean_, device=device)
     
-    # Initialise previous prediction tracker
+    # Initialise previous prediction, mask, targets trackers
     previous_predictions = None
+    previous_targets = None
+    prev_pred = None
+    prev_mask_for_loss_and_metrics = None
     
     #  Loop through and train/validate model
     with torch.set_grad_enabled(is_training): # Gradients enabled for training, disabled for validation
@@ -72,16 +106,18 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
             # Select the correct nodes to process for this phase (training or validation)
             mask_for_loss_and_metrics = getattr(data, mask_attr)
             if not mask_for_loss_and_metrics.any():
-                logger.debug(f"Epoch {epoch+1}, Timestep {data.timestep.date()}: No {description} nodes. Skipping.")
+                logger.debug(f"Epoch {epoch+1}, Timestep {data.timestep.date()}: No "
+                             f"{('Training' if is_training else 'Validation')} nodes. Skipping.")
+                continue
+            
+            # Calculate the mask count and continue if not valid predictions in mask
+            mask_count = mask_for_loss_and_metrics.sum().item()
+            if mask_count == 0:
                 continue
         
             x_full = data.x
             node_ids_in_current_timestep = data.node_id  # Global IDs for all nodes in x_full
-            if not mask_for_loss_and_metrics.any():
-                logger.debug(f"Epoch {epoch+1}, Timestep {data.timestep.date()}: No "
-                             f"{('Training' if is_training else 'Validation')} nodes. Skipping.")
-                continue
-
+            
             # --- Run Model Pass ---
             
             predictions_all_nodes, (h_new_for_current_nodes, c_new_for_current_nodes), returned_node_ids = model(
@@ -97,20 +133,22 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
             # Compute loss (on relevant nodes only)
             loss = criterion(predictions_all_nodes[mask_for_loss_and_metrics], data.y[mask_for_loss_and_metrics])
             
-            # --- If Smoothness Loss --- TODO: This may need to be proportional to depth?
+            # --- If Smoothness Loss given then apply it ---
             
-            # NOTE: This assumes predictions are for the same node (e.g. test station) across timesteps
-            # If using multiple nodes or changing masks in future, must align predictions by node ID
-            if lambda_smooth > 0.0 and previous_predictions is not None:    
-                smoothness_loss = F.mse_loss(
-                    predictions_all_nodes[mask_for_loss_and_metrics],
-                    previous_predictions[mask_for_loss_and_metrics]
-                )
-                loss += lambda_smooth * smoothness_loss  # May need scaling in future, check this.
-            previous_predictions = predictions_all_nodes.detach() # Update for next timestep
+            # Compute first diff with respect to previous timestep (where available)
+            pred_t = (predictions_all_nodes - previous_predictions) if previous_predictions is not None else None
+            
+            if lambda_smooth > 0.0 and previous_predictions is not None: 
+                # Align with previous node
+                sequential_mask = mask_for_loss_and_metrics & prev_mask_for_loss_and_metrics
+                if sequential_mask.any():
+                    loss = _calc_smooth_curvature_loss(
+                        loss, data, previous_targets, sequential_mask, loss_type, pred_t,
+                        lambda_curve, prev_pred, lambda_smooth
+                    )
 
-            total_loss += loss.item()
-            num_timesteps_processed += 1
+            total_loss += loss.item() * mask_count  # Scale by number of predictions in this batch so epoch avg is per-prediction
+            num_predictions_processed += mask_count  # num_predictions is num node,timestep pairs
 
             # --- Compute unscaled MAE (mAOD) for interpretability ---
             
@@ -118,7 +156,6 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
                 preds_orig = predictions_all_nodes[mask_for_loss_and_metrics] * scale + mean
                 targets_orig = data.y[mask_for_loss_and_metrics] * scale + mean
                 batch_mae = torch.mean(torch.abs(preds_orig - targets_orig)).item()
-                mask_count = mask_for_loss_and_metrics.sum().item()
                 total_mae_unscaled += batch_mae * mask_count
                 num_nodes_processed += mask_count
             
@@ -137,9 +174,15 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
                 if target_scaler is not None:
                     postfix['mae'] = f"{batch_mae:.2f}"
                 loop.set_postfix(postfix)
+            
+            # store trackers for next timestep (detach to avoid exploding computation)
+            previous_predictions = predictions_all_nodes.detach()
+            previous_targets = data.y.detach()
+            prev_mask_for_loss_and_metrics = mask_for_loss_and_metrics.clone()
+            prev_pred = pred_t.detach() if pred_t is not None else None
         
     # Calculate average loss over all timesteps processed in training (where train_mask = True)
-    avg_loss = total_loss / num_timesteps_processed if num_timesteps_processed > 0 else float('nan')
+    avg_loss = total_loss / num_predictions_processed if num_predictions_processed > 0 else float('nan')
     avg_mae_unscaled = total_mae_unscaled / num_nodes_processed if num_nodes_processed > 0 else float('nan')
 
     return avg_loss, avg_mae_unscaled
@@ -234,7 +277,7 @@ def run_training_and_validation(num_epochs: int, early_stopping_patience: int, l
     
     target_scaler_path = os.path.join(scalers_dir, "target_scaler.pkl")
     try:
-        target_scaler = load(target_scaler_path) 
+        target_scaler = joblib.load(target_scaler_path) 
         logger.info(f"Successfully loaded target scaler from: {target_scaler_path}")
     except Exception as e:
         logger.error(f"Error loading target scaler from {target_scaler_path}: {e}")
@@ -266,8 +309,10 @@ def run_training_and_validation(num_epochs: int, early_stopping_patience: int, l
     train_maes_unscaled = []
     val_maes_unscaled = []
     
-    # Initialise smoothing param
+    # Retrieve smoothing and curvature params alongside loss type
     lambda_smooth=config[catchment]["model"]["architecture"]["lambda_smooth"]
+    lambda_curve=config[catchment]["model"]["architecture"]["lambda_curve"]
+    loss_type = config[catchment]["training"]["loss"]
     
     # --- Run full training and validation loop ---
 
@@ -275,16 +320,22 @@ def run_training_and_validation(num_epochs: int, early_stopping_patience: int, l
         
         # --- TRAINING PHASE ---
         
-        avg_train_loss, avg_train_mae_unscaled = _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_norm,
-                                          model, device, criterion, optimizer, target_scaler, lambda_smooth, is_training=True)
+        avg_train_loss, avg_train_mae_unscaled = _run_epoch_phase(epoch, num_epochs, all_timesteps_list,
+                                                                  gradient_clip_max_norm, model, device,
+                                                                  criterion, optimizer, target_scaler,
+                                                                  lambda_smooth, lambda_curve, loss_type,
+                                                                  is_training=True)
         
         train_losses.append(avg_train_loss)
         train_maes_unscaled.append(avg_train_mae_unscaled) 
         
         # --- VALIDATION PHASE ---
         
-        avg_val_loss, avg_val_mae_unscaled = _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_norm,
-                                          model, device, criterion, optimizer, target_scaler, lambda_smooth, is_training=False)
+        avg_val_loss, avg_val_mae_unscaled = _run_epoch_phase(epoch, num_epochs, all_timesteps_list,
+                                                              gradient_clip_max_norm, model, device,
+                                                              criterion, optimizer, target_scaler,
+                                                              lambda_smooth, lambda_curve, loss_type,
+                                                              is_training=False)
         val_losses.append(avg_val_loss)
         val_maes_unscaled.append(avg_val_mae_unscaled)
         
