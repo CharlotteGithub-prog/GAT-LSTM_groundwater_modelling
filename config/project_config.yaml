@@ -223,7 +223,7 @@ eden:
       # --- GAT ---
       run_GAT: true  # Turn sections off for benchmarking and performance analysis (ablation studies)
       heads_gat: 12
-      dropout_gat: 0.4  # 40% dropped
+      dropout_gat: 0.45  # 40% dropped
       hidden_channels_gat: 64  # FROM 64
       out_channels_gat: 64
       num_layers_gat: 2
