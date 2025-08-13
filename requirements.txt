@@ -32,3 +32,5 @@ seaborn==0.13.2
 regionmask==0.11.0
 dask==2025.5.1
 permetrics==2.0.0
+shap==0.48.0
+sliceer==0.0.8
