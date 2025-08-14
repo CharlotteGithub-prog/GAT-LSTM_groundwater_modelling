@@ -137,11 +137,11 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
             # --- If Smoothness Loss given then apply it ---
             
             # Compute first diff with respect to previous timestep (where available)
-            pred_t = (predictions_all_nodes - previous_predictions) if previous_predictions is not None else None
+            pred_t = (predictions_all_nodes - previous_predictions) if previous_predictions is not None else None  # (1)
             
             if lambda_smooth > 0.0 and previous_predictions is not None: 
                 # Align with previous node
-                sequential_mask = mask_for_loss_and_metrics & prev_mask_for_loss_and_metrics
+                sequential_mask = mask_for_loss_and_metrics & prev_mask_for_loss_and_metrics  # (2)
                 if sequential_mask.any():
                     loss = _calc_smooth_curvature_loss(
                         loss, data, previous_targets, sequential_mask, loss_type, pred_t,

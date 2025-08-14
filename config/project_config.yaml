@@ -254,12 +254,12 @@ eden:
       - season_cos
 
       # --- Full Model ---
+      # fusion_gate_bias_init: 5.0  # (alpha=0.993)
       output_dim: 1  # one station gwl prediction per timestep
       adam_learning_rate: 0.001
-      adam_weight_decay: 0.001  # 5e-4 is common initial weight decay val - (0) currenlty 0.0005 to 0.005 > 0.001
+      adam_weight_decay: 0.001  # 0.001  # 5e-4 is common initial weight decay val - (0) currenlty 0.0005 to 0.005 > 0.001
       lambda_smooth: 0.1  # Relative to main loss; Set to 0.0 for no smoothing [0.1]
-      lambda_curve: 0.02  # Set to 0.0 for no curvature smoothing [0.02]
-      lambda_mean_align: 0.1
+      lambda_curve: 0.015  # Set to 0.0 for no curvature smoothing [0.02]
       initialise_with_dipped: true
 
     data_partioning:

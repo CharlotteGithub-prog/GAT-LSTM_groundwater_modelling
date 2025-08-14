@@ -17,7 +17,8 @@ logging.basicConfig(
 # Set up logger for file and load config file for paths and params
 logger = logging.getLogger(__name__)
 
-from src.model.GAT_LSTM_class import GAT_LSTM_Model
+# from src.model.GAT_LSTM_class import GAT_LSTM_Model
+from src.archive.GAT_LSTM_class_old import GAT_LSTM_Model
 
 # Create data loaders for each timestep (7a)
 def _check_data_loader(full_dataset_loader, all_timesteps_list):
@@ -206,6 +207,7 @@ def instantiate_model_and_associated(all_timesteps_list, config, catchment):
         num_layers_gat=config[catchment]["model"]["architecture"]["num_layers_gat"],
         num_nodes=len(all_timesteps_list[0].x),
         output_dim=config[catchment]["model"]["architecture"]["output_dim"],
+       # fusion_gate_bias_init=config[catchment]["model"]["architecture"]["fusion_gate_bias_init"],
         run_GAT=config[catchment]["model"]["architecture"]["run_GAT"],
         run_LSTM=config[catchment]["model"]["architecture"]["run_LSTM"],
         random_seed=config["global"]["pipeline_settings"]["random_seed"],
