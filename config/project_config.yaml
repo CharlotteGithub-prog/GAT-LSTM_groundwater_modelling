@@ -17,8 +17,8 @@ global:
 
   # --- FILE PATHS ---
   paths:
-    raw_data_root: "../msc-groundwater-gwl-data"  # Alternative: "data"
-    results_root: "../msc-groundwater-gwl-parallel-results"  # Alternative: "results"
+    raw_data_root: "data"  # Alternative: "../msc-groundwater-gwl-data"
+    results_root: "results"  # Alternative: "../msc-groundwater-gwl-parallel-results"
     # --- Specific INPUT files ---
     gis_os_grid_squares: "{raw_data_root}/01_raw/global/os_grid_squares.csv"
     defra_station_base_url: "https://environment.data.gov.uk/hydrology/id/stations"
@@ -234,6 +234,20 @@ eden:
       dropout_lstm: 0.4  # TODO: PROPERLY INCORPORATE THIS BEFORE RUNNING LSTM AGAIN!!
       hidden_channels_lstm: 32
       num_layers_lstm: 1  # stack layers later if needed for performance
+      tbptt_window: 1
+
+      # --- Fusion Gate ---
+      fusion_gate_bias_init: 5.0  # (alpha=0.993)
+      
+      # --- Full Model ---
+      output_dim: 1  # one station gwl prediction per timestep
+      edge_dim: 5  # check edge_features.append([ length ])
+      adam_learning_rate: 0.001
+      adam_weight_decay: 0.001  # 0.001  # 5e-4 is common initial weight decay val - (0) currenlty 0.0005 to 0.005 > 0.001
+      lambda_smooth: 0.1  # Relative to main loss; Set to 0.0 for no smoothing [0.1]
+      lambda_curve: 0.015  # Set to 0.0 for no curvature smoothing [0.02]
+      initialise_with_dipped: true
+
       # --- Feature Definitions ---
       # NOTE: in_channels, temporal_lstm_input_dim, and static_and_other_dynamic_features_dim
       # are calculated dynamically in model_building.py using temporal_features list:
@@ -253,15 +267,6 @@ eden:
       - surface_pressure
       - season_sin
       - season_cos
-
-      # --- Full Model ---
-      # fusion_gate_bias_init: 5.0  # (alpha=0.993)
-      output_dim: 1  # one station gwl prediction per timestep
-      adam_learning_rate: 0.001
-      adam_weight_decay: 0.001  # 0.001  # 5e-4 is common initial weight decay val - (0) currenlty 0.0005 to 0.005 > 0.001
-      lambda_smooth: 0.1  # Relative to main loss; Set to 0.0 for no smoothing [0.1]
-      lambda_curve: 0.015  # Set to 0.0 for no curvature smoothing [0.02]
-      initialise_with_dipped: true
 
     data_partioning:
       test_station_shortlist: ["ainstable", "coupland", "scaleby"]  # Length ideally >= minimum station req count
