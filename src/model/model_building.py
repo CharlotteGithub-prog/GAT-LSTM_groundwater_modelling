@@ -203,12 +203,15 @@ def instantiate_model_and_associated(all_timesteps_list, config, catchment):
         dropout_gat=config[catchment]["model"]["architecture"]["dropout_gat"],
         hidden_channels_lstm=config[catchment]["model"]["architecture"]["hidden_channels_lstm"],
         num_layers_lstm=config[catchment]["model"]["architecture"]["num_layers_lstm"],
+        dropout_lstm=config[catchment]["model"]["architecture"]["dropout_lstm"],
+        tbptt_window=config[catchment]["model"]["architecture"]["tbptt_window"],
         num_layers_gat=config[catchment]["model"]["architecture"]["num_layers_gat"],
         num_nodes=len(all_timesteps_list[0].x),
         output_dim=config[catchment]["model"]["architecture"]["output_dim"],
-       # fusion_gate_bias_init=config[catchment]["model"]["architecture"]["fusion_gate_bias_init"],
+        fusion_gate_bias_init=config[catchment]["model"]["architecture"]["fusion_gate_bias_init"],
         run_GAT=config[catchment]["model"]["architecture"]["run_GAT"],
         run_LSTM=config[catchment]["model"]["architecture"]["run_LSTM"],
+        edge_dim=config[catchment]["model"]["architecture"]["edge_dim"],  # equal to edge_dim = edge_attr_tensor.shape[1]
         random_seed=config["global"]["pipeline_settings"]["random_seed"],
         catchment=catchment
     )

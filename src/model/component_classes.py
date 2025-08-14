@@ -139,7 +139,6 @@ class GATEncoder(nn.Module):
                 h = F.elu(h)
         return h
 
-
 class TemporalProjection(nn.Module):
     """
     Projects temporal embedding to the GAT embedding size for fusion.
@@ -160,7 +159,6 @@ class TemporalProjection(nn.Module):
 
     def forward(self, h_temp):
         return self.proj(h_temp)  # (N, d_g)
-
 
 class FusionGate(nn.Module):
     """
@@ -187,7 +185,6 @@ class FusionGate(nn.Module):
 
     def forward(self, z):
         return torch.sigmoid(self.fc(z))  # (N, 1)
-
 
 class RegressorHead(nn.Module):
     """
