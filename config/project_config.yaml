@@ -259,8 +259,7 @@ eden:
       adam_learning_rate: 0.001
       adam_weight_decay: 0.001  # 5e-4 is common initial weight decay val - (0) currenlty 0.0005 to 0.005 > 0.001
       lambda_smooth: 0.1  # Relative to main loss; Set to 0.0 for no smoothing [0.1]
-      lambda_curve: 0.02  # Set to 0.0 for no curvature smoothing [0.02]
-      lambda_mean_align: 0.1
+      lambda_curve: 0.022  # Set to 0.0 for no curvature smoothing [0.02]
       initialise_with_dipped: true
 
     data_partioning:
@@ -277,7 +276,7 @@ eden:
   training:
     verbose: true  # Run logger to debug (increases computation)
     num_epochs: 250  # Start here, may need to increase depending on computation times
-    early_stopping_patience: 30 # Early Stopping: Number of epochs to wait for improvement in validation loss before stopping training.
+    early_stopping_patience: 35 # Early Stopping: Number of epochs to wait for improvement in validation loss before stopping training.
     lr_scheduler_factor: 0.5  # ReduceLROnPlateau: Factor by which the learning rate will be reduced. PREVIOUSLY: 0.5
     lr_scheduler_patience: 8  # Patience for ReduceLROnPlateau: Number of epochs with no improvement in validation
     min_lr: 0.000001  # Min learning rate bound (Generally recommended: 1e-6)
