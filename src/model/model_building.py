@@ -17,8 +17,7 @@ logging.basicConfig(
 # Set up logger for file and load config file for paths and params
 logger = logging.getLogger(__name__)
 
-# from src.model.GAT_LSTM_class import GAT_LSTM_Model
-from src.archive.GAT_LSTM_class_old import GAT_LSTM_Model
+from src.model.GAT_LSTM_class import GAT_LSTM_Model
 
 # Create data loaders for each timestep (7a)
 def _check_data_loader(full_dataset_loader, all_timesteps_list):
