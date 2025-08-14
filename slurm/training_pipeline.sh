@@ -15,7 +15,7 @@
 #SBATCH --job-name=GWL_pipeline_run
 #SBATCH -o /home3/swlc12/msc-groundwater-gwl-parallel/slurm/logs/slurm-%j.out
 
-#SBATCH --mail-type=FAIL
+#SBATCH --mail-type=FAIL,END
 #SBATCH --mail-user=swlc12@durham.ac.uk
 
 # Faily immediately with errors, undefined vars or if any command fails (not just last)
