@@ -188,8 +188,8 @@ class FusionGate(nn.Module):
     def __init__(self, in_dim: int, bias_init: float = 5.0):
         super().__init__()
         self.fc = nn.Linear(in_dim, 1)
-        nn.init.zeros_(self.fc.weight)            # start with zero slope
-        nn.init.constant_(self.fc.bias, bias_init)  # strong prior to GAT
+        nn.init.zeros_(self.fc.weight)  # start with zero slope
+        nn.init.constant_(self.fc.bias, bias_init)  # prior set in config
 
     def forward(self, z):
         return torch.sigmoid(self.fc(z))  # (N, 1)
