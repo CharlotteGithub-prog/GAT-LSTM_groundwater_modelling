@@ -54,9 +54,12 @@ class TemporalEncoder(nn.Module):
         h_last: (N, d_h)  Last output along seq_len axis (temporal embedding)
         (h_new, c_new): Updated LSTM states with shapes as above.
     """
-    def __init__(self, d_t: int, d_h: int, num_layers: int):
+    def __init__(self, d_t: int, d_h: int, num_layers: int, dropout: float = 0.0):
         super().__init__()
-        self.lstm = nn.LSTM(input_size=d_t, hidden_size=d_h, num_layers=num_layers, batch_first=True)
+        self.lstm = nn.LSTM(
+            input_size=d_t, hidden_size=d_h, num_layers=num_layers,
+            dropout=dropout, batch_first=True
+        )
 
     def forward(self, x_seq, h_c=None):
         out, (h_new, c_new) = self.lstm(x_seq, h_c)  # out: (N, seq_len, d_h)

@@ -61,11 +61,12 @@ class GAT_LSTM_Model(nn.Module):
             self.temporal_encoder = component_classes.TemporalEncoder(
                 d_t=temporal_features_dim,      # input width per day (d_t)
                 d_h=hidden_channels_lstm,       # LSTM hidden (d_h)
-                num_layers=num_layers_lstm
+                num_layers=num_layers_lstm,
+                dropout=dropout_lstm
             )
             
-            # Adding dropout to lstm:
-            self.temporal_encoder.lstm.dropout = dropout_lstm
+            # Adding dropout to lstm: (INCORRECT)
+            # self.temporal_encoder.lstm.dropout = dropout_lstm
             
             self.node_conditioner = component_classes.NodeConditioner(
                 d_s=static_features_dim,        # static width (d_s)
