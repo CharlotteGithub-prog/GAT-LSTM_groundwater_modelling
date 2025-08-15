@@ -56,6 +56,7 @@ class GAT_LSTM_Model(nn.Module):
         self.fusion_gate_bias_init = fusion_gate_bias_init
 
         # ----- Temporal branch (shared LSTM + FiLM + projection) -----
+        
         if self.run_LSTM:
             self.temporal_encoder = component_classes.TemporalEncoder(
                 d_t=temporal_features_dim,      # input width per day (d_t)
@@ -79,6 +80,7 @@ class GAT_LSTM_Model(nn.Module):
             logger.info("  LSTM Disabled.")
 
         # ----- Spatial branch (GAT) -----
+        
         if self.run_GAT:
             # Preserve your successful baseline: GAT sees statics + current-day temporals
             gat_input_dim = static_features_dim + temporal_features_dim  # d_s + d_t
@@ -88,7 +90,8 @@ class GAT_LSTM_Model(nn.Module):
                 out=out_channels_gat,     # defines d_g
                 heads=heads_gat,
                 dropout=dropout_gat,
-                num_layers=num_layers_gat
+                num_layers=num_layers_gat,
+                edge_dim=edge_dim
             )
             logger.info(f"  GAT Enabled with {num_layers_gat} layers. First layer: {gat_input_dim} -> "
                         f"{hidden_channels_gat} ({heads_gat} heads); final out={out_channels_gat}")
@@ -98,7 +101,8 @@ class GAT_LSTM_Model(nn.Module):
             # When GAT is off, head consumes [statics || something temporal]
             final_output_dim = (hidden_channels_lstm if self.run_LSTM else temporal_features_dim) + static_features_dim
 
-        # ----- Fusion gate (only when both branches are active) -----
+        # ----- Fusion gate (only runs when both branches are active) -----
+        
         if self.run_GAT and self.run_LSTM:
             # gate input is [h_gat || h_temp_proj] with size 2 * d_g
             self.fusion_gate = component_classes.FusionGate(
@@ -109,6 +113,7 @@ class GAT_LSTM_Model(nn.Module):
             self.fusion_gate = None  # not used
 
         # ----- Output head -----
+        
         self.output_layer = nn.Linear(final_output_dim, output_dim, bias=True)
         logger.info(f"  Output Layer: {final_output_dim} -> {output_dim}\n")
 
@@ -151,6 +156,7 @@ class GAT_LSTM_Model(nn.Module):
             h_temp_proj = self.temp_proj(h_temp)                               # (N, d_g)
 
         # ---------------- Spatial branch -----------------
+        
         if self.run_GAT:
             gat_input = torch.cat([x_static, x_temporal], dim=1)               # (N, d_s + d_t)
             h_gat = self.gat_encoder(gat_input, edge_index, edge_attr)         # (N, d_g)
@@ -159,6 +165,7 @@ class GAT_LSTM_Model(nn.Module):
                 # Gated residual fusion: h_fused = α * h_gat + (1-α) * h_temp_proj
                 z = torch.cat([h_gat, h_temp_proj], dim=1)                     # (N, 2*d_g)
                 alpha = self.fusion_gate(z)                                     # (N, 1), α≈0.993 at init
+                self.last_alpha = alpha.detach().cpu()      # store for attention head (componenet contribution) inspection later
                 h_fused = alpha * h_gat + (1.0 - alpha) * h_temp_proj          # (N, d_g)
             else:
                 h_fused = h_gat                                                # (N, d_g)
@@ -167,6 +174,7 @@ class GAT_LSTM_Model(nn.Module):
             return predictions, (h_new, c_new), current_timestep_node_ids
 
         # ---------------- No-GAT fallback ----------------
+        
         # If GAT is disabled, regress directly from concatenated features
         if self.run_LSTM:
             head_in = torch.cat([x_static, h_temp], dim=1)                     # (N, d_s + d_h)

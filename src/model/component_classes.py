@@ -113,22 +113,27 @@ class GATEncoder(nn.Module):
     Output:
         h: (N, out) = (N, d_g)   Spatial embedding per node.
     """
-    def __init__(self, in_dim: int, hid: int, out: int, heads: int, dropout: float, num_layers: int):
+    def __init__(self, in_dim: int, hid: int, out: int, heads: int, dropout: float, num_layers: int, edge_dim: int):
         super().__init__()
         self.dropout = dropout
         self.layers = nn.ModuleList()
+        self.edge_dim = edge_dim
 
         if num_layers <= 1:
             # Single-layer GAT (no concatenation, single head)
-            self.layers.append(GATConv(in_dim, out, heads=1, dropout=dropout, add_self_loops=True, concat=False))
+            self.layers.append(GATConv(in_dim, out, heads=1, dropout=dropout,
+                                       add_self_loops=True, concat=False, edge_dim=edge_dim))
         else:
             # First layer: in_dim -> hid * heads (concatenated)
-            self.layers.append(GATConv(in_dim, hid, heads=heads, dropout=dropout, add_self_loops=True, concat=True))
+            self.layers.append(GATConv(in_dim, hid, heads=heads, dropout=dropout,
+                                       add_self_loops=True, concat=True, edge_dim=edge_dim))
             # Intermediate layers (hid*heads -> hid*heads)
             for _ in range(num_layers - 2):
-                self.layers.append(GATConv(hid * heads, hid, heads=heads, dropout=dropout, add_self_loops=True, concat=True))
+                self.layers.append(GATConv(hid * heads, hid, heads=heads, dropout=dropout,
+                                           add_self_loops=True, concat=True, edge_dim=edge_dim))
             # Final layer: hid*heads -> out (no concat, single head)
-            self.layers.append(GATConv(hid * heads, out, heads=1, dropout=dropout, add_self_loops=True, concat=False))
+            self.layers.append(GATConv(hid * heads, out, heads=1, dropout=dropout,
+                                       add_self_loops=True, concat=False, edge_dim=edge_dim))
 
     def forward(self, x, edge_index, edge_attr=None):
         h = x
