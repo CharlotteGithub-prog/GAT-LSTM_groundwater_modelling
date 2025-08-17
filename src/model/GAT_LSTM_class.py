@@ -111,6 +111,11 @@ class GAT_LSTM_Model(nn.Module):
         if self.run_GAT:
             self.head_gat_res = nn.Linear(self.out_channels_gat, self.output_dim)
             
+             # zero-init residual head if run_LSTM (additive res starts at 0)
+            if self.run_LSTM:
+                nn.init.zeros_(self.head_gat_res.weight)
+                nn.init.zeros_(self.head_gat_res.bias)
+            
             # # Case 1: GAT + LSTM -> residual starts at 0 (preserve LSTM baseline)
             # if self.run_LSTM:
             #     self.head_gat_res = nn.Linear(self.out_channels_gat, self.output_dim)
@@ -201,6 +206,7 @@ class GAT_LSTM_Model(nn.Module):
             self.last_debug = {
                 "y_pred": predictions.detach(),
                 "y_lstm_only": (y_lstm_only.detach() if y_lstm_only is not None else None),
+                "baseline": (y_lstm_only.detach() if y_lstm_only is not None else None),  # alias for trainer (line 168)
                 "residual": residual.detach(),
                 "gamma": (gamma.detach() if 'gamma' in locals() else None),
                 "beta": (beta.detach() if 'beta' in locals() else None),
