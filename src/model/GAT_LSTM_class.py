@@ -24,7 +24,7 @@ class GAT_LSTM_Model(nn.Module):
     # Config imported directly to get hyperparams and random seed
     def __init__(self, in_channels, temporal_features_dim, static_features_dim, hidden_channels_gat, out_channels_gat,
                  heads_gat, dropout_gat, hidden_channels_lstm, num_layers_lstm, dropout_lstm, tbptt_window, num_layers_gat,
-                 num_nodes, output_dim, fusion_gate_bias_init, run_GAT, run_LSTM, edge_dim, random_seed, catchment):
+                 num_nodes, output_dim, run_GAT, run_LSTM, edge_dim, random_seed, catchment):
 
         super(GAT_LSTM_Model, self).__init__()
         logger.info(f"Instantiating GAT-LSTM model for {catchment} catchment...")
@@ -52,8 +52,6 @@ class GAT_LSTM_Model(nn.Module):
         self.num_layers_lstm = num_layers_lstm
         self.dropout_lstm = dropout_lstm
         self.tbptt_window = tbptt_window
-        
-        self.fusion_gate_bias_init = fusion_gate_bias_init
 
         # ----- Temporal branch (shared LSTM + FiLM + projection) -----
         
