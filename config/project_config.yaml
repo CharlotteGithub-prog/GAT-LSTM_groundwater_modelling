@@ -222,7 +222,7 @@ eden:
     architecture:
       # --- Components ---
       run_GAT: true  # Turn sections off for benchmarking and performance analysis (ablation studies)
-      run_LSTM: true
+      run_LSTM: false
       run_node_conditioner: true
       initialise_with_dipped: true
 
