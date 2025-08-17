@@ -234,7 +234,7 @@ eden:
       num_layers_gat: 2
 
       # --- LSTM ---
-      dropout_lstm: 0.4  # TODO: PROPERLY INCORPORATE THIS BEFORE RUNNING LSTM AGAIN!!
+      dropout_lstm: 0.1  # TODO: PROPERLY INCORPORATE THIS BEFORE RUNNING LSTM AGAIN!!
       hidden_channels_lstm: 32
       num_layers_lstm: 1  # stack layers later if needed for performance
       tbptt_window: 1
