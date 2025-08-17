@@ -66,6 +66,15 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
     description = 'Training' if is_training else 'Validation'
     
     total_loss = 0.0
+    
+    # --- Residual/FiLM epoch accumulators (scalars) ---
+    res_abs_sum = 0.0
+    res_count = 0
+
+    gamma_dev_sum = 0.0
+    beta_abs_sum = 0.0
+    film_count_nodes = 0  # counts nodes (after mask) used for FiLM stats
+
     total_mae_unscaled = 0.0
     num_nodes_processed = 0
     num_predictions_processed = 0
