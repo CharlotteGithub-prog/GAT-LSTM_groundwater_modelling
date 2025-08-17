@@ -74,6 +74,10 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
     gamma_dev_sum = 0.0
     beta_abs_sum = 0.0
     film_count_nodes = 0  # counts nodes (after mask) used for FiLM stats
+    
+    # init for relative contribution accumulators
+    res_rel_sum = 0.0
+    base_abs_sum = 0.0
 
     total_mae_unscaled = 0.0
     num_nodes_processed = 0
@@ -132,6 +136,48 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
             predictions_all_nodes, (h_new_for_current_nodes, c_new_for_current_nodes), returned_node_ids = model(
                 x_full, data.edge_index, data.edge_attr, node_ids_in_current_timestep,lstm_state_store)
             
+            # --- Aggregate residual & FiLM diagnostics for this batch ---
+            
+            dbg = getattr(model, "last_debug", None)
+            if dbg is not None:
+                with torch.no_grad():
+                    residual = dbg.get("residual", None)  # Residual magnitude on masked nodes
+                    if isinstance(residual, torch.Tensor):
+                        r = residual
+                        if r.dim() > 1:
+                            r = r.squeeze(-1)
+                        r = r[mask_for_loss_and_metrics]
+                        res_abs_sum += torch.abs(r).sum().item()
+                        res_count += r.numel()
+
+                    # FiLM drift diagnostics
+                    gamma = dbg.get("gamma", None)
+                    beta  = dbg.get("beta",  None)
+                    if isinstance(gamma, torch.Tensor) and isinstance(beta, torch.Tensor):
+                        g = gamma
+                        b = beta
+                        g_dev = torch.abs(g - 1.0).mean(dim=1)
+                        b_abs = torch.abs(b).mean(dim=1)
+                        g_dev_m = g_dev[mask_for_loss_and_metrics]
+                        b_abs_m = b_abs[mask_for_loss_and_metrics]
+                        gamma_dev_sum += g_dev_m.sum().item()
+                        beta_abs_sum  += b_abs_m.sum().item()
+                        film_count_nodes += g_dev_m.numel()
+
+                    # Calc relative contribution: |residual| / |baseline|
+                    baseline = dbg.get("baseline", None)
+                    if isinstance(residual, torch.Tensor) and isinstance(baseline, torch.Tensor):
+                        r = residual
+                        if r.dim() > 1:
+                            r = r.squeeze(-1)
+                        yb = baseline
+                        if yb.dim() > 1:
+                            yb = yb.squeeze(-1)
+                        r_m  = torch.abs(r[mask_for_loss_and_metrics]).sum().item()
+                        yb_m = torch.abs(yb[mask_for_loss_and_metrics]).sum().item()
+                        res_rel_sum  += r_m
+                        base_abs_sum += yb_m
+
             # Update persistent LSTM state: Detach hidden states for Truncated Backpropagation Through Time (BPTT)
             if model.run_LSTM:
                 # Update the global lstm_state_store using the specific node IDs that were processed in this timestep
@@ -193,6 +239,23 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
     # Calculate average loss over all timesteps processed in training (where train_mask = True)
     avg_loss = total_loss / num_predictions_processed if num_predictions_processed > 0 else float('nan')
     avg_mae_unscaled = total_mae_unscaled / num_nodes_processed if num_nodes_processed > 0 else float('nan')
+
+    # --- Summarise residual/FiLM stats for the epoch ---
+    
+    residual_abs_mean = (res_abs_sum / res_count) if res_count > 0 else float('nan')
+    gamma_dev_mean = (gamma_dev_sum / film_count_nodes) if film_count_nodes > 0 else float('nan')
+    beta_abs_mean = (beta_abs_sum  / film_count_nodes) if film_count_nodes  > 0 else float('nan')
+
+    logger.info(
+        f"[{description}] Epoch {epoch+1}/{num_epochs} | "
+        f"residual_abs_mean: {residual_abs_mean:.6f} | "
+        f"gamma_dev_mean: {gamma_dev_mean:.6f} | "
+        f"beta_abs_mean: {beta_abs_mean:.6f}"
+    )
+    
+    gat_rel_contrib = (res_rel_sum / base_abs_sum) if base_abs_sum > 0 else float('nan')
+    logger.info(f"[{description}] Epoch {epoch+1}/{num_epochs} | "
+                f"GAT rel contrib: {gat_rel_contrib:.2%}")
 
     return avg_loss, avg_mae_unscaled
 
@@ -260,7 +323,7 @@ def _load_node_means(scalers_dir, target_scaler, device):
     
     # gwl_mean to target space
     scale = target_scaler.scale_[0]
-    mean  = target_scaler.mean_[0]
+    mean = target_scaler.mean_[0]
     gwl_mean_targetspace = (gwl_mean_vec - mean) / scale
     
     # To torch tensor (on same device)
