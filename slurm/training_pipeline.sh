@@ -39,8 +39,12 @@ export OPENBLAS_NUM_THREADS=4
 export NUMEXPR_NUM_THREADS=4
 export PYTHONPATH="/home3/swlc12/msc-groundwater-gwl-parallel${PYTHONPATH:+:$PYTHONPATH}"
 
+# Define test and validation stations
+TEST="${TEST:-}"
+VALS="${VALS:-}"  # colon-separated list, e.g. "coupland:renwick"
+
 # Go to project dir (helps with relative paths/checkpoints)
 cd /home3/swlc12/msc-groundwater-gwl-parallel
 
 # Run your program (replace this with your program)
-python main_training.py
+python main_training.py --test "$TEST" --vals "$VALS"

@@ -58,8 +58,8 @@ def _calc_smooth_curvature_loss(loss, data, previous_targets, sequential_mask, l
     
     return loss
 
-# NEW with tbptt
-def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_norm, model, device, criterion,
+# NEW with tbptt wider windows
+def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_max_norm, model, device, criterion,
                      optimizer, target_scaler, lambda_smooth, lambda_curve, loss_type, gwl_node_mean,
                      lambda_res_smooth, is_training=True):
     
@@ -333,7 +333,7 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
     return avg_loss, avg_mae_unscaled
 
 # Stable version tested on multiple
-def _run_epoch_phase_OLD(epoch, num_epochs, all_timesteps_list, gradient_clip_max_norm, model, device, criterion,
+def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_norm, model, device, criterion,
                      optimizer, target_scaler, lambda_smooth, lambda_curve, loss_type, gwl_node_mean,
                      lambda_res_smooth, is_training=True):
     
@@ -717,8 +717,6 @@ def run_training_and_validation(num_epochs: int, early_stopping_patience: int, l
                                                                   criterion, optimizer, target_scaler,
                                                                   lambda_smooth, lambda_curve, loss_type,
                                                                   gwl_node_mean, lambda_res_smooth, is_training=True)
-                                                                  gwl_node_mean, lambda_res_smooth, is_training=True)
-        
         train_losses.append(avg_train_loss)
         train_maes_unscaled.append(avg_train_mae_unscaled) 
         
@@ -728,7 +726,6 @@ def run_training_and_validation(num_epochs: int, early_stopping_patience: int, l
                                                               gradient_clip_max_norm, model, device,
                                                               criterion, optimizer, target_scaler,
                                                               lambda_smooth, lambda_curve, loss_type,
-                                                              gwl_node_mean, lambda_res_smooth, is_training=False)
                                                               gwl_node_mean, lambda_res_smooth, is_training=False)
         val_losses.append(avg_val_loss)
         val_maes_unscaled.append(avg_val_mae_unscaled)

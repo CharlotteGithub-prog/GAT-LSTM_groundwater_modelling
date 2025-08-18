@@ -15,6 +15,7 @@ import torch
 import random
 import joblib
 import logging
+import argparse
 import numpy as np
 import pandas as pd
 
@@ -66,73 +67,75 @@ run_defra_API_calls = config["global"]["pipeline_settings"]["run_defra_api"]
 run_camels_API_calls = config["global"]["pipeline_settings"]["run_camels_api"]
 run_outlier_detection = config["global"]["pipeline_settings"]["run_outlier_detection"]
 
+# --- 1g. Override config for specific test run ---
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--test", type=str, default=os.getenv("TEST",""))
+parser.add_argument("--vals", type=str, default=os.getenv("VALS",""))
+args = parser.parse_args()
+
+test_override = [args.test] if args.test else None
+vals_override = args.vals.split(":") if args.vals else None
+
+for catchment in config["global"]["pipeline_settings"]["catchments_to_process"]:
+    if test_override:
+        config[catchment]["model"]["data_partioning"]["test_station_shortlist"] = test_override
+    if vals_override:
+        config[catchment]["model"]["data_partioning"]["val_station_shortlist"] = vals_override
+    
+    logger.info(f"[Overrides] test={test_override} vals={vals_override} for {catchment} catchment")
+
 # Run full pipeline by catchment
 try:
     for catchment in catchments_to_process:
 
-        # # --- Load training requirements ---
+        # --- 7a. Get Data Loaders by Timestep ---
         
-        # parquet_path = os.path.join(config[catchment]["paths"]["final_df_path"], 'processed_df.parquet')
-        # processed_df = pd.read_parquet(parquet_path, engine='pyarrow')
+        # get current_station name and normalise to a single station name string
+        current_station = config[catchment]["model"]["data_partioning"]["test_station_shortlist"]
         
-        # aux_dir = config[catchment]["paths"]["aux_dir"]
-        # train_station_ids = joblib.load(os.path.join(aux_dir, "train_station_ids.joblib"))
-        # val_station_ids = joblib.load(os.path.join(aux_dir, "val_station_ids.joblib"))
-        # test_station_ids = joblib.load(os.path.join(aux_dir, "test_station_ids.joblib"))
-        # gwl_feats = joblib.load(os.path.join(aux_dir, "gwl_feats.joblib"))
+        if isinstance(current_station, (list, tuple)):
+            if len(current_station) == 0:
+                raise ValueError("test_station_shortlist is empty.")
+            current_station = current_station[0]
         
-        # graph_output_dir = config[catchment]["paths"]["graph_data_output_dir"]
-        # edge_index_tensor = torch.load(os.path.join(graph_output_dir, "edge_index_tensor.pt"))
-        # edge_attr_tensor = torch.load(os.path.join(graph_output_dir, "edge_attr_tensor.pt"))
+        elif not isinstance(current_station, str):
+            raise TypeError(f"Unexpected type for test_station_shortlist: {type(current_station)}")
         
-        # # --- 6d. Creat PyG data object using partioned station IDs (from 6a) ---
+        current_station = current_station.strip().lower()
         
-        # # For feature ablation
-        # processed_df_final = processed_df.drop(columns=['streamflow_total_m3']).copy()
+        timesteps_path = config[catchment]["paths"]["pyg_object_path"]
+        timesteps_dir, filename = os.path.split(timesteps_path)
+        base, ext = os.path.splitext(filename)
         
-        # # Run time approx. 12.5 mins to build 4018 timesteps of objects (0.19s per Object)
-        # gwl_ohe_cols = joblib.load(os.path.join(config[catchment]["paths"]["scalers_dir"], "gwl_ohe_cols.pkl"))
-        # all_timesteps_list = data_partitioning.build_pyg_object(
-        #     processed_df=processed_df_final,
-        #     sentinel_value=config["global"]["graph"]["sentinel_value"],
-        #     train_station_ids=train_station_ids,
-        #     val_station_ids=val_station_ids,
-        #     test_station_ids=test_station_ids,
-        #     gwl_feats=gwl_feats,
-        #     gwl_ohe_cols=gwl_ohe_cols,
-        #     edge_index_tensor=edge_index_tensor,
-        #     edge_attr_tensor=edge_attr_tensor,
-        #     scalers_dir=config[catchment]["paths"]["scalers_dir"],
-        #     catchment=catchment
-        # )
+        suffix_map = {
+            "ainstable": "ainstable_20250818_215159",  # Older: 20250814_110329
+            "baronwood": "baronwood_20250818_205012",
+            "bgs_ev2": "bgs_ev2_20250818_212241",
+            "castle_carrock": "castle_carrock_20250818_213009",
+            "cliburn_town_bridge_2": "cliburn_town_bridge_2_20250818_214321",
+            "coupland": "coupland_20250818_173942",
+            "croglin": "croglin_20250818_180550",
+            "east_brownrigg": "east_brownrigg_20250818_184745",
+            "great_musgrave": "great_musgrave_20250818_190654",
+            "hilton": "hilton_20250818_200206",
+            "longtown": "longtown_20250818_201159",
+            "renwick": "renwick_20250818_202143",
+            "scaleby": "scaleby_20250818_202740",
+            "skirwith": "skirwith_20250818_203906"
+        }
+        
+        # get full all_timesteps_list filepath
+        new_filename = f"{base}_{suffix_map[current_station]}{ext}" \
+                       if current_station in suffix_map else filename
+        full_filepath = os.path.join(timesteps_dir, new_filename)
+        logger.info(f"Using all_timesteps_list path: {full_filepath}")
 
-        # torch.save(all_timesteps_list, config[catchment]["paths"]["pyg_object_path"])
-        # logger.info(f"Pipeline Step 'Build PyG Data Objects' complete for {catchment} catchment.\n")
-
-        # --- 6e. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) ---
-        # Already generated in Step 5e and incorporated into PyG objects in step 6d.
-        # BUT: Build helper to add self loops (duplicate edges in both directions)
-
-        # ====================================================================================================
-        # SECTION 7: MODEL
-        # ----------------------------------------------------------------------------------------------------
-        # Instantiate GAT-LSTM Model using PyTorch Geometric:
-        #   - Construct PyTorch Geometric Data objects (one per timestep), passing edge_index and edge_attr as
-        #     separate arguments to the Data constructor, alongside x (node features) and y (targets).
-        # ====================================================================================================
-
-        # --- 7a. Build Data Loaders by Timestep ---
+        # CAtch errors immediately
+        if not os.path.isfile(full_filepath):
+            raise FileNotFoundError(f"Missing PyG file: {full_filepath}")
         
-        all_timesteps_list = torch.load(config[catchment]["paths"]["pyg_object_path"])  # UPDATE TO INCLUDE FILENAME AND METADATA
-        # full_dataset_loader = model_building.build_data_loader(
-        #     all_timesteps_list=all_timesteps_list,
-        #     batch_size = config["global"]["model"]["data_loader_batch_size"],
-        #     shuffle = config["global"]["model"]["data_loader_shuffle"],
-        #     catchment=catchment,
-        #     seed=config["global"]["pipeline_settings"]["random_seed"]
-        # )
-
-        # logger.info(f"Pipeline Step 'Create PyG DataLoaders' complete for {catchment} catchment.\n")
+        all_timesteps_list = torch.load(full_filepath)
         
         # --- 7b. Define Graph Neural Network Architecture including loss and optimiser definition ---
 
@@ -150,6 +153,13 @@ try:
         # ==============================================================================
         
         # --- 8a. Implement Training Loop ---
+        
+        base_scalers_dir = config[catchment]["paths"]["scalers_dir"]
+        scalers_dir = (os.path.join(base_scalers_dir, suffix_map[current_station]) 
+            if current_station in suffix_map else base_scalers_dir)
+        if not os.path.isdir(scalers_dir):
+            raise FileNotFoundError(f"scalers_dir not found: {scalers_dir}")
+        logger.info(f"Using scalers_dir: {scalers_dir}")
 
         train_losses, val_losses = model_training.run_training_and_validation(
             num_epochs=config[catchment]["training"]["num_epochs"],
@@ -167,7 +177,7 @@ try:
             optimizer=optimizer,
             criterion=criterion,
             all_timesteps_list=all_timesteps_list,
-            scalers_dir=config[catchment]["paths"]["scalers_dir"],
+            scalers_dir=scalers_dir,
             config=config
         )
 
