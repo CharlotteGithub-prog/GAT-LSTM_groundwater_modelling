@@ -16,6 +16,7 @@ __pycache__/
 .venv_ncc/
 ceda_credentials.netrc
 .cdsapirc
+~$*
 
 # --- Output / Generated Content ---
 temp_plots/
@@ -23,6 +24,7 @@ results/figures/
 notebooks/00_archive/
 results/trained_models/
 slurm/logs/
+runs/
 
 # --- Data Directories (structure retained with .gitkeep) ---
 /data/01_raw/*
