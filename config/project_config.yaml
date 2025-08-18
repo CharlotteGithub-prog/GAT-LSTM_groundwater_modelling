@@ -17,8 +17,8 @@ global:
 
   # --- FILE PATHS ---
   paths:
-    raw_data_root: "data"  # Alternative: "../msc-groundwater-gwl-data"
-    results_root: "results"  # Alternative: "../msc-groundwater-gwl-parallel-results"
+    raw_data_root: "../msc-groundwater-gwl-data"  # Alternative: "data"
+    results_root: "../msc-groundwater-gwl-parallel-results"  # Alternative: "results"
     # --- Specific INPUT files ---
     gis_os_grid_squares: "{raw_data_root}/01_raw/global/os_grid_squares.csv"
     defra_station_base_url: "https://environment.data.gov.uk/hydrology/id/stations"
@@ -223,6 +223,7 @@ eden:
       # --- Components ---
       run_GAT: true  # Turn sections off for benchmarking and performance analysis (ablation studies)
       run_LSTM: true
+      run_LSTM: true
       run_node_conditioner: true
       initialise_with_dipped: true
 
@@ -234,18 +235,19 @@ eden:
       num_layers_gat: 2
 
       # --- LSTM ---
-      dropout_lstm: 0.1  # TODO: PROPERLY INCORPORATE THIS BEFORE RUNNING LSTM AGAIN!!
+      dropout_lstm: 0.1  # Only applies between stacked layers, not when num_layers_lstm = 1
       hidden_channels_lstm: 32
-      num_layers_lstm: 1  # stack layers later if needed for performance
+      num_layers_lstm: 1  # 1 for now, stack layers later if needed for performance
       tbptt_window: 1
 
       # --- Full Model ---
       output_dim: 1  # one station gwl prediction per timestep
-      edge_dim: 5  # check edge_features.append([ length ])
+      edge_dim: 5  # should match edge_features.append([ length ])
       adam_learning_rate: 0.001
       adam_weight_decay: 0.001  # 0.001  # 5e-4 is common initial weight decay val - (0) currenlty 0.0005 to 0.005 > 0.001
       lambda_smooth: 0.1  # Relative to main loss; Set to 0.0 for no smoothing [0.1]
       lambda_curve: 0.015  # Set to 0.0 for no curvature smoothing [0.02]
+      lambda_res_smooth: 0.05
       lambda_res_smooth: 0.05
 
       # --- Feature Definitions ---
@@ -267,6 +269,7 @@ eden:
       - surface_pressure
       - season_sin
       - season_cos
+      - streamflow_total_m3
       - streamflow_total_m3
 
     data_partioning:

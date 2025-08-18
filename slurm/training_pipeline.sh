@@ -6,7 +6,7 @@
 #SBATCH -c 4
 
 # Governs the run time limit and resource limit for the job. Pick values from the partition and QOS tables.
-#SBATCH --gres=gpu:pascal:1
+#SBATCH --gres=gpu:turing:1
 #SBATCH -p tpg-gpu-small
 #SBATCH --qos=short
 #SBATCH -t 02-00:00:00
@@ -39,8 +39,12 @@ export OPENBLAS_NUM_THREADS=4
 export NUMEXPR_NUM_THREADS=4
 export PYTHONPATH="/home3/swlc12/msc-groundwater-gwl-parallel${PYTHONPATH:+:$PYTHONPATH}"
 
+# Define test and validation stations
+TEST="${TEST:-}"
+VALS="${VALS:-}"  # colon-separated list, e.g. "coupland:renwick"
+
 # Go to project dir (helps with relative paths/checkpoints)
 cd /home3/swlc12/msc-groundwater-gwl-parallel
 
 # Run your program (replace this with your program)
-python main_training.py
+python main_training.py --test "$TEST" --vals "$VALS"
