@@ -222,7 +222,7 @@ eden:
     architecture:
       # --- Components ---
       run_GAT: true  # Turn sections off for benchmarking and performance analysis (ablation studies)
-      run_LSTM: false
+      run_LSTM: true
       run_node_conditioner: true
       initialise_with_dipped: true
 
@@ -237,7 +237,7 @@ eden:
       dropout_lstm: 0.1  # Only applies between stacked layers, not when num_layers_lstm = 1
       hidden_channels_lstm: 32
       num_layers_lstm: 1  # 1 for now, stack layers later if needed for performance
-      tbptt_window: 7
+      tbptt_window: 1
       
       # --- Full Model ---
       output_dim: 1  # one station gwl prediction per timestep
@@ -267,10 +267,11 @@ eden:
       - surface_pressure
       - season_sin
       - season_cos
+      - streamflow_total_m3
 
     data_partioning:
-      test_station_shortlist: ["ainstable", "coupland", "scaleby"]  # Length ideally >= minimum station req count
-      val_station_shortlist: ["castle_carrock", "skirwith", "great_musgrave"]  # Length ideally >= minimum station req count
+      test_station_shortlist: ["great_musgrave"]
+      val_station_shortlist: ["coupland", "renwick"]
       percentage_train: 77
       percentage_val: 15  # 2 stations for validating
       percentage_test: 8  # 1 station tested at a time
