@@ -5,7 +5,6 @@ import logging
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GATConv
 
 from src.model import component_classes
 
@@ -70,10 +69,7 @@ class GAT_LSTM_Model(nn.Module):
                 d_s=static_features_dim,        # static width (d_s)
                 d_h=hidden_channels_lstm        # match d_h
             )
-            self.temp_proj = component_classes.TemporalProjection(
-                d_h=hidden_channels_lstm,       # project from d_h
-                d_g=out_channels_gat            # to d_g for fusion
-            )
+            
             logger.info(f"  LSTM Enabled: input={temporal_features_dim}, hidden={hidden_channels_lstm}, layers={num_layers_lstm}")
         else:
             logger.info("  LSTM Disabled.")
@@ -81,56 +77,35 @@ class GAT_LSTM_Model(nn.Module):
         # ----- Spatial branch (GAT) -----
         
         if self.run_GAT:
-            gat_input_dim = static_features_dim + temporal_features_dim  # d_s + d_t
+            gat_input_dim = static_features_dim + temporal_features_dim
             self.gat_encoder = component_classes.GATEncoder(
-                in_dim=gat_input_dim,
-                hid=hidden_channels_gat,
-                out=out_channels_gat,  # defines d_g
-                heads=heads_gat,
-                dropout=dropout_gat,
-                num_layers=num_layers_gat,
-                edge_dim=edge_dim
+                in_dim=gat_input_dim, hid=hidden_channels_gat, out=out_channels_gat,
+                heads=heads_gat, dropout=dropout_gat, num_layers=num_layers_gat, edge_dim=edge_dim
             )
             logger.info(f"  GAT Enabled with {num_layers_gat} layers. First layer: {gat_input_dim} -> "
                         f"{hidden_channels_gat} ({heads_gat} heads); final out={out_channels_gat}")
-            final_output_dim = out_channels_gat  # head input when GAT is used (d_g)
         else:
             logger.info("  GAT Disabled: linear head on concatenated features.")
-            # When GAT is off, head consumes [statics || something temporal]
-            final_output_dim = (hidden_channels_lstm if self.run_LSTM else temporal_features_dim) + static_features_dim
 
         # --- Heads ---
         
-        # LSTM prediction head (always if LSTM is on)
+        # LSTM head (if LSTM is on)
         if self.run_LSTM:
             self.head_lstm = nn.Linear(self.hidden_channels_lstm, self.output_dim)
+            # temporal projection exists ONLY to align embeddings for the gate
+            self.temp_proj = component_classes.TemporalProjection(
+                d_h=self.hidden_channels_lstm, d_g=self.out_channels_gat
+            )
 
-        # GAT residual head (only if GAT is on, soft warmup)
+        # GAT head (if GAT is on)
         if self.run_GAT:
-            self.head_gat_res = nn.Linear(self.out_channels_gat, self.output_dim)
-            
-             # zero-init residual head if run_LSTM (additive res starts at 0)
-            if self.run_LSTM:
-                nn.init.zeros_(self.head_gat_res.weight)
-                nn.init.zeros_(self.head_gat_res.bias)
-            
-            # # Case 1: GAT + LSTM -> residual starts at 0 (preserve LSTM baseline)
-            # if self.run_LSTM:
-            #     self.head_gat_res = nn.Linear(self.out_channels_gat, self.output_dim)
-            #     # start at the LSTM solution: residual = 0 at step 0
-            #     nn.init.zeros_(self.head_gat_res.weight)
-            #     nn.init.zeros_(self.head_gat_res.bias)
-            
-            # # Case 2: GAT-only -> normal init to learn directly from start
-            # else:
-            #     nn.init.kaiming_uniform_(self.head_gat_res.weight, a=np.sqrt(5))
-            #     if self.head_gat_res.bias is not None:
-            #         fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.head_gat_res.weight)
-            #         bound = 1 / np.sqrt(fan_in)
-            #         nn.init.uniform_(self.head_gat_res.bias, -bound, bound)
-            
-        else:
-            self.head_gat_res = None
+            self.head_gat = nn.Linear(self.out_channels_gat, self.output_dim)
+
+        # Fusion gate only when both branches are enabled
+        if self.run_GAT and self.run_LSTM:
+            self.fusion_gate = component_classes.FusionGate(
+                in_dim=2 * self.out_channels_gat, bias_init=0.0  # start balanced for now
+            )
 
     # Forward pass of model
     def forward(self, x, edge_index, edge_attr, current_timestep_node_ids, lstm_state_store=None):
@@ -169,45 +144,45 @@ class GAT_LSTM_Model(nn.Module):
             h_temp = gamma * h_temp + beta  # (N, d_h)
 
             # Define temporal embedding
-            y_lstm = self.head_lstm(h_temp)  # (N, d_g)
+            y_lstm = self.head_lstm(h_temp)  # (N, output_dim)
 
         # ---------------- Spatial branch -----------------
         
         g_i = None
-        r_gat = 0.0
-        
         if self.run_GAT:
-            gat_input = torch.cat([x_static, x_temporal], dim=1)               # (N, d_s + d_t)
-            g_i = self.gat_encoder(gat_input, edge_index, edge_attr)         # (N, d_g)
-            r_gat = self.head_gat_res(g_i)
+            gat_input = torch.cat([x_static, x_temporal], dim=1)   # (N, d_s + d_t)
+            g_i = self.gat_encoder(gat_input, edge_index, edge_attr)  # (N, d_g)
 
-        # ------------- Additive Fusion Layer -------------
-        
-        predictions = y_lstm + r_gat  # If either layer turned of just contributes 0.0 (for ablations)
-        
-        # --- Debug payload (purely for logging) ---
-        
+        # ------------- Gated / fallback fusion -------------
+        alpha = None
+        if self.run_LSTM and self.run_GAT:
+            # map to predictions
+            y_gat = self.head_gat(g_i)                 # (N, output_dim)
+            # gate operates on embeddings, not outputs
+            h_temp_proj = self.temp_proj(h_temp)       # (N, d_g)
+            fusion_input = torch.cat([g_i, h_temp_proj], dim=1)  # (N, 2*d_g)
+            alpha = self.fusion_gate(fusion_input)     # (N, 1)
+            predictions = alpha * y_gat + (1 - alpha) * y_lstm
+
+        elif self.run_GAT:
+            predictions = self.head_gat(g_i)
+
+        elif self.run_LSTM:
+            predictions = y_lstm
+        else:
+            raise RuntimeError("Both run_GAT and run_LSTM are False.")
+
+        # --- Debug payload (no-grad) ---
         with torch.no_grad():
-            
-            # Baseline: pure-LSTM prediction (if LSTM is on); else None
-            y_lstm_only = None
-            if isinstance(y_lstm, torch.Tensor):
-                y_lstm_only = y_lstm
-
-            residual = None
-            if y_lstm_only is not None:
-                residual = predictions - y_lstm_only  # the residual the GAT branch adds on top of LSTM baseline
-            else:
-                # If no LSTM, treat whole prediction as "residual" for symmetry
-                residual = predictions
-
             self.last_debug = {
                 "y_pred": predictions.detach(),
-                "y_lstm_only": (y_lstm_only.detach() if y_lstm_only is not None else None),
-                "baseline": (y_lstm_only.detach() if y_lstm_only is not None else None),  # alias for trainer (line 168)
-                "residual": residual.detach(),
-                "gamma": (gamma.detach() if 'gamma' in locals() else None),
-                "beta": (beta.detach() if 'beta' in locals() else None),
+                "y_lstm_only": (y_lstm.detach() if self.run_LSTM else None),
+                "baseline": (y_lstm.detach() if self.run_LSTM else None),
+                # Not strictly a 'residual' under gated fusion, but keep for continuity:
+                "residual": (predictions - y_lstm).detach() if self.run_LSTM else predictions.detach(),
+                "gamma": (gamma.detach() if self.run_LSTM else None),
+                "beta": (beta.detach() if self.run_LSTM else None),
+                "alpha": (alpha.detach() if alpha is not None else None),
             }
 
         return predictions, (h_new, c_new), current_timestep_node_ids
