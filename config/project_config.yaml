@@ -18,8 +18,8 @@ global:
 
   # --- FILE PATHS ---
   paths:
-    raw_data_root: "data"  # Alternative: "../msc-groundwater-gwl-data"
-    results_root: "results"  # Alternative: "../msc-groundwater-gwl-parallel-results"
+    raw_data_root: "../msc-groundwater-gwl-data"  # Alternative: "data"
+    results_root: "../msc-groundwater-gwl-parallel-results"  # Alternative: "results"
     # --- Specific INPUT files ---
     gis_os_grid_squares: "{raw_data_root}/01_raw/global/os_grid_squares.csv"
     defra_station_base_url: "https://environment.data.gov.uk/hydrology/id/stations"

@@ -6,7 +6,7 @@
 #SBATCH -c 4
 
 # Governs the run time limit and resource limit for the job. Pick values from the partition and QOS tables.
-#SBATCH --gres=gpu:turing:1
+#SBATCH --gres=gpu:pascal:1
 #SBATCH -p tpg-gpu-small
 #SBATCH --qos=short
 #SBATCH -t 02-00:00:00

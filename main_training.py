@@ -115,7 +115,7 @@ try:
             "castle_carrock": "castle_carrock_20250818_213009",
             "cliburn_town_bridge_2": "cliburn_town_bridge_2_20250818_214321",
             "coupland": "coupland_20250818_173942",
-            "croglin": "croglin_20250818_180550",
+            "croglin": "croglin_20250820_010926",  # with no lags; other: 20250818_180550
             "east_brownrigg": "east_brownrigg_20250818_184745",
             "great_musgrave": "great_musgrave_20250818_190654",
             "hilton": "hilton_20250818_200206",
