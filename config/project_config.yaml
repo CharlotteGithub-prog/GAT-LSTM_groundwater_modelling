@@ -14,11 +14,12 @@ global:
     run_gwl_imputation: false
     prediction_resolution: "daily"  # Options: ["daily", "weekly", "monthly"]
     secondary_output_resolution: "weekly"  # Must be equal to or higher than prediction_resolution
+    burn_in: 40  # warm up timesteps ignored in metrics
 
   # --- FILE PATHS ---
   paths:
-    raw_data_root: "../msc-groundwater-gwl-data"  # Alternative: "data"
-    results_root: "../msc-groundwater-gwl-parallel-results"  # Alternative: "results"
+    raw_data_root: "data"  # Alternative: "../msc-groundwater-gwl-data"
+    results_root: "results"  # Alternative: "../msc-groundwater-gwl-parallel-results"
     # --- Specific INPUT files ---
     gis_os_grid_squares: "{raw_data_root}/01_raw/global/os_grid_squares.csv"
     defra_station_base_url: "https://environment.data.gov.uk/hydrology/id/stations"
@@ -223,7 +224,6 @@ eden:
       # --- Components ---
       run_GAT: true  # Turn sections off for benchmarking and performance analysis (ablation studies)
       run_LSTM: true
-      run_LSTM: true
       run_node_conditioner: true
       initialise_with_dipped: true
 
@@ -248,7 +248,6 @@ eden:
       lambda_smooth: 0.1  # Relative to main loss; Set to 0.0 for no smoothing [0.1]
       lambda_curve: 0.015  # Set to 0.0 for no curvature smoothing [0.02]
       lambda_res_smooth: 0.05
-      lambda_res_smooth: 0.05
 
       # --- Feature Definitions ---
       # NOTE: in_channels, temporal_lstm_input_dim, and static_and_other_dynamic_features_dim
@@ -270,11 +269,10 @@ eden:
       - season_sin
       - season_cos
       - streamflow_total_m3
-      - streamflow_total_m3
 
     data_partioning:
-      test_station_shortlist: ["ainstable"]
-      val_station_shortlist: ["coupland", "hilton"]
+      test_station_shortlist: ["baronwood"]
+      val_station_shortlist: ["castle_carrock", "great_musgrave"]
       percentage_train: 77
       percentage_val: 15  # 2 stations for validating
       percentage_test: 8  # 1 station tested at a time
