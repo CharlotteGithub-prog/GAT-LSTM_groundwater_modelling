@@ -236,9 +236,9 @@ eden:
 
       # --- LSTM ---
       dropout_lstm: 0.1  # Only applies between stacked layers, not when num_layers_lstm = 1
-      hidden_channels_lstm: 32
+      hidden_channels_lstm: 32  # Try: 48
       num_layers_lstm: 1  # 1 for now, stack layers later if needed for performance
-      tbptt_window: 1
+      tbptt_window: 28
 
       # --- Full Model ---
       output_dim: 1  # one station gwl prediction per timestep
@@ -291,6 +291,8 @@ eden:
     loss_delta: 0.0001  # Minimum change in loss required to count as improvement
     gradient_clip_max_norm: 1.0  # Gradient Clipping Max Norm: Maximum norm of the gradients for gradient clipping (help prevent exploding grad.)
     loss: "MAE"  # Options: MSE, MAE
+    burn_in_steps: 28  # Matching tbptt
+    early_stop_warmup: 28
 
 # ==============================================================================
 # FUTURE CATCHMENT CONFIG SETTINGS

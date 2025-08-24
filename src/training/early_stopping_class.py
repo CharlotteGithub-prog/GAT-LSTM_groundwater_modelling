@@ -1,3 +1,4 @@
+import os
 import sys
 import torch
 import logging
@@ -65,6 +66,7 @@ class EarlyStopping:
         if self.verbose:
             logger.info(f'Validation loss decreased ({self.val_loss_min:.4f} --> {val_loss:.4f}). Saving model ...')
         
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
         torch.save(model.state_dict(), self.path)
         self.val_loss_min = val_loss
         

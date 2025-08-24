@@ -1,4 +1,3 @@
-
 # --- 1a. Library Imports ---
 import os
 import sys
@@ -91,17 +90,30 @@ def train_model(tune_config):
     config[catchment]["model"]["architecture"]["hidden_channels_gat"] = tune_config["hidden_channels_gat"]
     config[catchment]["model"]["architecture"]["out_channels_gat"] = tune_config["out_channels_gat"]
     config[catchment]["model"]["architecture"]["num_layers_gat"] = tune_config["num_layers_gat"]
+    
+    # LSTM Architecture Params
+    config[catchment]["model"]["architecture"]["dropout_lstm"] = tune_config["dropout_lstm"]
+    config[catchment]["model"]["architecture"]["hidden_channels_lstm"] = tune_config["hidden_channels_lstm"]
+    config[catchment]["model"]["architecture"]["num_layers_lstm"] = tune_config["num_layers_lstm"]
+    config[catchment]["model"]["architecture"]["tbptt_window"] = tune_config["tbptt_window"]
+    
+    # Full Model Params
+    config[catchment]["model"]["architecture"]["output_dim"] = tune_config["output_dim"]
+    config[catchment]["model"]["architecture"]["edge_dim"] = tune_config["edge_dim"]
+    config[catchment]["model"]["architecture"]["lambda_smooth"] = tune_config["lambda_smooth"]
+    config[catchment]["model"]["architecture"]["lambda_curve"] = tune_config["lambda_curve"]
+    config[catchment]["model"]["architecture"]["lambda_res_smooth"] = tune_config["lambda_res_smooth"]
 
     # Optimiser & Training Params
     config[catchment]["model"]["architecture"]["adam_learning_rate"] = tune_config["adam_learning_rate"]
     config[catchment]["model"]["architecture"]["adam_weight_decay"] = tune_config["adam_weight_decay"]
-    config[catchment]["training"]["num_epochs"] = tune_config["num_epochs"]
     config[catchment]["training"]["early_stopping_patience"] = tune_config["early_stopping_patience"]
     config[catchment]["training"]["lr_scheduler_factor"] = tune_config["lr_scheduler_factor"]
     config[catchment]["training"]["lr_scheduler_patience"] = tune_config["lr_scheduler_patience"]
     config[catchment]["training"]["min_lr"] = tune_config["min_lr"]
     config[catchment]["training"]["loss_delta"] = tune_config["loss_delta"]
     config[catchment]["training"]["gradient_clip_max_norm"] = tune_config["gradient_clip_max_norm"]
+    config[catchment]["training"]["num_epochs"] = tune_config["num_epochs"]
     
     # ==============================================================================
     # MODEL INSTANTIATION

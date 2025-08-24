@@ -94,43 +94,41 @@ def _assert_instantiation_vals(model, all_timesteps_list, device, output_dim, hi
     # --- Testing: dummy forward pass ---
 
     logger.info("--- Testing Model Forward Pass with Dummy Data ---")
-    try:      
-        # Get actual shapes from first PyG Data object
-        dummy_x = all_timesteps_list[0].x.to(device)
-        dummy_edge_index = all_timesteps_list[0].edge_index.to(device)
-        
-        # Check if edge_attr exists and if GATConv is configured to use it (via edge_dim)
-        dummy_edge_attr = all_timesteps_list[0].edge_attr.to(device) if hasattr(all_timesteps_list[0], 'edge_attr') \
-            and all_timesteps_list[0].edge_attr is not None else None
+    try:
+        d0 = all_timesteps_list[0].to(device)
+        dummy_x = d0.x
+        dummy_edge_index = d0.edge_index
+        dummy_edge_attr  = getattr(d0, "edge_attr", None)
+        dummy_ids        = d0.node_id  # LongTensor of node indices for this timestep
 
-        # Initial hidden/cell states for LSTM (will be zeros if None)
-        dummy_h_c_state = None
-
-        # Correctly handle the return value based on whether LSTM is running
+        # Build a minimal lstm_state_store matching the model’s shapes
+        lstm_state_store = None
         if model.run_LSTM:
-            output_predictions, new_h_c_state = model(dummy_x, dummy_edge_index, dummy_edge_attr, dummy_h_c_state)
-            logger.info(f"Output predictions shape: {output_predictions.shape}")
-            logger.info(f"New LSTM hidden/cell state shapes: h_n={new_h_c_state[0].shape}, c_n={new_h_c_state[1].shape}")
-            
-            # Expected LSTM hidden/cell state shape: (num_layers_lstm, num_nodes, hidden_channels_lstm)
-            expected_lstm_state_shape = (num_layers_lstm, len(all_timesteps_list[0].x), hidden_channels_lstm)
-            assert new_h_c_state[0].shape == expected_lstm_state_shape, \
-                f"LSTM hidden state shape mismatch! Expected {expected_lstm_state_shape}, got {new_h_c_state[0].shape}"
-            assert new_h_c_state[1].shape == expected_lstm_state_shape, \
-                f"LSTM cell state shape mismatch! Expected {expected_lstm_state_shape}, got {new_h_c_state[1].shape}"
+            H, N, D = model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm
+            lstm_state_store = {
+                "h": torch.zeros(H, N, D, device=device),
+                "c": torch.zeros(H, N, D, device=device),
+            }
+
+        preds, (h_new, c_new), returned_ids = model(
+            dummy_x, dummy_edge_index, dummy_edge_attr, dummy_ids, lstm_state_store
+        )
+
+        logger.info(f"Output predictions shape: {preds.shape}")
+        if model.run_LSTM:
+            logger.info(f"New LSTM hidden/cell state shapes: h_n={h_new.shape}, c_n={c_new.shape}")
+            expected_lstm_state_shape = (model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm)
+            assert h_new.shape == expected_lstm_state_shape, \
+                f"LSTM hidden state shape mismatch! Expected {expected_lstm_state_shape}, got {h_new.shape}"
+            assert c_new.shape == expected_lstm_state_shape, \
+                f"LSTM cell state shape mismatch! Expected {expected_lstm_state_shape}, got {c_new.shape}"
             logger.info("LSTM hidden/cell states have expected shapes.\n")
 
-        else:
-            output_predictions = model(dummy_x, dummy_edge_index, dummy_edge_attr, dummy_h_c_state)
-            logger.info(f"Output predictions shape: {output_predictions.shape}")
-            logger.info("LSTM is disabled in the model; a single output tensor is expected.\n")
-
-        # Check the output shape regardless of LSTM state
-        expected_output_shape = (len(all_timesteps_list[0].x), output_dim)
-        assert output_predictions.shape == expected_output_shape, \
-            f"Output shape mismatch! Expected {expected_output_shape}, got {output_predictions.shape}"
+        expected_output_shape = (dummy_x.shape[0], output_dim)
+        assert preds.shape == expected_output_shape, \
+            f"Output shape mismatch! Expected {expected_output_shape}, got {preds.shape}"
         logger.info("Model forward pass successful with expected output shape.")
-        
+
     except Exception as e:
         logger.error(f"Error during model forward pass: {e}")
 
