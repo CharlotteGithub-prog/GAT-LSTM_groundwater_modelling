@@ -62,6 +62,8 @@ class GAT_LSTM_Model(nn.Module):
                 dropout=dropout_lstm
             )
             
+            self.temporal_dropout = nn.Dropout(self.dropout_lstm)
+            
             # Adding dropout to lstm: (INCORRECT)
             # self.temporal_encoder.lstm.dropout = dropout_lstm
             
@@ -100,6 +102,14 @@ class GAT_LSTM_Model(nn.Module):
         # GAT head (if GAT is on)
         if self.run_GAT:
             self.head_gat = nn.Linear(self.out_channels_gat, self.output_dim)
+            
+        # --- Output calibration parameters (learned) ---
+
+        # start just as an idewntity
+        self.tau_lstm  = nn.Parameter(torch.tensor(1.0))
+        self.bias_lstm = nn.Parameter(torch.tensor(0.0))
+        self.tau_gat   = nn.Parameter(torch.tensor(1.0))
+        self.bias_gat  = nn.Parameter(torch.tensor(0.0))
 
         # Fusion gate only when both branches are enabled
         if self.run_GAT and self.run_LSTM:
@@ -138,26 +148,34 @@ class GAT_LSTM_Model(nn.Module):
 
             # Shared LSTM forward
             h_temp, (h_new, c_new) = self.temporal_encoder(x_seq, h_c_state)  # h_temp: (N, d_h)
+            h_temp = self.temporal_dropout(h_temp)  # <-- actually regularise now
 
             # FiLM: make temporal embedding node-specific using statics
             gamma, beta = self.node_conditioner(x_static)  # (N, d_h) each
             h_temp = gamma * h_temp + beta  # (N, d_h)
 
             # Define temporal embedding
-            y_lstm = self.head_lstm(h_temp)  # (N, output_dim)
+            # y_lstm = self.head_lstm(h_temp)  # (N, output_dim)
+            y_lstm = self.bias_lstm + self.tau_lstm * self.head_lstm(h_temp)
+
 
         # ---------------- Spatial branch -----------------
         
         g_i = None
         if self.run_GAT:
-            gat_input = torch.cat([x_static, x_temporal], dim=1)   # (N, d_s + d_t)
-            g_i = self.gat_encoder(gat_input, edge_index, edge_attr)  # (N, d_g)
+            if self.run_LSTM:
+                gat_input = torch.cat([x_static, h_temp], dim=1)
+            else:
+                gat_input = torch.cat([x_static, x_temporal], dim=1)
+            g_i = self.gat_encoder(gat_input, edge_index, edge_attr) # (N, d_g)
 
         # ------------- Gated / fallback fusion -------------
+        
         alpha = None
         if self.run_LSTM and self.run_GAT:
             # map to predictions
-            y_gat = self.head_gat(g_i)                 # (N, output_dim)
+            # y_gat = self.head_gat(g_i)                 # (N, output_dim)
+            y_gat = self.bias_gat  + self.tau_gat  * self.head_gat(g_i)
             # gate operates on embeddings, not outputs
             h_temp_proj = self.temp_proj(h_temp)       # (N, d_g)
             fusion_input = torch.cat([g_i, h_temp_proj], dim=1)  # (N, 2*d_g)

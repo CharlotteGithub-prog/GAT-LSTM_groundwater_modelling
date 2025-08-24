@@ -59,6 +59,33 @@ def _calc_smooth_curvature_loss(loss, data, previous_targets, sequential_mask, l
     
     return loss
 
+def _gate_regulariser_schedule(epoch, num_epochs, m0=0.25, m_final=0.05,  # mean-alpha target decays from 0.25 → 0.05
+                              T_anneal=40,  lam_mean0=0.10, lam_ent0=0.01):         
+    """
+    Returns (m_target, lambda_mean, lambda_ent) for this epoch.
+    After T_anneal epochs, both lambdas ~ 0 (no regularisation).
+    """
+    # linear anneal 0->1 over first T_anneal epochs (fade penalties over t anneal epochs)
+    a = min(1.0, epoch / max(1, T_anneal))
+    m_t = m0 * (1 - a) + m_final * a
+    lambda_mean = lam_mean0 * (1 - a)  # lam_mean0 is starting weight for mean-alpha penalty
+    lambda_ent  = lam_ent0  * (1 - a)  # lam_ent0 is starting weight for entropy penalty
+    return m_t, lambda_mean, lambda_ent
+
+def _peak_weights_from_targets_unscaled(targets_unscaled, c=0.8, cap=3.0, eps=1e-6):
+    """
+    targets_unscaled: (M, 1) or (M,)
+    Returns weights >= 1 that grow with |y - median| / IQR, capped to avoid instability.
+    c controls how strongly to upweight tails.
+    """
+    y = targets_unscaled.view(-1)
+    q25 = torch.quantile(y, 0.25)
+    q75 = torch.quantile(y, 0.75)
+    iqr = (q75 - q25).clamp_min(eps)
+    med = torch.median(y)
+    w = 1.0 + c * torch.abs(y - med) / iqr
+    return torch.clamp(w, max=cap)
+
 # NEW with tbptt wider windows
 def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_max_norm, model, device, criterion,
                      optimizer, target_scaler, lambda_smooth, lambda_curve, loss_type, gwl_node_mean,
@@ -67,6 +94,9 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
     # Initialise model to correct mode
     model.train() if is_training else model.eval()
     description = 'Training' if is_training else 'Validation'
+    
+    # Fetch scheduler
+    m_target, lambda_mean, lambda_ent = _gate_regulariser_schedule(epoch, num_epochs)
     
     # Setup tbptt
     tbptt_window = getattr(model, "tbptt_window", 1)
@@ -231,11 +261,26 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
             if not burnin:
                 
                 # Compute loss (on relevant nodes only)
-                loss = criterion(predictions_all_nodes[mask_for_loss_and_metrics], data.y[mask_for_loss_and_metrics])
+                # loss = criterion(predictions_all_nodes[mask_for_loss_and_metrics], data.y[mask_for_loss_and_metrics])
                 
-                # add residual smoothing if calc'd
-                if res_smooth_term is not None:
-                    loss = loss + (lambda_res_smooth * res_smooth_term)
+                y_pred_m = predictions_all_nodes[mask_for_loss_and_metrics]
+                y_true_m = data.y[mask_for_loss_and_metrics]
+
+                # compute unscaled targets for weighting
+                if target_scaler is not None:
+                    y_true_unscaled = y_true_m * scale + mean
+                else:
+                    y_true_unscaled = y_true_m
+
+                weights = _peak_weights_from_targets_unscaled(y_true_unscaled, c=0.8, cap=3.0).detach()
+
+                # base error
+                if loss_type == "MAE":
+                    err = torch.abs(y_pred_m - y_true_m).view(-1)
+                else:
+                    err = (y_pred_m - y_true_m).pow(2).view(-1)
+
+                loss = (weights * err).mean()
                 
                 # --- If Smoothness Loss given then apply it ---
                 
@@ -250,6 +295,32 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
                             loss, data, previous_targets, sequential_mask, loss_type, pred_t,
                             lambda_curve, prev_pred, lambda_smooth
                         )
+                        
+                # ---- Gate regularisers (mean-alpha target + entropy) ----
+                
+                alpha = dbg.get("alpha", None)
+                if (alpha is not None) and (lambda_mean > 0 or lambda_ent > 0):
+                    # restrict to nodes in the current loss mask
+                    alpha_m = alpha[mask_for_loss_and_metrics]
+                    if alpha_m.numel() > 0:
+                        # mean-alpha penalty towards m_target
+                        L_mean = (alpha_m.mean() - m_target).pow(2)
+
+                        # entropy penalty (push away from 0/1 early): mean[ alpha log alpha + (1-alpha) log(1-alpha) ]
+                        eps = 1e-6
+                        a_clamped = alpha_m.clamp(eps, 1 - eps)
+                        L_ent = (a_clamped * (a_clamped + eps).log() + (1 - a_clamped) * (1 - a_clamped + eps).log()).mean()
+                        loop.set_postfix({**loop.postfix, 'alpha_mean': f"{alpha_m.mean().item():.2f}"})
+
+                        loss = loss + lambda_mean * L_mean + lambda_ent * L_ent
+                        
+                # ---- Head calibration regulariser (very small) ----
+                if is_training:
+                    calib_reg = 1e-4 * (
+                        (model.tau_lstm - 1.0).pow(2) + model.bias_lstm.pow(2)
+                        + (model.tau_gat - 1.0).pow(2) + model.bias_gat.pow(2)
+                    )
+                    loss = loss + calib_reg
 
                 total_loss += loss.item() * mask_count  # Scale by number of predictions in this batch so epoch avg is per-prediction
                 num_predictions_processed += mask_count  # num_predictions is num node,timestep pairs
@@ -368,6 +439,9 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
     # Initialise model to correct mode
     model.train() if is_training else model.eval()
     description = 'Training' if is_training else 'Validation'
+    
+    # Fetch scheduler
+    m_target, lambda_mean, lambda_ent = _gate_regulariser_schedule(epoch, num_epochs)
     
     total_loss = 0.0
     
@@ -524,11 +598,26 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
             if not burnin:
             
                 # Compute loss (on relevant nodes only)
-                loss = criterion(predictions_all_nodes[mask_for_loss_and_metrics], data.y[mask_for_loss_and_metrics])
+                # loss = criterion(predictions_all_nodes[mask_for_loss_and_metrics], data.y[mask_for_loss_and_metrics])
                 
-                # add residual smoothing if calc'd
-                if res_smooth_term is not None:
-                    loss = loss + (lambda_res_smooth * res_smooth_term)
+                y_pred_m = predictions_all_nodes[mask_for_loss_and_metrics]
+                y_true_m = data.y[mask_for_loss_and_metrics]
+
+                # compute unscaled targets for weighting
+                if target_scaler is not None:
+                    y_true_unscaled = y_true_m * scale + mean
+                else:
+                    y_true_unscaled = y_true_m
+
+                weights = _peak_weights_from_targets_unscaled(y_true_unscaled, c=0.8, cap=3.0).detach()
+
+                # base error
+                if loss_type == "MAE":
+                    err = torch.abs(y_pred_m - y_true_m).view(-1)
+                else:
+                    err = (y_pred_m - y_true_m).pow(2).view(-1)
+
+                loss = (weights * err).mean()
                 
                 # --- If Smoothness Loss given then apply it ---
                 
@@ -543,6 +632,32 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
                             loss, data, previous_targets, sequential_mask, loss_type, pred_t,
                             lambda_curve, prev_pred, lambda_smooth
                         )
+                        
+                # ---- Gate regularisers (mean-alpha target + entropy) ----
+                
+                alpha = dbg.get("alpha", None)
+                if (alpha is not None) and (lambda_mean > 0 or lambda_ent > 0):
+                    # restrict to nodes in the current loss mask
+                    alpha_m = alpha[mask_for_loss_and_metrics]
+                    if alpha_m.numel() > 0:
+                        # mean-alpha penalty towards m_target
+                        L_mean = (alpha_m.mean() - m_target).pow(2)
+
+                        # entropy penalty (push away from 0/1 early): mean[ alpha log alpha + (1-alpha) log(1-alpha) ]
+                        eps = 1e-6
+                        a_clamped = alpha_m.clamp(eps, 1 - eps)
+                        L_ent = (a_clamped * (a_clamped + eps).log() + (1 - a_clamped) * (1 - a_clamped + eps).log()).mean()
+                        loop.set_postfix({**loop.postfix, 'alpha_mean': f"{alpha_m.mean().item():.2f}"})
+
+                        loss = loss + lambda_mean * L_mean + lambda_ent * L_ent
+                        
+                # ---- Head calibration regulariser (very small) ----
+                if is_training:
+                    calib_reg = 1e-4 * (
+                        (model.tau_lstm - 1.0).pow(2) + model.bias_lstm.pow(2)
+                        + (model.tau_gat - 1.0).pow(2) + model.bias_gat.pow(2)
+                    )
+                    loss = loss + calib_reg
 
                 total_loss += loss.item() * mask_count  # Scale by number of predictions in this batch so epoch avg is per-prediction
                 num_predictions_processed += mask_count  # num_predictions is num node,timestep pairs
