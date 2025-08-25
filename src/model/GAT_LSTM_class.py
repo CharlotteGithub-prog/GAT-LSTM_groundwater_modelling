@@ -79,7 +79,11 @@ class GAT_LSTM_Model(nn.Module):
         # ----- Spatial branch (GAT) -----
         
         if self.run_GAT:
-            gat_input_dim = static_features_dim + temporal_features_dim
+            
+            # When LSTM is on GAT now conseumes h_temp, but needs x_temporal dim size if off
+            gat_in_extra = hidden_channels_lstm if self.run_LSTM else temporal_features_dim
+            gat_input_dim = static_features_dim + gat_in_extra
+            
             self.gat_encoder = component_classes.GATEncoder(
                 in_dim=gat_input_dim, hid=hidden_channels_gat, out=out_channels_gat,
                 heads=heads_gat, dropout=dropout_gat, num_layers=num_layers_gat, edge_dim=edge_dim
@@ -148,7 +152,7 @@ class GAT_LSTM_Model(nn.Module):
 
             # Shared LSTM forward
             h_temp, (h_new, c_new) = self.temporal_encoder(x_seq, h_c_state)  # h_temp: (N, d_h)
-            h_temp = self.temporal_dropout(h_temp)  # <-- actually regularise now
+            h_temp = self.temporal_dropout(h_temp)  # <-- actually regularises now
 
             # FiLM: make temporal embedding node-specific using statics
             gamma, beta = self.node_conditioner(x_static)  # (N, d_h) each
@@ -158,13 +162,12 @@ class GAT_LSTM_Model(nn.Module):
             # y_lstm = self.head_lstm(h_temp)  # (N, output_dim)
             y_lstm = self.bias_lstm + self.tau_lstm * self.head_lstm(h_temp)
 
-
         # ---------------- Spatial branch -----------------
         
         g_i = None
         if self.run_GAT:
             if self.run_LSTM:
-                gat_input = torch.cat([x_static, h_temp], dim=1)
+                gat_input = torch.cat([x_static, h_temp.detach()], dim=1)
             else:
                 gat_input = torch.cat([x_static, x_temporal], dim=1)
             g_i = self.gat_encoder(gat_input, edge_index, edge_attr) # (N, d_g)
