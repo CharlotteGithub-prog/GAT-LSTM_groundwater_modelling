@@ -794,19 +794,6 @@ try:
         # main_df_full.to_csv(final_save_path)
         
         # logger.info(f"Final merged dataframe saved to {final_save_path}")
-        
-        # --- 5e. Incorporate Edge Weighting (edge_weight if simple or only edge_att, using adjacency grid) ---
-        
-        edge_attr_tensor, edge_index_tensor = graph_construction.define_graph_adjacency(
-            directional_edge_weights=directional_edge_weights,
-            elevation_geojson_path=config[catchment]['paths']['elevation_geojson_path'],
-            graph_output_dir=config[catchment]["paths"]["graph_data_output_dir"],
-            mesh_cells_gdf_polygons=mesh_cells_gdf_polygons,
-            epsilon_path=config["global"]["graph"]["epsilon"],
-            catchment=catchment
-        )
-
-        logger.info(f"Pipeline step 'Define Graph Adjacency' complete for {catchment} catchment.\n")
 
         # --- 5f. Visualise complete mesh map with stations and other features ---
         # [FUTURE] Create an interactive map showing the mesh, GWL stations, and other snapped data points.
@@ -830,6 +817,25 @@ try:
         )
 
         logger.info(f"Pipeline Step 'define station splits' complete for {catchment} catchment.\n")
+                
+        # --- Reordered: Incorporate Edge Weighting (edge_weight if simple or only edge_att, using adjacency grid) ---
+        
+        station_node_ids = np.array(sorted(
+            set(train_station_ids) | set(val_station_ids) | set(test_station_ids)
+        ), dtype=int)
+        
+        edge_attr_tensor, edge_index_tensor = graph_construction.define_graph_adjacency(
+            directional_edge_weights=directional_edge_weights,
+            elevation_geojson_path=config[catchment]['paths']['elevation_geojson_path'],
+            graph_output_dir=config[catchment]["paths"]["graph_data_output_dir"],
+            mesh_cells_gdf_polygons=mesh_cells_gdf_polygons,
+            epsilon_path=config["global"]["graph"]["epsilon"],
+            station_node_ids=station_node_ids,
+            station_radius_m=config["global"]["graph"]["graph_construction"]["station_radius_m"],
+            catchment=catchment
+        )
+
+        logger.info(f"Pipeline step 'Define Graph Adjacency' complete for {catchment} catchment.\n")
         
         # --- 6b. Preprocess (Standardise, one hot encode, round to 4dp) all shared features (not GWL) ---
         
