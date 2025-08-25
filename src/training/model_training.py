@@ -10,8 +10,8 @@ import numpy as np
 import pandas as pd
 import torch.nn as nn
 from tqdm import tqdm # For progress bars
+from ray.air import session
 from datetime import datetime
-import torch.nn.functional as F
 
 # Set up logger config
 logging.basicConfig(
@@ -59,7 +59,7 @@ def _calc_smooth_curvature_loss(loss, data, previous_targets, sequential_mask, l
     
     return loss
 
-def _gate_regulariser_schedule(epoch, num_epochs, m0=0.25, m_final=0.05,  # mean-alpha target decays from 0.25 → 0.05
+def _gate_regulariser_schedule(epoch, num_epochs, m0=0.35, m_final=0.15,  # mean-alpha target decays from 0.25 → 0.05
                               T_anneal=40,  lam_mean0=0.10, lam_ent0=0.01):         
     """
     Returns (m_target, lambda_mean, lambda_ent) for this epoch.
@@ -88,14 +88,13 @@ def _peak_weights_from_targets_unscaled(targets_unscaled, c=0.8, cap=3.0, eps=1e
 
 # NEW with tbptt wider windows
 def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_max_norm, model, device, criterion,
-                     optimizer, target_scaler, lambda_smooth, lambda_curve, loss_type, gwl_node_mean,
-                     lambda_res_smooth, burn_in_steps: int = 0, is_training: bool = True):
-    
+                         optimizer, target_scaler, lambda_smooth, lambda_curve, loss_type, gwl_node_mean,
+                         lambda_res_smooth, burn_in_steps: int = 0, is_training: bool = True):
     # Initialise model to correct mode
     model.train() if is_training else model.eval()
     description = 'Training' if is_training else 'Validation'
     
-    # Fetch scheduler
+    # Fetch reg scheduler
     m_target, lambda_mean, lambda_ent = _gate_regulariser_schedule(epoch, num_epochs)
     
     # Setup tbptt
@@ -104,11 +103,11 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
     steps_in_window = 0
 
     total_loss = 0.0
-    
-    # --- Residual/FiLM epoch accumulators (scalars) ---
+
+    # Epoch accumulators (diagnostics)
     res_abs_sum = 0.0
     res_count = 0
-
+    
     gamma_dev_sum = 0.0
     beta_abs_sum = 0.0
     film_count_nodes = 0  # counts nodes (after mask) used for FiLM stats
@@ -121,8 +120,8 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
     num_nodes_processed = 0
     num_predictions_processed = 0
     previous_residual = None
-    
-    # Initialise global LSTM state store at start of epoch (for Truncated Backpropagation Through Time (TBPTT))
+
+    # Global LSTM state store
     if model.run_LSTM:
         lstm_state_store = {
             'h': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm).to(device),
@@ -139,10 +138,10 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
         leave=False,
         dynamic_ncols=True,
         mininterval=float(os.getenv("TQDM_MININTERVAL", "1.0")),  # seconds
-        miniters=int(os.getenv("LOG_EVERY", "200")),  # batches
+        miniters=int(os.getenv("LOG_EVERY", "200")),  # batches
         disable=not sys.stdout.isatty(),  # disable under slurm logs
     )
-    
+
     if target_scaler is not None:
         scale = torch.tensor(target_scaler.scale_, device=device)
         mean = torch.tensor(target_scaler.mean_, device=device)
@@ -155,18 +154,17 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
     
     #  Loop through and train/validate model
     with torch.set_grad_enabled(is_training): # Gradients enabled for training, disabled for validation
-        # for data in loop:  # OLD: This now replaced with following two lines
         for t_idx, data in enumerate(loop):
             burnin = (t_idx < burn_in_steps)
             pred_t = None
-            
+            alpha_mean_str = None
+
             # Move data to device and run forward pass
             data = data.to(device)
-            
+
             mask_attr = 'train_effective_mask' if is_training else 'val_effective_mask'
             if not hasattr(data, mask_attr):
-                mask_attr = 'train_mask' if is_training else 'val_mask'  # Fallback shouldn't ever execute
-            
+                mask_attr = 'train_mask' if is_training else 'val_mask'
             # Select the correct nodes to process for this phase (training or validation)
             mask_for_loss_and_metrics = getattr(data, mask_attr)
             if not mask_for_loss_and_metrics.any():
@@ -185,7 +183,7 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
             # --- Run Model Pass ---
             
             predictions_all_nodes, (h_new_for_current_nodes, c_new_for_current_nodes), returned_node_ids = model(
-                x_full, data.edge_index, data.edge_attr, node_ids_in_current_timestep,lstm_state_store)
+                x_full, data.edge_index, data.edge_attr, node_ids_in_current_timestep, lstm_state_store)
             
             # bind dbg ({} prevents UnboundLocalError)
             dbg = getattr(model, "last_debug", {})
@@ -204,48 +202,49 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
                         
                         # align masks across timesteps
                         seq_mask = (mask_for_loss_and_metrics & prev_mask_for_loss_and_metrics) \
-                                if prev_mask_for_loss_and_metrics is not None else mask_for_loss_and_metrics
+                                   if prev_mask_for_loss_and_metrics is not None else mask_for_loss_and_metrics
                         if seq_mask.any():
                             r_diff = r_curr - r_prev
                             res_smooth_term = (torch.abs(r_diff[seq_mask]).mean()
-                                            if loss_type == "MAE"
-                                            else (r_diff[seq_mask] ** 2).mean())
-                   
+                                               if loss_type == "MAE" else (r_diff[seq_mask] ** 2).mean())
+                    
                     # track prev for next step (detached)
                     previous_residual = r_curr.detach()
-            
+
             # --- Aggregate residual & FiLM diagnostics for this batch ---
             
             with torch.no_grad():
                 residual = dbg.get("residual", None)
                 if isinstance(residual, torch.Tensor):
-                    r = residual
-                    if r.dim() > 1: r = r.squeeze(-1)
+                    r = residual.squeeze(-1) if residual.dim() > 1 else residual
                     r = r[mask_for_loss_and_metrics]
                     res_abs_sum += torch.abs(r).sum().item()
-                    res_count   += r.numel()
+                    res_count += r.numel()
 
-                gamma = dbg.get("gamma", None)
-                beta  = dbg.get("beta",  None)
+                gamma = dbg.get("gamma", None); beta = dbg.get("beta", None)
                 if isinstance(gamma, torch.Tensor) and isinstance(beta, torch.Tensor):
                     g_dev = torch.abs(gamma - 1.0).mean(dim=1)
                     b_abs = torch.abs(beta).mean(dim=1)
-                    g_dev_m = g_dev[mask_for_loss_and_metrics]
-                    b_abs_m = b_abs[mask_for_loss_and_metrics]
-                    gamma_dev_sum   += g_dev_m.sum().item()
-                    beta_abs_sum    += b_abs_m.sum().item()
+                    g_dev_m = g_dev[mask_for_loss_and_metrics]; b_abs_m = b_abs[mask_for_loss_and_metrics]
+                    gamma_dev_sum += g_dev_m.sum().item(); beta_abs_sum += b_abs_m.sum().item()
                     film_count_nodes += g_dev_m.numel()
 
                 baseline = dbg.get("baseline", None)
                 if isinstance(residual, torch.Tensor) and isinstance(baseline, torch.Tensor):
-                    r = residual
-                    if r.dim() > 1: r = r.squeeze(-1)
-                    yb = baseline
-                    if yb.dim() > 1: yb = yb.squeeze(-1)
-                    res_rel_sum  += torch.abs(r[mask_for_loss_and_metrics]).sum().item()
+                    r = residual.squeeze(-1) if residual.dim() > 1 else residual
+                    yb = baseline.squeeze(-1) if baseline.dim() > 1 else baseline
+                    res_rel_sum += torch.abs(r[mask_for_loss_and_metrics]).sum().item()
                     base_abs_sum += torch.abs(yb[mask_for_loss_and_metrics]).sum().item()
 
-            # --- Update persistent LSTM state ---
+                # α logging (safe, no UI here)
+                a = dbg.get("alpha", None)
+                if isinstance(a, torch.Tensor) and mask_for_loss_and_metrics.any():
+                    try:
+                        alpha_mean_str = f"{a[mask_for_loss_and_metrics].mean().item():.2f}"
+                    except Exception:
+                        alpha_mean_str = None
+
+            # --- Persistent LSTM state update (TBPTT makes diff) ---
             
             if model.run_LSTM:
                 lstm_state_store['h'][:, returned_node_ids, :] = (
@@ -256,13 +255,8 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
                 )
             
             # -------- Loss & regularisers --------
-
-            loss = None
+            
             if not burnin:
-                
-                # Compute loss (on relevant nodes only)
-                # loss = criterion(predictions_all_nodes[mask_for_loss_and_metrics], data.y[mask_for_loss_and_metrics])
-                
                 y_pred_m = predictions_all_nodes[mask_for_loss_and_metrics]
                 y_true_m = data.y[mask_for_loss_and_metrics]
 
@@ -281,23 +275,24 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
                     err = (y_pred_m - y_true_m).pow(2).view(-1)
 
                 loss = (weights * err).mean()
-                
-                # --- If Smoothness Loss given then apply it ---
-                
+
+                 # --- If Smoothness Loss given then apply it ---
+                 
+                if res_smooth_term is not None:
+                    loss = loss + (lambda_res_smooth * res_smooth_term)
+
                 # Compute first diff with respect to previous timestep (where available)
-                pred_t = (predictions_all_nodes - previous_predictions) if previous_predictions is not None else None  # (1)
-                
-                if lambda_smooth > 0.0 and previous_predictions is not None: 
+                pred_t = (predictions_all_nodes - previous_predictions) if previous_predictions is not None else None
+                if lambda_smooth > 0.0 and previous_predictions is not None:
                     # Align with previous node
-                    sequential_mask = mask_for_loss_and_metrics & prev_mask_for_loss_and_metrics  # (2)
+                    sequential_mask = mask_for_loss_and_metrics & prev_mask_for_loss_and_metrics
                     if sequential_mask.any():
                         loss = _calc_smooth_curvature_loss(
                             loss, data, previous_targets, sequential_mask, loss_type, pred_t,
                             lambda_curve, prev_pred, lambda_smooth
                         )
-                        
+
                 # ---- Gate regularisers (mean-alpha target + entropy) ----
-                
                 alpha = dbg.get("alpha", None)
                 if (alpha is not None) and (lambda_mean > 0 or lambda_ent > 0):
                     # restrict to nodes in the current loss mask
@@ -310,11 +305,10 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
                         eps = 1e-6
                         a_clamped = alpha_m.clamp(eps, 1 - eps)
                         L_ent = (a_clamped * (a_clamped + eps).log() + (1 - a_clamped) * (1 - a_clamped + eps).log()).mean()
-                        loop.set_postfix({**loop.postfix, 'alpha_mean': f"{alpha_m.mean().item():.2f}"})
-
                         loss = loss + lambda_mean * L_mean + lambda_ent * L_ent
-                        
+
                 # ---- Head calibration regulariser (very small) ----
+                 
                 if is_training:
                     calib_reg = 1e-4 * (
                         (model.tau_lstm - 1.0).pow(2) + model.bias_lstm.pow(2)
@@ -325,42 +319,40 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
                 total_loss += loss.item() * mask_count  # Scale by number of predictions in this batch so epoch avg is per-prediction
                 num_predictions_processed += mask_count  # num_predictions is num node,timestep pairs
 
-                # --- Compute unscaled MAE (mAOD) for interpretability ---
-                
+                 # --- Compute unscaled MAE (mAOD) for interpretability ---
+                 
                 if target_scaler is not None:
                     preds_orig = predictions_all_nodes[mask_for_loss_and_metrics] * scale + mean
                     targets_orig = data.y[mask_for_loss_and_metrics] * scale + mean
                     batch_mae = torch.mean(torch.abs(preds_orig - targets_orig)).item()
                     total_mae_unscaled += batch_mae * mask_count
                     num_nodes_processed += mask_count
-                
-            # -- Perform optimisation when in training phase ---
-            
-            # if is_training:
-            #     optimizer.zero_grad()
-            #     loss.backward()
-                
-            #     if gradient_clip_max_norm is not None:
-            #         torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip_max_norm)
-            #     optimizer.step()
+            else:
+                loss = None  # keep defined for UI
 
-            #     # Update training specific progress bar
-            #     postfix = {'loss': f"{loss.item():.4f}", 'lr':   f"{optimizer.param_groups[0]['lr']:.6f}"}
-            #     if target_scaler is not None:
-            #         postfix['mae'] = f"{batch_mae:.2f}"
-            #     loop.set_postfix(postfix)
-            
-            # postfix update handler
-            n_batches = len(all_timesteps_list)
-            # should_update = (t_idx % LOG_EVERY == 0) or (t_idx + 1 == n_batches)
-            should_update = (t_idx % int(os.getenv("LOG_EVERY", "200")) == 0) or (t_idx + 1 == n_batches)
-            
+            # -- UI: single, centralized set_postfix (identical) --
+            should_update = (t_idx % int(os.getenv("LOG_EVERY", "200")) == 0) or (t_idx + 1 == len(all_timesteps_list))
+            if should_update:
+                postfix = {}
+                if (loss is not None):
+                    postfix['loss'] = f"{loss.item():.4f}"
+                    postfix['lr'] = f"{optimizer.param_groups[0]['lr']:.6f}"
+                if not burnin and target_scaler is not None and 'batch_mae' in locals():
+                    postfix['mae'] = f"{batch_mae:.2f}"
+                if not burnin and alpha_mean_str is not None:
+                    postfix['alpha_mean'] = alpha_mean_str
+                if burnin:
+                    postfix = {'burn-in': f"{t_idx+1}/{burn_in_steps}"}
+                if postfix:
+                    loop.set_postfix(postfix)
+
+            # --- Optimiser step (TBPTT difference) ---
             if is_training and not burnin:
                 # accumulate loss within the TBPTT window
                 accum_loss = loss if accum_loss is None else (accum_loss + loss)
                 steps_in_window += 1
-
-                is_boundary = (steps_in_window % tbptt_window == 0)  # also handle end-of-epoch below
+                
+                is_boundary = (steps_in_window % tbptt_window == 0)
 
                 if is_boundary:
                     optimizer.zero_grad()
@@ -378,25 +370,24 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
                     # reset window accumulators
                     accum_loss = None
                     steps_in_window = 0
-
-                # progress bar (use the current step loss for readability)
-                if should_update:
-                    postfix = {'loss': f"{loss.item():.4f}", 'lr': f"{optimizer.param_groups[0]['lr']:.6f}"}
-                    if target_scaler is not None:
-                        postfix['mae'] = f"{batch_mae:.2f}"
-                    loop.set_postfix(postfix)
+                
+            #     # progress bar (use the current step loss for readability)
+            #     if should_update:
+            #         postfix = {'loss': f"{loss.item():.4f}", 'lr': f"{optimizer.param_groups[0]['lr']:.6f}"}
+            #         if target_scaler is not None:
+            #             postfix['mae'] = f"{batch_mae:.2f}"
+            #         loop.set_postfix(postfix)
             
-            elif is_training and burnin:
-                if should_update:
-                    loop.set_postfix({'burn-in': f"{t_idx+1}/{burn_in_steps}"})
-            
+            # elif is_training and burnin:
+            #     if should_update:
+            #         loop.set_postfix({'burn-in': f"{t_idx+1}/{burn_in_steps}"})
             # store trackers for next timestep (detach to avoid exploding computation)
             previous_predictions = predictions_all_nodes.detach()
             previous_targets = data.y.detach()
             prev_mask_for_loss_and_metrics = mask_for_loss_and_metrics.clone()
             prev_pred = pred_t.detach() if pred_t is not None else None
-        
-        # after the for-loop, still inside with torch.set_grad_enabled(is_training):
+
+        # Handle trailing remainder (TBPTT diff here)
         if is_training and accum_loss is not None:
             optimizer.zero_grad()
             denom = steps_in_window if tbptt_window > 1 else 1
@@ -417,21 +408,14 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
     residual_abs_mean = (res_abs_sum / res_count) if res_count > 0 else float('nan')
     gamma_dev_mean = (gamma_dev_sum / film_count_nodes) if film_count_nodes > 0 else float('nan')
     beta_abs_mean = (beta_abs_sum  / film_count_nodes) if film_count_nodes  > 0 else float('nan')
-
-    logger.info(
-        f"[{description}] Epoch {epoch+1}/{num_epochs} | "
-        f"residual_abs_mean: {residual_abs_mean:.6f} | "
-        f"gamma_dev_mean: {gamma_dev_mean:.6f} | "
-        f"beta_abs_mean: {beta_abs_mean:.6f}"
-    )
-    
+    logger.info(f"[{description}] Epoch {epoch+1}/{num_epochs} | residual_abs_mean: {residual_abs_mean:.6f} | "
+                f"gamma_dev_mean: {gamma_dev_mean:.6f} | beta_abs_mean: {beta_abs_mean:.6f}")
     gat_rel_contrib = (res_rel_sum / base_abs_sum) if base_abs_sum > 0 else float('nan')
-    logger.info(f"[{description}] Epoch {epoch+1}/{num_epochs} | "
-                f"GAT rel contrib: {gat_rel_contrib:.2%}")
+    logger.info(f"[{description}] Epoch {epoch+1}/{num_epochs} | GAT rel contrib: {gat_rel_contrib:.2%}")
 
     return avg_loss, avg_mae_unscaled
 
-# Stable version tested on multiple
+# Stable version tested on multiple (tbppt == 1)
 def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_norm, model, device, criterion,
                      optimizer, target_scaler, lambda_smooth, lambda_curve, loss_type, gwl_node_mean,
                      lambda_res_smooth, burn_in_steps: int = 0, is_training: bool = True):
@@ -456,13 +440,12 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
     # init for relative contribution accumulators
     res_rel_sum = 0.0
     base_abs_sum = 0.0
-
     total_mae_unscaled = 0.0
     num_nodes_processed = 0
     num_predictions_processed = 0
     previous_residual = None
     
-    # Initialise global LSTM state store at start of epoch (for Truncated Backpropagation Through Time (TBPTT))
+    # Initialise global LSTM state store at start of epoch (for tbppt)
     if model.run_LSTM:
         lstm_state_store = {
             'h': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm).to(device),
@@ -472,20 +455,20 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
         lstm_state_store = None
 
     # Iterate over all timesteps for training, applying spatial train_mask (+ tqdm for progress bars)
-    # loop = tqdm(all_timesteps_list, desc=f"Epoch {epoch+1}/{num_epochs} [{description}]", leave=False)
     loop = tqdm(
         all_timesteps_list,
         desc=f"Epoch {epoch+1}/{num_epochs} [{description}]",
         leave=False,
         dynamic_ncols=True,
-        mininterval=float(os.getenv("TQDM_MININTERVAL", "1.0")),  # seconds
-        miniters=int(os.getenv("LOG_EVERY", "200")),  # batches
-        disable=not sys.stdout.isatty(),  # disable under slurm logs
+        mininterval=float(os.getenv("TQDM_MININTERVAL", "1.0")),
+        miniters=int(os.getenv("LOG_EVERY", "200")),
+        disable=not sys.stdout.isatty(),
     )
-    
+
     if target_scaler is not None:
         scale = torch.tensor(target_scaler.scale_, device=device)
         mean = torch.tensor(target_scaler.mean_, device=device)
+
     
     # Initialise previous prediction, mask, targets trackers
     previous_predictions = None
@@ -494,19 +477,20 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
     prev_mask_for_loss_and_metrics = None
     
     #  Loop through and train/validate model
-    with torch.set_grad_enabled(is_training): # Gradients enabled for training, disabled for validation
-        # for data in loop:  # OLD: This now replaced with following two lines
+
+    with torch.set_grad_enabled(is_training):
         for t_idx, data in enumerate(loop):
             burnin = (t_idx < burn_in_steps)
-            pred_t = None 
-            
+            pred_t = None
+            alpha_mean_str = None
+
             # Move data to device and run forward pass
             data = data.to(device)
-            
+
             mask_attr = 'train_effective_mask' if is_training else 'val_effective_mask'
             if not hasattr(data, mask_attr):
                 mask_attr = 'train_mask' if is_training else 'val_mask'  # Fallback shouldn't ever execute
-            
+                
             # Select the correct nodes to process for this phase (training or validation)
             mask_for_loss_and_metrics = getattr(data, mask_attr)
             if not mask_for_loss_and_metrics.any():
@@ -523,69 +507,63 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
             node_ids_in_current_timestep = data.node_id  # Global IDs for all nodes in x_full
             
             # --- Run Model Pass ---
-            
+
             predictions_all_nodes, (h_new_for_current_nodes, c_new_for_current_nodes), returned_node_ids = model(
-                x_full, data.edge_index, data.edge_attr, node_ids_in_current_timestep,lstm_state_store)
+                x_full, data.edge_index, data.edge_attr, node_ids_in_current_timestep, lstm_state_store)
             
             # bind dbg ({} prevents UnboundLocalError)
             dbg = getattr(model, "last_debug", {})
             
             # --- Residual smoothing term (helps remove jitter from GAT component) ---
-            
+
+            res_smooth_term = None
             if "residual" in dbg and lambda_res_smooth > 0.0:
                 r_t = dbg["residual"]
-                if isinstance(r_t, torch.Tensor) and previous_residual is not None:
-                    r = r_t
-                    if r.dim() > 1:
-                        r = r.squeeze(-1)
-                    pr = previous_residual
-                    if pr.dim() > 1:
-                        pr = pr.squeeze(-1)
-                    r_diff = r - pr
-                    res_smooth = (torch.abs(r_diff[mask_for_loss_and_metrics]).mean()
-                                  if loss_type == "MAE"
-                                  else (r_diff[mask_for_loss_and_metrics] ** 2).mean())
-                    res_smooth_term = res_smooth
-                else:
-                    res_smooth_term = None
-                previous_residual = r_t.detach() if isinstance(r_t, torch.Tensor) else previous_residual
-            else:
-                res_smooth_term = None
-            
+                if isinstance(r_t, torch.Tensor):
+                    r_curr = r_t.squeeze(-1) if r_t.dim() > 1 else r_t
+                    if previous_residual is not None and isinstance(previous_residual, torch.Tensor):
+                        r_prev = previous_residual.squeeze(-1) if previous_residual.dim() > 1 else previous_residual
+                        seq_mask = (mask_for_loss_and_metrics & prev_mask_for_loss_and_metrics) \
+                                   if prev_mask_for_loss_and_metrics is not None else mask_for_loss_and_metrics
+                        if seq_mask.any():
+                            r_diff = r_curr - r_prev
+                            res_smooth_term = (torch.abs(r_diff[seq_mask]).mean()
+                                               if loss_type == "MAE" else (r_diff[seq_mask] ** 2).mean())
+                    previous_residual = r_curr.detach()
+
             # --- Aggregate residual & FiLM diagnostics for this batch ---
             
             with torch.no_grad():
                 residual = dbg.get("residual", None)
                 if isinstance(residual, torch.Tensor):
-                    r = residual
-                    if r.dim() > 1: r = r.squeeze(-1)
+                    r = residual.squeeze(-1) if residual.dim() > 1 else residual
                     r = r[mask_for_loss_and_metrics]
                     res_abs_sum += torch.abs(r).sum().item()
-                    res_count   += r.numel()
+                    res_count += r.numel()
 
-                gamma = dbg.get("gamma", None)
-                beta  = dbg.get("beta",  None)
+                gamma = dbg.get("gamma", None); beta = dbg.get("beta", None)
                 if isinstance(gamma, torch.Tensor) and isinstance(beta, torch.Tensor):
                     g_dev = torch.abs(gamma - 1.0).mean(dim=1)
                     b_abs = torch.abs(beta).mean(dim=1)
-                    g_dev_m = g_dev[mask_for_loss_and_metrics]
-                    b_abs_m = b_abs[mask_for_loss_and_metrics]
-                    gamma_dev_sum   += g_dev_m.sum().item()
-                    beta_abs_sum    += b_abs_m.sum().item()
+                    g_dev_m = g_dev[mask_for_loss_and_metrics]; b_abs_m = b_abs[mask_for_loss_and_metrics]
+                    gamma_dev_sum += g_dev_m.sum().item(); beta_abs_sum += b_abs_m.sum().item()
                     film_count_nodes += g_dev_m.numel()
 
                 baseline = dbg.get("baseline", None)
                 if isinstance(residual, torch.Tensor) and isinstance(baseline, torch.Tensor):
-                    r = residual
-                    if r.dim() > 1: r = r.squeeze(-1)
-                    yb = baseline
-                    if yb.dim() > 1: yb = yb.squeeze(-1)
-                    res_rel_sum  += torch.abs(r[mask_for_loss_and_metrics]).sum().item()
+                    r = residual.squeeze(-1) if residual.dim() > 1 else residual
+                    yb = baseline.squeeze(-1) if baseline.dim() > 1 else baseline
+                    res_rel_sum += torch.abs(r[mask_for_loss_and_metrics]).sum().item()
                     base_abs_sum += torch.abs(yb[mask_for_loss_and_metrics]).sum().item()
 
-            # --- Update persistent LSTM state ---
-            
-            # Detach hidden states for Truncated Backpropagation Through Time (BPTT)
+                a = dbg.get("alpha", None)
+                if isinstance(a, torch.Tensor) and mask_for_loss_and_metrics.any():
+                    try:
+                        alpha_mean_str = f"{a[mask_for_loss_and_metrics].mean().item():.2f}"
+                    except Exception:
+                        alpha_mean_str = None
+
+            # Persistent LSTM state (non-TBPTT always detaches)
             if model.run_LSTM:
                 # Update the global lstm_state_store using the specific node IDs that were processed in this timestep
                 # And detach the new states to prevent backprop through previous timesteps' computations.
@@ -593,13 +571,8 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
                 lstm_state_store['c'][:, returned_node_ids, :] = c_new_for_current_nodes.detach()
             
             # -------- Loss & regularisers --------
-
-            loss = None
-            if not burnin:
             
-                # Compute loss (on relevant nodes only)
-                # loss = criterion(predictions_all_nodes[mask_for_loss_and_metrics], data.y[mask_for_loss_and_metrics])
-                
+            if not burnin:
                 y_pred_m = predictions_all_nodes[mask_for_loss_and_metrics]
                 y_true_m = data.y[mask_for_loss_and_metrics]
 
@@ -621,12 +594,15 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
                 
                 # --- If Smoothness Loss given then apply it ---
                 
+                if res_smooth_term is not None:
+                    loss = loss + (lambda_res_smooth * res_smooth_term)
+                    
                 # Compute first diff with respect to previous timestep (where available)
-                pred_t = (predictions_all_nodes - previous_predictions) if previous_predictions is not None else None  # (1)
-                
-                if lambda_smooth > 0.0 and previous_predictions is not None: 
+                pred_t = (predictions_all_nodes - previous_predictions) if previous_predictions is not None else None
+
+                if lambda_smooth > 0.0 and previous_predictions is not None:
                     # Align with previous node
-                    sequential_mask = mask_for_loss_and_metrics & prev_mask_for_loss_and_metrics  # (2)
+                    sequential_mask = mask_for_loss_and_metrics & prev_mask_for_loss_and_metrics
                     if sequential_mask.any():
                         loss = _calc_smooth_curvature_loss(
                             loss, data, previous_targets, sequential_mask, loss_type, pred_t,
@@ -634,7 +610,7 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
                         )
                         
                 # ---- Gate regularisers (mean-alpha target + entropy) ----
-                
+
                 alpha = dbg.get("alpha", None)
                 if (alpha is not None) and (lambda_mean > 0 or lambda_ent > 0):
                     # restrict to nodes in the current loss mask
@@ -642,16 +618,15 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
                     if alpha_m.numel() > 0:
                         # mean-alpha penalty towards m_target
                         L_mean = (alpha_m.mean() - m_target).pow(2)
-
+                        
                         # entropy penalty (push away from 0/1 early): mean[ alpha log alpha + (1-alpha) log(1-alpha) ]
                         eps = 1e-6
                         a_clamped = alpha_m.clamp(eps, 1 - eps)
                         L_ent = (a_clamped * (a_clamped + eps).log() + (1 - a_clamped) * (1 - a_clamped + eps).log()).mean()
-                        loop.set_postfix({**loop.postfix, 'alpha_mean': f"{alpha_m.mean().item():.2f}"})
-
                         loss = loss + lambda_mean * L_mean + lambda_ent * L_ent
-                        
+
                 # ---- Head calibration regulariser (very small) ----
+                
                 if is_training:
                     calib_reg = 1e-4 * (
                         (model.tau_lstm - 1.0).pow(2) + model.bias_lstm.pow(2)
@@ -659,45 +634,44 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
                     )
                     loss = loss + calib_reg
 
-                total_loss += loss.item() * mask_count  # Scale by number of predictions in this batch so epoch avg is per-prediction
-                num_predictions_processed += mask_count  # num_predictions is num node,timestep pairs
-
+                total_loss += loss.item() * mask_count
+                num_predictions_processed += mask_count
+                 
                 # --- Compute unscaled MAE (mAOD) for interpretability ---
-                
+
                 if target_scaler is not None:
                     preds_orig = predictions_all_nodes[mask_for_loss_and_metrics] * scale + mean
                     targets_orig = data.y[mask_for_loss_and_metrics] * scale + mean
                     batch_mae = torch.mean(torch.abs(preds_orig - targets_orig)).item()
                     total_mae_unscaled += batch_mae * mask_count
                     num_nodes_processed += mask_count
-            
-            # -- Perform optimisation when in training phase ---
-            
-            # postfix update handler
-            n_batches = len(all_timesteps_list)
-            # should_update = (t_idx % LOG_EVERY == 0) or (t_idx + 1 == n_batches)
-            should_update = (t_idx % int(os.getenv("LOG_EVERY", "200")) == 0) or (t_idx + 1 == n_batches)
-            
+            else:
+                loss = None
+
+            # UI (identical)
+            should_update = (t_idx % int(os.getenv("LOG_EVERY", "200")) == 0) or (t_idx + 1 == len(all_timesteps_list))
+            if should_update:
+                postfix = {}
+                if (loss is not None):
+                    postfix['loss'] = f"{loss.item():.4f}"
+                    postfix['lr'] = f"{optimizer.param_groups[0]['lr']:.6f}"
+                if not burnin and target_scaler is not None and 'batch_mae' in locals():
+                    postfix['mae'] = f"{batch_mae:.2f}"
+                if not burnin and alpha_mean_str is not None:
+                    postfix['alpha_mean'] = alpha_mean_str
+                if burnin:
+                    postfix = {'burn-in': f"{t_idx+1}/{burn_in_steps}"}
+                if postfix:
+                    loop.set_postfix(postfix)
+
+            # --- Optimiser step (non-TBPTT difference) ---
             if is_training and not burnin:
                 optimizer.zero_grad()
                 loss.backward()
-                
                 if gradient_clip_max_norm is not None:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip_max_norm)
                 optimizer.step()
 
-                # progress bar (use the current step loss for readability)
-                if should_update:
-                    postfix = {'loss': f"{loss.item():.4f}", 'lr': f"{optimizer.param_groups[0]['lr']:.6f}"}
-                    if target_scaler is not None:
-                        postfix['mae'] = f"{batch_mae:.2f}"
-                    loop.set_postfix(postfix)
-            
-            elif is_training and burnin:
-                if should_update:
-                    loop.set_postfix({'burn-in': f"{t_idx+1}/{burn_in_steps}"})
-            
-            # store trackers for next timestep (detach to avoid exploding computation)
             previous_predictions = predictions_all_nodes.detach()
             previous_targets = data.y.detach()
             prev_mask_for_loss_and_metrics = mask_for_loss_and_metrics.clone()
@@ -712,17 +686,10 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
     residual_abs_mean = (res_abs_sum / res_count) if res_count > 0 else float('nan')
     gamma_dev_mean = (gamma_dev_sum / film_count_nodes) if film_count_nodes > 0 else float('nan')
     beta_abs_mean = (beta_abs_sum  / film_count_nodes) if film_count_nodes  > 0 else float('nan')
-
-    logger.info(
-        f"[{description}] Epoch {epoch+1}/{num_epochs} | "
-        f"residual_abs_mean: {residual_abs_mean:.6f} | "
-        f"gamma_dev_mean: {gamma_dev_mean:.6f} | "
-        f"beta_abs_mean: {beta_abs_mean:.6f}"
-    )
-    
+    logger.info(f"[{description}] Epoch {epoch+1}/{num_epochs} | residual_abs_mean: {residual_abs_mean:.6f} | "
+                f"gamma_dev_mean: {gamma_dev_mean:.6f} | beta_abs_mean: {beta_abs_mean:.6f}")
     gat_rel_contrib = (res_rel_sum / base_abs_sum) if base_abs_sum > 0 else float('nan')
-    logger.info(f"[{description}] Epoch {epoch+1}/{num_epochs} | "
-                f"GAT rel contrib: {gat_rel_contrib:.2%}")
+    logger.info(f"[{description}] Epoch {epoch+1}/{num_epochs} | GAT rel contrib: {gat_rel_contrib:.2%}")
 
     return avg_loss, avg_mae_unscaled
 

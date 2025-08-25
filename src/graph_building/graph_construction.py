@@ -253,7 +253,7 @@ def _define_graph_adjacency_idx(mesh_cells_gdf_polygons: gpd.GeoDataFrame):
     
     return edge_index_df, edge_index_tensor
 
-def _calculate_edge_attrs(source_data: pd.DataFrame, dest_data: pd.DataFrame, epsilon_path: str):
+def _calculate_edge_attrs(source_data: pd.DataFrame, dest_data: pd.DataFrame, epsilon_scalar: str):
     """
     Calculate and return the attributes for this edge.
     """
@@ -270,8 +270,8 @@ def _calculate_edge_attrs(source_data: pd.DataFrame, dest_data: pd.DataFrame, ep
     source_slope_dy = float(source_data['mean_slope_dy'])
     
     # Magnitude of source slope vector (adding epsilon to prevent div by zero err when flat)
-    epsilon = epsilon_path
-    source_slope_magnitude = np.sqrt(source_slope_dx**2 + source_slope_dy**2) + float(epsilon)
+    epsilon = float(epsilon_scalar)
+    source_slope_magnitude = np.sqrt(source_slope_dx**2 + source_slope_dy**2) + epsilon
     
     # Directionality score: Cosine similarity between source's slope vector and vector from source to dest
     # Where: Cosine similarity = dot_product / (magnitude1 * magnitude2)
@@ -300,9 +300,32 @@ def _save_tensor_attrs(edge_index_tensor: torch, edge_attr_tensor: torch,
     logger.info(f"Graph components saved for {catchment} catchment:")
     logger.info(f"    - Edge Index: {edge_index_path}")
     logger.info(f"    - Edge Attributes: {edge_attr_path}\n")
-     
+
+def _build_station_radius_edges(node_static_features_df: pd.DataFrame, station_node_ids: np.ndarray, radius_m: float):
+    """
+    Create directed edges between all station nodes within radius_m. Returns a df with cols ['source',
+    'destination'] (in both directions).
+    """
+    if station_node_ids is None or len(station_node_ids) == 0:
+        return pd.DataFrame(columns=["source", "destination"])
+    
+    # Coords in m -> shape (S, 2)
+    coords = node_static_features_df.loc[station_node_ids, ["easting", "northing"]].to_numpy(dtype=np.float64)
+    
+    # Pairwise Euclid. dist.
+    diff = coords[:, None, :] - coords[None, :, :]
+    D = np.sqrt((diff ** 2).sum(axis=2)) # Now (S,S)
+    
+    # Buidling i->j pairs with 0 < dist <= radius_m
+    src_index, dest_index = np.where((D <= float(radius_m)) & (D > 0.0))  # D check fpr defensive but maybe throw error?
+    src_nodes = station_node_ids[src_index]
+    dest_nodes = station_node_ids[dest_index]
+    
+    return pd.DataFrame({"source": src_nodes, "destination": dest_nodes})
+
 def define_graph_adjacency(directional_edge_weights: pd.DataFrame, elevation_geojson_path: str, graph_output_dir: str,
-                           mesh_cells_gdf_polygons: gpd.GeoDataFrame, epsilon_path: str, catchment: str):
+                           mesh_cells_gdf_polygons: gpd.GeoDataFrame, epsilon_path: str, station_node_ids: np.ndarray,
+                           station_radius_m: float, catchment: str):
     
     # --- Load required data points and initialise static node feature df ---
     logging.info(f"Determining graph adjacency for {catchment} catchment...\n")
@@ -330,12 +353,29 @@ def define_graph_adjacency(directional_edge_weights: pd.DataFrame, elevation_geo
         on='node_id',
         how='left'
     )
-
+    
     # Check no NaNs introduced from the join (meaning indexes correctly aligned)
     if node_static_features_df[['mean_slope_dx', 'mean_slope_dy', 'easting', 'northing']].isnull().any().any():
         logger.warning("NaNs found in joined static features. Check node_id alignment.")
+
+    # Ensure index is node id
+    node_static_features_df = node_static_features_df.set_index("node_id", drop=False).sort_index()
     
-    edge_index_df, edge_index_tensor = _define_graph_adjacency_idx(mesh_cells_gdf_polygons)
+    # --- Get Adjacency's ---
+    
+    # Get base mesh adjacency (k edges)
+    grid_edge_index_df, _ = _define_graph_adjacency_idx(mesh_cells_gdf_polygons)
+    
+    # Define station -> station edges within radius
+    station_edges_df = _build_station_radius_edges(node_static_features_df, station_node_ids, station_radius_m)
+    logger.info(f"Added {len(station_edges_df)} station <-> station edges within {station_radius_m/1000:.1f}km.")
+
+    # combine k and station edges (deduplicating as needed)
+    edge_index_df = pd.concat([grid_edge_index_df, station_edges_df], ignore_index=True)
+    edge_index_df.drop_duplicates(subset=["source", "destination"], inplace=True)
+    
+    # Rebuild tensors so edge ordering and attrs are stable (for reproducibility)
+    edge_index_df = edge_index_df.sort_values(["source", "destination"], kind="mergesort").reset_index(drop=True)
 
     # --- Define Edge Features (edge_attr) ---
 
@@ -364,6 +404,10 @@ def define_graph_adjacency(directional_edge_weights: pd.DataFrame, elevation_geo
         
     # Convert features list to PyTorch tensor
     edge_attr_tensor = torch.tensor(edge_features, dtype=torch.float)
+    
+    edge_index_np = np.vstack([edge_index_df["source"].to_numpy(dtype=np.int64),
+                               edge_index_df["destination"].to_numpy(dtype=np.int64)])
+    edge_index_tensor = torch.as_tensor(edge_index_np, dtype=torch.long)
 
     # Assert final attribut tensor is equal length to edge index tensor
     assert edge_attr_tensor.shape[0] == edge_index_tensor.shape[1], \
