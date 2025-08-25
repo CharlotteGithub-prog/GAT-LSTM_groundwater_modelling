@@ -73,6 +73,7 @@ global:
     graph_construction:
       graph_type: "grid_adjacency"  # Otherwise: "k_nearest_neighbors", "delaunay_triangulation", etc.
       k_neighbors: 8  # Basic Surrounding Grid
+      station_radius_m: 25_000  # 25km (BNG metres)
     sentinel_value: -999.0  # Float to match col dtypes
     epsilon: 1e-6
 
@@ -271,8 +272,8 @@ eden:
       - streamflow_total_m3
 
     data_partioning:
-      test_station_shortlist: ["baronwood"]
-      val_station_shortlist: ["castle_carrock", "great_musgrave"]
+      test_station_shortlist: ["croglin"]
+      val_station_shortlist: ["skirwith", "baronwood"]
       percentage_train: 77
       percentage_val: 15  # 2 stations for validating
       percentage_test: 8  # 1 station tested at a time
