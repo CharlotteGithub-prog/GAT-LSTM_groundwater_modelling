@@ -43,7 +43,6 @@ export MKL_NUM_THREADS=4
 export OPENBLAS_NUM_THREADS=4
 export NUMEXPR_NUM_THREADS=4
 
-
 cd /home3/swlc12/msc-groundwater-gwl-parallel
 
 # Just run the driver. No ray start/stop, no worker.

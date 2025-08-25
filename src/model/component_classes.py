@@ -185,14 +185,18 @@ class FusionGate(nn.Module):
     Output:
         alpha: (N, 1) with values in (0, 1)
     """
-    def __init__(self, in_dim: int, bias_init: float = 5.0):
+    def __init__(self, in_dim: int, bias_init: float = 0.0, alpha_floor: float = 0.15):
         super().__init__()
         self.fc = nn.Linear(in_dim, 1)
         nn.init.zeros_(self.fc.weight)  # start with zero slope
         nn.init.constant_(self.fc.bias, bias_init)  # prior set in config
+        self.alpha_floor = alpha_floor  # guarantees GAT contribution to stop initial collapse
 
     def forward(self, z):
-        return torch.sigmoid(self.fc(z))  # (N, 1)
+        a = torch.sigmoid(self.fc(z))
+        if self.alpha_floor > 0:
+            a = self.alpha_floor + (1.0 - self.alpha_floor) * a
+        return a
 
 class RegressorHead(nn.Module):
     """

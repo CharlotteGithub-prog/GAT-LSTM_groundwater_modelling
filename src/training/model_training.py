@@ -59,7 +59,7 @@ def _calc_smooth_curvature_loss(loss, data, previous_targets, sequential_mask, l
     
     return loss
 
-def _gate_regulariser_schedule(epoch, num_epochs, m0=0.35, m_final=0.15,  # mean-alpha target decays from 0.25 → 0.05
+def _gate_regulariser_schedule(epoch, num_epochs, m0=0.70, m_final=0.50,  # mean-alpha target decays from 0.25 → 0.05
                               T_anneal=40,  lam_mean0=0.10, lam_ent0=0.01):         
     """
     Returns (m_target, lambda_mean, lambda_ent) for this epoch.
@@ -121,14 +121,23 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
     num_predictions_processed = 0
     previous_residual = None
 
-    # Global LSTM state store
-    if model.run_LSTM:
-        lstm_state_store = {
-            'h': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm).to(device),
-            'c': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm).to(device)
-        }
-    else:
-        lstm_state_store = None
+    # # Global LSTM state store
+    # if model.run_LSTM:
+    #     lstm_state_store = {
+    #         'h': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm).to(device),
+    #         'c': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm).to(device)
+    #     }
+    # else:
+    #     lstm_state_store = None
+    
+    # Global LSTM state store for temporal states and residual memory (EMA)
+    lstm_state_store = {
+        'h': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm, device=device)
+             if model.run_LSTM else None,
+        'c': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm, device=device)
+             if model.run_LSTM else None,
+        'r_mem': torch.zeros(model.num_nodes, device=device)  # residual memory per node (starts at 0)
+    }
 
     # Iterate over all timesteps for training, applying spatial train_mask (+ tqdm for progress bars)
     # loop = tqdm(all_timesteps_list, desc=f"Epoch {epoch+1}/{num_epochs} [{description}]", leave=False)
@@ -187,6 +196,11 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
             
             # bind dbg ({} prevents UnboundLocalError)
             dbg = getattr(model, "last_debug", {})
+            
+            # update residual-memory for these nodes from model debug payload
+            r_new = dbg.get("r_mem_new", None)
+            if isinstance(r_new, torch.Tensor):
+                lstm_state_store['r_mem'][returned_node_ids] = r_new.squeeze(1)  # (N,)
             
             # --- Residual smoothing term (helps remove jitter from GAT component) ---
             
@@ -293,6 +307,7 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
                         )
 
                 # ---- Gate regularisers (mean-alpha target + entropy) ----
+                
                 alpha = dbg.get("alpha", None)
                 if (alpha is not None) and (lambda_mean > 0 or lambda_ent > 0):
                     # restrict to nodes in the current loss mask
@@ -306,6 +321,18 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
                         a_clamped = alpha_m.clamp(eps, 1 - eps)
                         L_ent = (a_clamped * (a_clamped + eps).log() + (1 - a_clamped) * (1 - a_clamped + eps).log()).mean()
                         loss = loss + lambda_mean * L_mean + lambda_ent * L_ent
+                        
+                # --- GAT auxiliary loss keeps GAT learning even if alpha is small ---
+                
+                lambda_gat_aux = 0.15  # start small; 0.1–0.3 works well
+                y_gat_dbg = dbg.get("y_gat", None)
+                if is_training and (y_gat_dbg is not None):
+                    y_gat_m = y_gat_dbg[mask_for_loss_and_metrics]
+                    if loss_type == "MAE":
+                        aux = torch.mean(torch.abs(y_gat_m - y_true_m))
+                    else:
+                        aux = torch.mean((y_gat_m - y_true_m) ** 2)
+                    loss = loss + lambda_gat_aux * aux
 
                 # ---- Head calibration regulariser (very small) ----
                  
@@ -445,14 +472,23 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
     num_predictions_processed = 0
     previous_residual = None
     
-    # Initialise global LSTM state store at start of epoch (for tbppt)
-    if model.run_LSTM:
-        lstm_state_store = {
-            'h': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm).to(device),
-            'c': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm).to(device)
-        }
-    else:
-        lstm_state_store = None
+    # # Initialise global LSTM state store at start of epoch (for tbppt)
+    # if model.run_LSTM:
+    #     lstm_state_store = {
+    #         'h': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm).to(device),
+    #         'c': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm).to(device)
+    #     }
+    # else:
+    #     lstm_state_store = None
+    
+    # Global LSTM state store for temporal states and residual memory (EMA)
+    lstm_state_store = {
+        'h': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm, device=device)
+             if model.run_LSTM else None,
+        'c': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm, device=device)
+             if model.run_LSTM else None,
+        'r_mem': torch.zeros(model.num_nodes, device=device)  # residual memory per node (starts at 0)
+    }
 
     # Iterate over all timesteps for training, applying spatial train_mask (+ tqdm for progress bars)
     loop = tqdm(
@@ -513,6 +549,11 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
             
             # bind dbg ({} prevents UnboundLocalError)
             dbg = getattr(model, "last_debug", {})
+            
+            # update residual-memory for these nodes from model debug payload
+            r_new = dbg.get("r_mem_new", None)
+            if isinstance(r_new, torch.Tensor):
+                lstm_state_store['r_mem'][returned_node_ids] = r_new.squeeze(1)  # (N,)
             
             # --- Residual smoothing term (helps remove jitter from GAT component) ---
 

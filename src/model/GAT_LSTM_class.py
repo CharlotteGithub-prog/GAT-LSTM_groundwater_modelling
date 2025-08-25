@@ -23,7 +23,8 @@ class GAT_LSTM_Model(nn.Module):
     # Config imported directly to get hyperparams and random seed
     def __init__(self, in_channels, temporal_features_dim, static_features_dim, hidden_channels_gat, out_channels_gat,
                  heads_gat, dropout_gat, hidden_channels_lstm, num_layers_lstm, dropout_lstm, tbptt_window, num_layers_gat,
-                 num_nodes, output_dim, run_GAT, run_LSTM, edge_dim, random_seed, catchment):
+                 num_nodes, output_dim, run_GAT, run_LSTM, edge_dim, random_seed, catchment, spatial_mem_decay: float = 0.9,
+                 use_h_temp_in_gat: bool = False):
 
         super(GAT_LSTM_Model, self).__init__()
         logger.info(f"Instantiating GAT-LSTM model for {catchment} catchment...")
@@ -38,6 +39,12 @@ class GAT_LSTM_Model(nn.Module):
         self.static_features_dim = static_features_dim    # d_s
         self.in_channels = in_channels
         self.edge_dim = edge_dim
+        
+        # Residual memory channel (EMA)
+        self.spatial_mem_decay = float(spatial_mem_decay)  # 0..1, higher = slower memory
+        self.use_h_temp_in_gat = bool(use_h_temp_in_gat)   # False = use raw temporals in GAT
+        self.include_residual_memory = True
+        self.mem_dim = 1
 
         # GAT hyper-params
         self.heads_gat = heads_gat
@@ -79,17 +86,18 @@ class GAT_LSTM_Model(nn.Module):
         # ----- Spatial branch (GAT) -----
         
         if self.run_GAT:
-            
-            # When LSTM is on GAT now conseumes h_temp, but needs x_temporal dim size if off
-            gat_in_extra = hidden_channels_lstm if self.run_LSTM else temporal_features_dim
-            gat_input_dim = static_features_dim + gat_in_extra
+            # Not passing h_temp when use temp True, False for now to avoid shortcutting (tempo only in base)
+            base_temporal_dim = (hidden_channels_lstm if (self.run_LSTM and self.use_h_temp_in_gat)
+                                 else temporal_features_dim)
+            gat_input_dim = static_features_dim + base_temporal_dim + (self.mem_dim if self.include_residual_memory else 0)
             
             self.gat_encoder = component_classes.GATEncoder(
                 in_dim=gat_input_dim, hid=hidden_channels_gat, out=out_channels_gat,
                 heads=heads_gat, dropout=dropout_gat, num_layers=num_layers_gat, edge_dim=edge_dim
             )
-            logger.info(f"  GAT Enabled with {num_layers_gat} layers. First layer: {gat_input_dim} -> "
-                        f"{hidden_channels_gat} ({heads_gat} heads); final out={out_channels_gat}")
+            logger.info(f"  GAT Enabled with {num_layers_gat} layers. in_dim={gat_input_dim} "
+                        f"(statics={static_features_dim}, temporal={base_temporal_dim}, mem={self.mem_dim}) "
+                        f"→ hid={hidden_channels_gat} ({heads_gat} heads), out={out_channels_gat}")
         else:
             logger.info("  GAT Disabled: linear head on concatenated features.")
 
@@ -118,7 +126,7 @@ class GAT_LSTM_Model(nn.Module):
         # Fusion gate only when both branches are enabled
         if self.run_GAT and self.run_LSTM:
             self.fusion_gate = component_classes.FusionGate(
-                in_dim=2 * self.out_channels_gat, bias_init=0.0  # start balanced for now
+                in_dim=2 * self.out_channels_gat, bias_init=1.0, alpha_floor=0.15
             )
 
     # Forward pass of model
@@ -164,13 +172,31 @@ class GAT_LSTM_Model(nn.Module):
 
         # ---------------- Spatial branch -----------------
         
+        # g_i = None
+        # if self.run_GAT:
+        #     # if self.run_LSTM:
+        #     #     gat_input = torch.cat([x_static, h_temp.detach()], dim=1)
+        #     # else:
+        #     gat_input = torch.cat([x_static, x_temporal], dim=1)
+        #     g_i = self.gat_encoder(gat_input, edge_index, edge_attr) # (N, d_g)
+        
         g_i = None
+        # Pull residual memory for the nodes in this timestep (vector length N)
+        if lstm_state_store is not None and 'r_mem' in lstm_state_store:
+            r_mem_curr = lstm_state_store['r_mem'][current_timestep_node_ids].unsqueeze(1)  # (N,1)
+        else:
+            # First call / inference without store — use zeros on the right device
+            r_mem_curr = torch.zeros(x.size(0), 1, device=x.device)
+
         if self.run_GAT:
-            if self.run_LSTM:
-                gat_input = torch.cat([x_static, h_temp.detach()], dim=1)
+            # Choose temporal signal for GAT: raw temporals (recommended) or h_temp
+            if self.run_LSTM and self.use_h_temp_in_gat:
+                temp_for_gat = h_temp.detach()  # (N, d_h)
             else:
-                gat_input = torch.cat([x_static, x_temporal], dim=1)
-            g_i = self.gat_encoder(gat_input, edge_index, edge_attr) # (N, d_g)
+                temp_for_gat = x_temporal  # (N, d_t)
+
+            gat_input = torch.cat([x_static, temp_for_gat, r_mem_curr], dim=1)  # (N, d_s + d_t_or_d_h + 1)
+            g_i = self.gat_encoder(gat_input, edge_index, edge_attr)  # (N, d_g)
 
         # ------------- Gated / fallback fusion -------------
         
@@ -184,6 +210,7 @@ class GAT_LSTM_Model(nn.Module):
             fusion_input = torch.cat([g_i, h_temp_proj], dim=1)  # (N, 2*d_g)
             alpha = self.fusion_gate(fusion_input)     # (N, 1)
             predictions = alpha * y_gat + (1 - alpha) * y_lstm
+            y_gat_detached_for_log = y_gat.detach()
 
         elif self.run_GAT:
             predictions = self.head_gat(g_i)
@@ -192,18 +219,32 @@ class GAT_LSTM_Model(nn.Module):
             predictions = y_lstm
         else:
             raise RuntimeError("Both run_GAT and run_LSTM are False.")
+        
+        # --- Compute residual vs baseline (if LSTM exists) ---
+        
+        if self.run_LSTM:
+            residual_hat = (predictions - y_lstm).detach()  # (N,1), stop grad
+        else:
+            residual_hat = predictions.detach()              # degenerate case
+
+        # Update residual memory for these nodes (EMA)
+        # r_new = decay * r_prev + (1 - decay) * residual_hat
+        r_mem_new = self.spatial_mem_decay * r_mem_curr + (1.0 - self.spatial_mem_decay) * residual_hat
 
         # --- Debug payload (no-grad) ---
+        
         with torch.no_grad():
             self.last_debug = {
                 "y_pred": predictions.detach(),
                 "y_lstm_only": (y_lstm.detach() if self.run_LSTM else None),
                 "baseline": (y_lstm.detach() if self.run_LSTM else None),
-                # Not strictly a 'residual' under gated fusion, but keep for continuity:
                 "residual": (predictions - y_lstm).detach() if self.run_LSTM else predictions.detach(),
                 "gamma": (gamma.detach() if self.run_LSTM else None),
                 "beta": (beta.detach() if self.run_LSTM else None),
-                "alpha": (alpha.detach() if alpha is not None else None),
+                
+                # + residual memory snapshots for the nodes in this batch
+                "r_mem_prev": r_mem_curr.detach(),  # (N,1)
+                "r_mem_new": r_mem_new.detach(),  # (N,1)
             }
 
         return predictions, (h_new, c_new), current_timestep_node_ids
