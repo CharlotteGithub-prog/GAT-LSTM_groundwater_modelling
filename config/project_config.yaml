@@ -81,6 +81,7 @@ global:
   model:
     data_loader_batch_size: 1  # Necessary due to LSTM portion
     data_loader_shuffle: false  # Essential for processing in temporal order
+    initialise_with_dipped: true
     architecture: "GAT_LSTM"
     gat_layers: 2
     gat_heads: 4
@@ -225,18 +226,18 @@ eden:
       # --- Components ---
       run_GAT: true  # Turn sections off for benchmarking and performance analysis (ablation studies)
       run_LSTM: true
-      run_node_conditioner: true
-      initialise_with_dipped: true
+      run_node_conditioner: false
+      fusion_mode: "fixed"  # "gate" | "scalar" | "fixed" | "add"
 
       # --- GAT ---
-      heads_gat: 8
-      dropout_gat: 0.22  # 40% dropped
-      hidden_channels_gat: 48  # FROM 64
-      out_channels_gat: 48
+      heads_gat: 8  # 12
+      dropout_gat: 0.22  # 0.4 # 40% dropped
+      hidden_channels_gat: 48  # 64  # FROM 64
+      out_channels_gat: 48  # 64
       num_layers_gat: 2
 
       # --- LSTM ---
-      dropout_lstm: 0.1  # Only applies between stacked layers, not when num_layers_lstm = 1
+      dropout_lstm: 0.1  # 0.2  # Only applies between stacked layers, not when num_layers_lstm = 1
       hidden_channels_lstm: 32  # Try: 48
       num_layers_lstm: 1  # 1 for now, stack layers later if needed for performance
       tbptt_window: 28
@@ -289,11 +290,11 @@ eden:
     lr_scheduler_factor: 0.5  # ReduceLROnPlateau: Factor by which the learning rate will be reduced. PREVIOUSLY: 0.5
     lr_scheduler_patience: 8  # Patience for ReduceLROnPlateau: Number of epochs with no improvement in validation
     min_lr: 0.000001  # Min learning rate bound (Generally recommended: 1e-6)
-    loss_delta: 0.0001  # Minimum change in loss required to count as improvement
+    loss_delta: 0.00001  # Minimum change in loss required to count as improvement
     gradient_clip_max_norm: 1.0  # Gradient Clipping Max Norm: Maximum norm of the gradients for gradient clipping (help prevent exploding grad.)
-    loss: "MAE"  # Options: MSE, MAE
-    burn_in_steps: 28  # Matching tbptt
-    early_stop_warmup: 28
+    loss: "MSE"  # Options: MSE, MAE
+    burn_in_steps: 14  # Matching tbptt
+    early_stop_warmup: 14
 
 # ==============================================================================
 # FUTURE CATCHMENT CONFIG SETTINGS

@@ -211,7 +211,9 @@ def instantiate_model_and_associated(all_timesteps_list, config, catchment):
         run_LSTM=config[catchment]["model"]["architecture"]["run_LSTM"],
         edge_dim=config[catchment]["model"]["architecture"]["edge_dim"],  # equal to edge_dim = edge_attr_tensor.shape[1]
         random_seed=config["global"]["pipeline_settings"]["random_seed"],
-        catchment=catchment
+        catchment=catchment,
+        run_node_conditioner=config[catchment]["model"]["architecture"]["run_node_conditioner"],
+        fusion_mode=config[catchment]["model"]["architecture"]["fusion_mode"]
     )
 
     # Set device if available
