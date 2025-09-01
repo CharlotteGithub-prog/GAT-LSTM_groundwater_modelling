@@ -309,7 +309,7 @@ try:
         
         logger.info(f"1km granularity land use data processed for {catchment} catchment.\n")
         
-        # Elevation [DIGIMAPS (via OS Terrain 5 / Terrain 50)]
+        # Elevation [OS Terrain 50 (via Digimaps)]
         
         elevation_gdf_polygon, clipped_dtm = static_data_ingestion.load_process_elevation_data(
             dir_path=config[catchment]['paths']['elevation_dir_path'],
