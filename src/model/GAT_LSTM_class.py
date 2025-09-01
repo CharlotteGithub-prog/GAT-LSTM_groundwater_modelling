@@ -23,16 +23,19 @@ class GAT_LSTM_Model(nn.Module):
     # Config imported directly to get hyperparams and random seed
     def __init__(self, in_channels, temporal_features_dim, static_features_dim, hidden_channels_gat, out_channels_gat,
                  heads_gat, dropout_gat, hidden_channels_lstm, num_layers_lstm, dropout_lstm, tbptt_window, num_layers_gat,
-                 num_nodes, output_dim, run_GAT, run_LSTM, edge_dim, random_seed, catchment, spatial_mem_decay: float = 0.9,
-                 use_h_temp_in_gat: bool = False):
+                 num_nodes, output_dim, run_GAT, run_LSTM, edge_dim, random_seed, catchment, run_node_conditioner: bool = True,
+                 fusion_mode: str = "gate", spatial_mem_decay: float = 0.9, use_h_temp_in_gat: bool = False):
 
         super(GAT_LSTM_Model, self).__init__()
         logger.info(f"Instantiating GAT-LSTM model for {catchment} catchment...")
         logger.info(f"Model initialised under global random seed: {random_seed}.\n")
 
         # Store shapes and flags
-        self.run_GAT = run_GAT
-        self.run_LSTM = run_LSTM
+        self.run_GAT = bool(run_GAT)
+        self.run_LSTM = bool(run_LSTM)
+        self.run_node_conditioner = bool(run_node_conditioner)
+        self.fusion_mode = fusion_mode
+        
         self.output_dim = output_dim
         self.num_nodes = num_nodes
         self.temporal_features_dim = temporal_features_dim  # d_t
@@ -74,11 +77,16 @@ class GAT_LSTM_Model(nn.Module):
             # Adding dropout to lstm: (INCORRECT)
             # self.temporal_encoder.lstm.dropout = dropout_lstm
             
-            self.node_conditioner = component_classes.NodeConditioner(
-                d_s=static_features_dim,        # static width (d_s)
-                d_h=hidden_channels_lstm        # match d_h
-            )
-            
+            if self.run_node_conditioner:
+                self.node_conditioner = component_classes.NodeConditioner(
+                    d_s=static_features_dim,        # static width (d_s)
+                    d_h=hidden_channels_lstm        # match d_h
+                )
+                logger.info("  NodeConditioner: ENABLED (FiLM over statics).")
+            else:
+                self.node_conditioner = None
+                logger.info("  NodeConditioner: DISABLED (identity FiLM).")
+                
             logger.info(f"  LSTM Enabled: input={temporal_features_dim}, hidden={hidden_channels_lstm}, layers={num_layers_lstm}")
         else:
             logger.info("  LSTM Disabled.")
@@ -123,11 +131,20 @@ class GAT_LSTM_Model(nn.Module):
         self.tau_gat   = nn.Parameter(torch.tensor(1.0))
         self.bias_gat  = nn.Parameter(torch.tensor(0.0))
 
-        # Fusion gate only when both branches are enabled
+        # Fusion gate only when both branches are enabled + alternatives for ablations
         if self.run_GAT and self.run_LSTM:
-            self.fusion_gate = component_classes.FusionGate(
-                in_dim=2 * self.out_channels_gat, bias_init=1.0, alpha_floor=0.15
-            )
+            if self.fusion_mode == "gate":
+                self.fusion_gate = component_classes.FusionGate(
+                    in_dim=2 * self.out_channels_gat, bias_init=1.0, alpha_floor=0.15
+                )
+            elif self.fusion_mode == "scalar":
+                self.alpha_logit = nn.Parameter(torch.tensor(0.0))  # sigmoid->0.5
+            elif self.fusion_mode == "fixed":
+                self.alpha_fixed = 0.5
+            elif self.fusion_mode == "add":
+                pass
+            else:
+                raise ValueError(f"Unknown fusion_mode: {self.fusion_mode}")
 
     # Forward pass of model
     def forward(self, x, edge_index, edge_attr, current_timestep_node_ids, lstm_state_store=None):
@@ -162,23 +179,23 @@ class GAT_LSTM_Model(nn.Module):
             h_temp, (h_new, c_new) = self.temporal_encoder(x_seq, h_c_state)  # h_temp: (N, d_h)
             h_temp = self.temporal_dropout(h_temp)  # <-- actually regularises now
 
-            # FiLM: make temporal embedding node-specific using statics
-            gamma, beta = self.node_conditioner(x_static)  # (N, d_h) each
-            h_temp = gamma * h_temp + beta  # (N, d_h)
+            # # FiLM: make temporal embedding node-specific using statics
+            # gamma, beta = self.node_conditioner(x_static)  # (N, d_h) each
+            # h_temp = gamma * h_temp + beta  # (N, d_h)
+
+            if self.run_node_conditioner:
+                gamma, beta = self.node_conditioner(x_static)   # (N, d_h)
+                h_temp = gamma * h_temp + beta
+            else:
+                # Identity FiLM so downstream code & debug don’t break
+                gamma = torch.ones_like(h_temp)
+                beta  = torch.zeros_like(h_temp)
 
             # Define temporal embedding
             # y_lstm = self.head_lstm(h_temp)  # (N, output_dim)
             y_lstm = self.bias_lstm + self.tau_lstm * self.head_lstm(h_temp)
 
         # ---------------- Spatial branch -----------------
-        
-        # g_i = None
-        # if self.run_GAT:
-        #     # if self.run_LSTM:
-        #     #     gat_input = torch.cat([x_static, h_temp.detach()], dim=1)
-        #     # else:
-        #     gat_input = torch.cat([x_static, x_temporal], dim=1)
-        #     g_i = self.gat_encoder(gat_input, edge_index, edge_attr) # (N, d_g)
         
         g_i = None
         # Pull residual memory for the nodes in this timestep (vector length N)
@@ -201,19 +218,46 @@ class GAT_LSTM_Model(nn.Module):
         # ------------- Gated / fallback fusion -------------
         
         alpha = None
+        # if self.run_LSTM and self.run_GAT:
+        #     # map to predictions
+        #     # y_gat = self.head_gat(g_i)                 # (N, output_dim)
+        #     y_gat = self.bias_gat  + self.tau_gat  * self.head_gat(g_i)
+        #     # gate operates on embeddings, not outputs
+        #     h_temp_proj = self.temp_proj(h_temp)       # (N, d_g)
+        #     fusion_input = torch.cat([g_i, h_temp_proj], dim=1)  # (N, 2*d_g)
+        #     alpha = self.fusion_gate(fusion_input)     # (N, 1)
+        #     predictions = alpha * y_gat + (1 - alpha) * y_lstm
+            
+        #     # keep a grad-carrying handle for the aux loss
+        #     self.aux_y_gat = y_gat
+        
         if self.run_LSTM and self.run_GAT:
-            # map to predictions
-            # y_gat = self.head_gat(g_i)                 # (N, output_dim)
-            y_gat = self.bias_gat  + self.tau_gat  * self.head_gat(g_i)
-            # gate operates on embeddings, not outputs
-            h_temp_proj = self.temp_proj(h_temp)       # (N, d_g)
-            fusion_input = torch.cat([g_i, h_temp_proj], dim=1)  # (N, 2*d_g)
-            alpha = self.fusion_gate(fusion_input)     # (N, 1)
-            predictions = alpha * y_gat + (1 - alpha) * y_lstm
-            y_gat_detached_for_log = y_gat.detach()
+            y_gat = self.bias_gat + self.tau_gat * self.head_gat(g_i)
+
+            if self.fusion_mode == "gate":
+                h_temp_proj = self.temp_proj(h_temp)
+                fusion_input = torch.cat([g_i, h_temp_proj], dim=1)
+                alpha = self.fusion_gate(fusion_input)
+                predictions = alpha * y_gat + (1 - alpha) * y_lstm
+
+            elif self.fusion_mode == "scalar":
+                a = torch.sigmoid(self.alpha_logit)
+                alpha = a.expand(y_gat.size(0), 1)
+                predictions = a * y_gat + (1 - a) * y_lstm
+
+            elif self.fusion_mode == "fixed":
+                alpha = y_gat.new_full((y_gat.size(0), 1), self.alpha_fixed)
+                predictions = 0.5 * y_gat + 0.5 * y_lstm
+
+            elif self.fusion_mode == "add":
+                alpha = None
+                predictions = y_lstm + y_gat
+
+            self.aux_y_gat = y_gat
 
         elif self.run_GAT:
             predictions = self.head_gat(g_i)
+            y_gat = self.bias_gat + self.tau_gat * self.head_gat(g_i)
 
         elif self.run_LSTM:
             predictions = y_lstm
@@ -230,7 +274,7 @@ class GAT_LSTM_Model(nn.Module):
         # Update residual memory for these nodes (EMA)
         # r_new = decay * r_prev + (1 - decay) * residual_hat
         r_mem_new = self.spatial_mem_decay * r_mem_curr + (1.0 - self.spatial_mem_decay) * residual_hat
-
+        
         # --- Debug payload (no-grad) ---
         
         with torch.no_grad():
@@ -241,6 +285,8 @@ class GAT_LSTM_Model(nn.Module):
                 "residual": (predictions - y_lstm).detach() if self.run_LSTM else predictions.detach(),
                 "gamma": (gamma.detach() if self.run_LSTM else None),
                 "beta": (beta.detach() if self.run_LSTM else None),
+                "alpha": (alpha.detach() if alpha is not None else None), 
+                "y_gat_log": (y_gat.detach() if self.run_GAT and y_gat is not None else None),
                 
                 # + residual memory snapshots for the nodes in this batch
                 "r_mem_prev": r_mem_curr.detach(),  # (N,1)

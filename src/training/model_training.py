@@ -59,7 +59,7 @@ def _calc_smooth_curvature_loss(loss, data, previous_targets, sequential_mask, l
     
     return loss
 
-def _gate_regulariser_schedule(epoch, num_epochs, m0=0.70, m_final=0.50,  # mean-alpha target decays from 0.25 → 0.05
+def _gate_regulariser_schedule(epoch, num_epochs, m0=0.70, m_final=0.50,  # mean-alpha target decays from 0.70 → 0.50
                               T_anneal=40,  lam_mean0=0.10, lam_ent0=0.01):         
     """
     Returns (m_target, lambda_mean, lambda_ent) for this epoch.
@@ -324,15 +324,17 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
                         
                 # --- GAT auxiliary loss keeps GAT learning even if alpha is small ---
                 
-                lambda_gat_aux = 0.15  # start small; 0.1–0.3 works well
-                y_gat_dbg = dbg.get("y_gat", None)
-                if is_training and (y_gat_dbg is not None):
-                    y_gat_m = y_gat_dbg[mask_for_loss_and_metrics]
+                lambda_gat_aux = 0.15
+                y_gat_for_aux = getattr(model, "aux_y_gat", None)
+                if is_training and (y_gat_for_aux is not None):
+                    y_gat_m = y_gat_for_aux[mask_for_loss_and_metrics]
                     if loss_type == "MAE":
                         aux = torch.mean(torch.abs(y_gat_m - y_true_m))
                     else:
                         aux = torch.mean((y_gat_m - y_true_m) ** 2)
                     loss = loss + lambda_gat_aux * aux
+                    # free reference to avoid holding the graph longer than necessary
+                    model.aux_y_gat = None
 
                 # ---- Head calibration regulariser (very small) ----
                  
@@ -666,6 +668,20 @@ def _run_epoch_phase(epoch, num_epochs, all_timesteps_list, gradient_clip_max_no
                         L_ent = (a_clamped * (a_clamped + eps).log() + (1 - a_clamped) * (1 - a_clamped + eps).log()).mean()
                         loss = loss + lambda_mean * L_mean + lambda_ent * L_ent
 
+                # --- GAT auxiliary loss keeps GAT learning even if alpha is small ---
+                
+                lambda_gat_aux = 0.15
+                y_gat_for_aux = getattr(model, "aux_y_gat", None)
+                if is_training and (y_gat_for_aux is not None):
+                    y_gat_m = y_gat_for_aux[mask_for_loss_and_metrics]
+                    if loss_type == "MAE":
+                        aux = torch.mean(torch.abs(y_gat_m - y_true_m))
+                    else:
+                        aux = torch.mean((y_gat_m - y_true_m) ** 2)
+                    loss = loss + lambda_gat_aux * aux
+                    # free reference to avoid holding the graph longer than necessary
+                    model.aux_y_gat = None
+                
                 # ---- Head calibration regulariser (very small) ----
                 
                 if is_training:

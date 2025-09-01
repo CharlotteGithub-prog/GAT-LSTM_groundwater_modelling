@@ -109,20 +109,20 @@ try:
         base, ext = os.path.splitext(filename)
         
         suffix_map = {
-            "ainstable": "ainstable_20250818_215159",  # Older: 20250814_110329
-            "baronwood": "baronwood_20250818_205012",
-            "bgs_ev2": "bgs_ev2_20250818_212241",
-            "castle_carrock": "castle_carrock_20250818_213009",
-            "cliburn_town_bridge_2": "cliburn_town_bridge_2_20250818_214321",
-            "coupland": "coupland_20250818_173942",
-            "croglin": "croglin_20250820_010926",  # with no lags; other: 20250818_180550
-            "east_brownrigg": "east_brownrigg_20250818_184745",
-            "great_musgrave": "great_musgrave_20250818_190654",
-            "hilton": "hilton_20250818_200206",
-            "longtown": "longtown_20250818_201159",
-            "renwick": "renwick_20250818_202143",
-            "scaleby": "scaleby_20250818_202740",
-            "skirwith": "skirwith_20250818_203906"
+            "ainstable": "ainstable_20250901_133721", 
+            "baronwood": "baronwood_20250901_115622",
+            "bgs_ev2": "bgs_ev2_20250901_120534",
+            "castle_carrock": "castle_carrock_20250901_121422",
+            "cliburn_town_bridge_2": "cliburn_town_20250901_122225",
+            "coupland": "coupland_20250901_123028",
+            "croglin": "croglin_20250827_150320",  
+            "east_brownrigg": "east_brownrigg_20250901_123714",
+            "great_musgrave": "great_musgrave_20250901_124500",
+            "hilton": "hilton_20250901_125340",
+            "longtown": "longtown_20250901_130138",
+            "renwick": "renwick_20250901_131054",
+            "scaleby": "scaleby_20250901_131941",
+            "skirwith": "skirwith_20250901_132823"
         }
         
         # get full all_timesteps_list filepath
