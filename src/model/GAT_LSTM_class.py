@@ -63,20 +63,18 @@ class GAT_LSTM_Model(nn.Module):
         
         if self.run_LSTM:
             self.temporal_encoder = component_classes.TemporalEncoder(
-                d_t=temporal_features_dim,      # input width per day (d_t)
-                d_h=hidden_channels_lstm,       # LSTM hidden (d_h)
+                d_t=temporal_features_dim, # input width per day
+                d_h=hidden_channels_lstm,
                 num_layers=num_layers_lstm,
-                dropout=dropout_lstm
+                dropout=dropout_lstm # only applies if multiple layers
             )
             
             self.temporal_dropout = nn.Dropout(self.dropout_lstm)
             
-            # Adding dropout to lstm: (INCORRECT)
-            # self.temporal_encoder.lstm.dropout = dropout_lstm
-            
+            # Apply node0wise FiLM conditioner
             self.node_conditioner = component_classes.NodeConditioner(
-                d_s=static_features_dim,        # static width (d_s)
-                d_h=hidden_channels_lstm        # match d_h
+                d_s=static_features_dim,
+                d_h=hidden_channels_lstm
             )
             
             logger.info(f"  LSTM Enabled: input={temporal_features_dim}, hidden={hidden_channels_lstm}, layers={num_layers_lstm}")
@@ -142,6 +140,7 @@ class GAT_LSTM_Model(nn.Module):
         x_static = x[:, self.temporal_features_dim:]   # (N, d_s)
 
         # ---------------- Temporal branch ----------------
+        
         h_temp = None
         h_new, c_new = None, None
         y_lstm = 0.0
@@ -160,32 +159,24 @@ class GAT_LSTM_Model(nn.Module):
 
             # Shared LSTM forward
             h_temp, (h_new, c_new) = self.temporal_encoder(x_seq, h_c_state)  # h_temp: (N, d_h)
-            h_temp = self.temporal_dropout(h_temp)  # <-- actually regularises now
+            h_temp = self.temporal_dropout(h_temp)  # regularises
 
             # FiLM: make temporal embedding node-specific using statics
             gamma, beta = self.node_conditioner(x_static)  # (N, d_h) each
             h_temp = gamma * h_temp + beta  # (N, d_h)
 
             # Define temporal embedding
-            # y_lstm = self.head_lstm(h_temp)  # (N, output_dim)
             y_lstm = self.bias_lstm + self.tau_lstm * self.head_lstm(h_temp)
 
         # ---------------- Spatial branch -----------------
-        
-        # g_i = None
-        # if self.run_GAT:
-        #     # if self.run_LSTM:
-        #     #     gat_input = torch.cat([x_static, h_temp.detach()], dim=1)
-        #     # else:
-        #     gat_input = torch.cat([x_static, x_temporal], dim=1)
-        #     g_i = self.gat_encoder(gat_input, edge_index, edge_attr) # (N, d_g)
-        
+    
         g_i = None
+        
         # Pull residual memory for the nodes in this timestep (vector length N)
         if lstm_state_store is not None and 'r_mem' in lstm_state_store:
             r_mem_curr = lstm_state_store['r_mem'][current_timestep_node_ids].unsqueeze(1)  # (N,1)
         else:
-            # First call / inference without store — use zeros on the right device
+            # First call / inference without store — just use zeros (on the right device)
             r_mem_curr = torch.zeros(x.size(0), 1, device=x.device)
 
         if self.run_GAT:
@@ -220,7 +211,7 @@ class GAT_LSTM_Model(nn.Module):
         else:
             raise RuntimeError("Both run_GAT and run_LSTM are False.")
         
-        # --- Compute residual vs baseline (if LSTM exists) ---
+        # --- Compute residual vs baseline (when LSTM exists) ---
         
         if self.run_LSTM:
             residual_hat = (predictions - y_lstm).detach()  # (N,1), stop grad

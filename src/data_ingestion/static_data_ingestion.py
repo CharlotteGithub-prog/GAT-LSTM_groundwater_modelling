@@ -558,7 +558,7 @@ def _transform_skewed_data(processed_df, catchment, col: str = 'distance_to_rive
     min_v = np.nanmin(vals)
     if min_v <= 0:
         shift = 1 - min_v + 1e-6
-        logger.warning(f"{col} has non‑positive values; shifting by {shift:.6f} before Box-Cox.")
+        logger.warning(f"{col} has non-positive values; shifting by {shift:.6f} before Box-Cox.")
         vals = vals + shift
     
     # Apply box cox transform to raw data column and use .loc to avoid the warning

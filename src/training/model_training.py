@@ -110,7 +110,7 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
     
     gamma_dev_sum = 0.0
     beta_abs_sum = 0.0
-    film_count_nodes = 0  # counts nodes (after mask) used for FiLM stats
+    film_count_nodes = 0  # counts nodes (after mask) for FiLM stats
     
     # init for relative contribution accumulators
     res_rel_sum = 0.0
@@ -120,15 +120,6 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
     num_nodes_processed = 0
     num_predictions_processed = 0
     previous_residual = None
-
-    # # Global LSTM state store
-    # if model.run_LSTM:
-    #     lstm_state_store = {
-    #         'h': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm).to(device),
-    #         'c': torch.zeros(model.num_layers_lstm, model.num_nodes, model.hidden_channels_lstm).to(device)
-    #     }
-    # else:
-    #     lstm_state_store = None
     
     # Global LSTM state store for temporal states and residual memory (EMA)
     lstm_state_store = {
@@ -200,7 +191,7 @@ def _run_epoch_phase_NEW(epoch, num_epochs, all_timesteps_list, gradient_clip_ma
             # update residual-memory for these nodes from model debug payload
             r_new = dbg.get("r_mem_new", None)
             if isinstance(r_new, torch.Tensor):
-                lstm_state_store['r_mem'][returned_node_ids] = r_new.squeeze(1)  # (N,)
+                lstm_state_store['r_mem'][returned_node_ids] = r_new.squeeze(1)  # to (N,)
             
             # --- Residual smoothing term (helps remove jitter from GAT component) ---
             

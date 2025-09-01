@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import torch
 import logging
 import numpy as np
@@ -392,7 +393,7 @@ def define_graph_adjacency(directional_edge_weights: pd.DataFrame, elevation_geo
     
         (distance, elevation_difference, source_slope_dx, source_slope_dy,
          directional_score) = _calculate_edge_attrs(source_data, dest_data, epsilon_path)
-        
+
         # Group all features for this edge
         edge_features.append([
             distance,
@@ -402,18 +403,39 @@ def define_graph_adjacency(directional_edge_weights: pd.DataFrame, elevation_geo
             directional_score
         ])
         
-    # Convert features list to PyTorch tensor
-    edge_attr_tensor = torch.tensor(edge_features, dtype=torch.float)
-    
-    edge_index_np = np.vstack([edge_index_df["source"].to_numpy(dtype=np.int64),
-                               edge_index_df["destination"].to_numpy(dtype=np.int64)])
+    edge_attr_np = np.asarray(edge_features, dtype=np.float32)
+
+    # Standardise feature-wise across all edges
+    edge_mean = edge_attr_np.mean(axis=0, keepdims=True)
+    edge_std  = edge_attr_np.std(axis=0, keepdims=True)
+    edge_std[edge_std == 0.0] = 1.0
+    edge_attr_np = (edge_attr_np - edge_mean) / edge_std
+
+    # Save scalers for inversion
+    scaler = {"mean": edge_mean.squeeze().tolist(), "std": edge_std.squeeze().tolist(),
+            "feature_names": ["distance", "elev_diff", "slope_dx", "slope_dy", "dir_score"]}
+    with open(os.path.join(graph_output_dir, f"{catchment}_edge_attr_scaler.json"), "w") as f:
+        json.dump(scaler, f, indent=2)
+
+    # Convert to tensors
+    edge_attr_tensor = torch.from_numpy(edge_attr_np)           # [E, F]
+    edge_index_np = np.vstack([edge_index_df["source"].to_numpy(np.int64),
+                            edge_index_df["destination"].to_numpy(np.int64)])
     edge_index_tensor = torch.as_tensor(edge_index_np, dtype=torch.long)
 
     # Assert final attribut tensor is equal length to edge index tensor
     assert edge_attr_tensor.shape[0] == edge_index_tensor.shape[1], \
         f"Mismatch: {edge_attr_tensor.shape[0]} attrs vs {edge_index_tensor.shape[1]} edges"
-    logger.info(f"Edge attributes tensor created with shape: {edge_attr_tensor.shape}\n")
+    logger.info(f"Edge attributes tensor created with shape: {edge_attr_tensor.shape} "
+                f"(std across edges: {edge_attr_tensor.std(dim=0)})\n")
     
+    # # Convert features list to PyTorch tensor
+    # edge_attr_tensor = torch.tensor(edge_features, dtype=torch.float)
+    
+    # edge_index_np = np.vstack([edge_index_df["source"].to_numpy(dtype=np.int64),
+    #                            edge_index_df["destination"].to_numpy(dtype=np.int64)])
+    # edge_index_tensor = torch.as_tensor(edge_index_np, dtype=torch.long)
+
     # Save tensors for direct access
     _save_tensor_attrs(edge_index_tensor, edge_attr_tensor, graph_output_dir, catchment)
     
