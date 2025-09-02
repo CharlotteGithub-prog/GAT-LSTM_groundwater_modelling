@@ -226,8 +226,8 @@ eden:
       # --- Components ---
       run_GAT: true  # Turn sections off for benchmarking and performance analysis (ablation studies)
       run_LSTM: true
-      run_node_conditioner: false
-      fusion_mode: "fixed"  # "gate" | "scalar" | "fixed" | "add"
+      run_node_conditioner: true
+      fusion_mode: "gate"  # "gate" | "scalar" | "fixed" | "add"
 
       # --- GAT ---
       heads_gat: 8  # 12
@@ -273,8 +273,8 @@ eden:
       - streamflow_total_m3
 
     data_partioning:
-      test_station_shortlist: ["croglin"]
-      val_station_shortlist: ["skirwith", "baronwood"]
+      test_station_shortlist: ["great_musgrave"]
+      val_station_shortlist: ["coupland", "renwick"]
       percentage_train: 77
       percentage_val: 15  # 2 stations for validating
       percentage_test: 8  # 1 station tested at a time
