@@ -45,8 +45,6 @@ notebooks/02_graph_building_and_integration/06_graph_to_tensor_construction_old.
 config/project_config_ncc.yaml
 src/model/GAT_LSTM_class_old.py
 notebooks/04_results_analysis/10_results_plotting.ipynb
-notebooks/04_results_analysis/Archive/Book2.xlsx
-notebooks/04_results_analysis/Archive/Book2_updated.xlsx
-notebooks/04_results_analysis/Archive/temporary.ipynb
 Model_Param_Tracking.xlsx
 ~$Model_Param_Tracking.xlsx
+notebooks/04_results_analysis/Archive
