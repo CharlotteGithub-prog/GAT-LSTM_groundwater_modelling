@@ -1,6 +1,6 @@
 # MSc Groundwater GWL Project
 
-This repository contains the code only for my proejct on groundwater level modelling in UK catchments using a GAT-LSTM architecture.
+This repository contains the code only for my project on groundwater level modelling in UK catchments using a GAT-LSTM architecture.
 
 
 ## CEDA Credentials
