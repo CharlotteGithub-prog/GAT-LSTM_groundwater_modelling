@@ -1,8 +1,6 @@
 # This file is part of the Dissertation project and is licensed under the MIT License.
 
 ### FULL PIPELINE ###
-# Expected Processing Time for Eden Catchment (with API calls = False): ## hrs ## minutes
-#        - 00 hrs 05 minutes 58 seconds -> to end of section 6b
 
 # ==============================================================================
 # SECTION 1: IMPORTS & CONFIGURATION
@@ -340,7 +338,7 @@ try:
         
         # Geological Maps (including bedrock and superficial permeability) [DIGIMAPS Geology]
         
-        mesh_geology_df = static_data_ingestion.load_and_process_geology_layers(
+        mesh_geology_df, bedrock_gdf, superficial_gdf = static_data_ingestion.load_and_process_geology_layers(
             base_dir=config[catchment]["paths"]["geology_dir"],
             mesh_crs=mesh_cells_gdf_polygons.crs,
             columns_of_interest={"bedrock": ["RCS_ORIGIN"], "superficial": ["RCS_D"]},
@@ -407,15 +405,6 @@ try:
 
         logger.info(f"Pipeline step 'Load Soil Hydrology Data' complete for {catchment} catchment.\n")
         
-        # [FUTURE] Depth to bedrock [BGS]
-        
-        """ ADD IN ONCE GIVEN LICENCE """
-        
-        # [SKIPPED] Superficial Thickness [BGS] - Skipped due to insufficient data coverage
-        # [SKIPPED] Soil Type [CEH's Grid-to-Grid soil maps] - Skipped due to insufficient data coverage
-        # [FUTURE] Aquifer Properties (tbd - depth? type? transmissivity? storage coefficientet?) [DEFRA/BGS]
-        # [FUTURE] Gridded infiltration rates / hydraulic conductivity - Skipped for now due to insufficient data
-        
         # --- 4c. Preprocess Time Series Features ---
         
         # Precipitation (Timestep Frequency Rainfall, mm, catchment total) [HadUK-GRID]
@@ -480,9 +469,6 @@ try:
             
         logger.info(f"Pipeline step 'Load Actual Evapotranspiration Data' complete for {catchment} catchment.\n")
         
-        # [FUTURE] Add PET with almost identical pipeline for higher level climate demand
-        # [FUTURE] Derive ET_deficit using PET - AET to capture cumulative drying and recharge patterns
-        
         # 2m Surface Temperature (Timestep Frequency Mean Temperature, °C, catchment average) [HadUK-GRID]
         
         timeseries_data_ingestion.load_era5_land_data(
@@ -520,12 +506,6 @@ try:
 
         logger.info(f"Pipeline step 'Ingest Streamflow Data' complete for {catchment} catchment.\n")
         
-        # [FUTURE] Others from HAD-UK (CEDA) / ERA5-Land?
-        """
-        ERA5-Land:
-            - snowLying: snow depth / presence
-        """
-        
         # --- 4d. Derived Hydrogeological Feature Engineering ---
 
         # 30/60 day rainfall rolling average + 7 day rainfall lags [DERIVED]
@@ -541,12 +521,7 @@ try:
         )
             
         logger.info(f"Pipeline step 'Derive Rainfall Lag and Averages' complete for {catchment} catchment.\n")
-        
-        # [FUTURE] Calculate ET / temperature rolling averages? [DERIVED]
-        # [FUTURE] Pour point (catchment) by node -> see notion notes (important to consider)
-            # - Use flow accumulation from the DEM (e.g., richdem, whitebox, or TauDEM)
-            # - Aggregate this to mesh by zonal mean/sum (most likely sum? Decide + Justify).
-        
+
         # ==============================================================================
         # SECTION 5: GRAPH BUILDING
         # ==============================================================================
@@ -646,10 +621,6 @@ try:
         )
         
         logger.info(f"Distance from river data snapped to mesh nodes (centroids).\n")
-        
-        # [FUTURE] Snap Infiltration Rate to Mesh
-        # [FUTURE] Snap Soil Type Maps to Mesh
-        # [FUTURE] Snap Depth to Groundwater to Mesh
         
         # Finalise final_static_df for merge
         
@@ -788,15 +759,11 @@ try:
 
         logger.info(f"Groundwater Level data successfully merged into main_df for {catchment} catchment.\n")
         
-        # # Save final dataframe to file - NB: TIME TO SAVE APPROX. 2.5 MINS - [FUTURE] SET FLAG?
+        # Save final dataframe to file - NB: TIME TO SAVE APPROX. 2.5 MINS - [FUTURE] SET FLAG?
         
-        # final_save_path = os.path.join(final_dir, 'final_df.csv')
-        # main_df_full.to_csv(final_save_path)
-        
-        # logger.info(f"Final merged dataframe saved to {final_save_path}")
-
-        # --- 5f. Visualise complete mesh map with stations and other features ---
-        # [FUTURE] Create an interactive map showing the mesh, GWL stations, and other snapped data points.
+        final_save_path = os.path.join(final_dir, 'final_df.csv')
+        main_df_full.to_csv(final_save_path)
+        logger.info(f"Final merged dataframe saved to {final_save_path}")
         
         # ==============================================================================
         # SECTION 6: TRAINING / VALIDATION / TESTING PYG OBJECT CREATION
@@ -885,17 +852,9 @@ try:
 
         torch.save(all_timesteps_list, config[catchment]["paths"]["pyg_object_path"])
         logger.info(f"Pipeline Step 'Build PyG Data Objects' complete for {catchment} catchment.\n")
-        
-        # --- 6e. Define Graph Adjacency Matrix (edge_index -> 8 nearest neighbours) ---
-        # Already generated in Step 5e and incorporated into PyG objects in step 6d.
-        # BUT TODO: Build helper to add self loops (duplicate edges in both directions)
 
         # ====================================================================================================
         # SECTION 7: MODEL
-        # ----------------------------------------------------------------------------------------------------
-        # Instantiate GAT-LSTM Model using PyTorch Geometric:
-        #   - Construct PyTorch Geometric Data objects (one per timestep), passing edge_index and edge_attr as
-        #     separate arguments to the Data constructor, alongside x (node features) and y (targets).
         # ====================================================================================================
 
         # --- 7a. Build Data Loaders by Timestep ---
@@ -957,63 +916,6 @@ try:
         )
 
         logger.info(f"Pipeline Step 'Save Training and Validation Losses' complete for {catchment} catchment.")
-
-        # --- 8b. Model Checkpointing and Logging ---
-        # Action: Save best performing model weights based on validation metrics.
-        # Action: Log training and validation metrics (e.g., using TensorBoard, MLflow, or custom logging).
-        
-        # --- 8c. Hyperparameter Tuning Here? ---
-
-        # ==============================================================================
-        # SECTION 9: EVALUATION
-        # ==============================================================================
-
-        # --- 9a. Final Model Evaluation ---
-        # Action: Load the best trained model.
-        # Action: Evaluate its performance on the unseen test set.
-        # Action: Calculate key metrics (e.g., RMSE, MAE, R-squared, Nash-Sutcliffe Efficiency for hydrology).
-        # Output: Quantitative evaluation results.
-
-        # --- 9b. Visualisation of Predictions ---
-        # Action: Plot actual vs. predicted GWL time series for selected stations/nodes.
-        # Action: Create animated maps showing predicted GWL changes over time across the mesh (if using interpolated pseudo-labels).
-
-        # --- 9c. Error Analysis ---
-        # Action: Identify systematic errors or biases in predictions (e.g., over/under-prediction during peaks/troughs).
-        # Action: Explore reasons for poor performance at specific stations/nodes or time periods.
-        
-        # ==============================================================================
-        # SECTION 10: INTERPRETATION & HYDROLOGICAL INSIGHTS
-        # ==============================================================================
-
-        # --- 10a. Feature Importance Analysis (Global & Local) ---
-        # Purpose: Understand which input features (climate, static, lagged GWL) drive predictions.
-        # Action: Apply SHAP (SHapley Additive exPlanations) or similar methods (e.g., Permutation Importance) to identify global feature importance.
-        # Action: For specific predictions or events, apply SHAP/LIME to understand local feature contributions.
-        # Output: Feature importance plots, tables.
-
-        # --- 10b. Spatial Relationship Interpretation (Attention/GNNExplainer) ---
-        # Purpose: Uncover how the GNN leverages spatial connections and neighbors.
-        # Action: If using GAT, analyze learned attention weights to understand influence of neighboring nodes.
-        # Action: Apply GNNExplainer (or similar graph-specific XAI methods) to identify critical subgraphs for specific node predictions.
-        # Output: Visualizations of influential neighbors/connections on maps, attention heatmaps.
-
-        # --- 10c. Analysis of Pseudo-Ungauged Generalisation ---
-        # Purpose: Evaluate the model's ability to predict at nodes masked during training.
-        # Action: Compare predictions at "held-out" (proxy-ungauged) nodes against their interpolated pseudo-ground-truth.
-        # Action: Analyze performance metrics specifically for these nodes.
-        # Action: Visualise the spatial distribution of errors for these ungauged nodes.
-
-        # --- 10d. Hydrological Interpretation and Discussion ---
-        # Purpose: Translate model insights back into hydrogeological understanding.
-        # Action: Discuss consistency of feature importances and spatial influences with known hydrological principles (e.g., lag times, flow paths, aquifer properties).
-        # Action: Provide explanations for observed model behaviors during specific hydrological events (droughts, floods).
-        # Output: Written analysis and discussion points for dissertation.
-
-        # --- 10e. Design Trade-offs Analysis (Optional, if time allows) ---
-        # Purpose: Evaluate the impact of choices in graph construction.
-        # Action: Compare results/interpretations from different graph resolutions (e.g., 500m vs 1000m) or edge definitions (e.g., KNN vs distance threshold).
-        # Output: Comparative analysis.
 
 # If critical pipeline error, exit with an error code
 except Exception as e:

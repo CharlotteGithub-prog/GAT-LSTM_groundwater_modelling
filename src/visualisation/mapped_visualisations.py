@@ -1,13 +1,20 @@
+import os
 import sys
 import base64
 import folium
 import logging
+import warnings
 import numpy as np
 import xarray as xr
 import geopandas as gpd
+import contextily as ctx
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
+from shapely.ops import unary_union
 import matplotlib.colors as mcolors
+import matplotlib.patches as mpatches
+from matplotlib.ticker import MultipleLocator
+
 
 # Set up logger config
 logging.basicConfig(
@@ -393,3 +400,280 @@ def plot_geology_layers_interactive(mesh_geology_df: gpd.GeoDataFrame, catchment
     map.save(filename)
     
     return map
+
+def plot_catchment_with_rivers_and_stations(catchment_polygon: gpd.GeoDataFrame, stations_gdf: gpd.GeoDataFrame,
+                                            rivers_dir: str, map_blue: str, esri: str, esri_attr: str, output_html: str):
+
+    # Read and clip rivers shapefile
+    watercourse_path = os.path.join(rivers_dir, 'WatercourseLink.shp')
+    minx, miny, maxx, maxy = [float(v) for v in catchment_polygon.total_bounds]
+    rivers_gdf = gpd.read_file(watercourse_path, bbox=(minx, miny, maxx, maxy))
+    rivers_gdf = rivers_gdf[rivers_gdf['fictitious'] == 'false']
+
+    # Clip rivers to catchment polygon
+    rivers_clipped = gpd.overlay(rivers_gdf, catchment_polygon, how="intersection")
+
+    # Convert everything to WGS84 (lat/lon) for folium
+    catchment_wgs84 = catchment_polygon.to_crs(epsg=4326)
+    rivers_wgs84 = rivers_clipped.to_crs(epsg=4326)
+    stations_wgs84 = stations_gdf.to_crs(epsg=4326)
+
+    # Setup folium map
+    map_center = [catchment_wgs84.geometry.centroid.y.mean(),
+                  catchment_wgs84.geometry.centroid.x.mean()]
+
+    map_obj = folium.Map(location=map_center, zoom_start=10, tiles=None)
+
+    # Add ESRI topo background
+    folium.TileLayer(tiles=esri, attr=esri_attr, name="Topo", show=True).add_to(map_obj)
+
+    # Add catchment boundary
+    folium.GeoJson(
+        catchment_wgs84,
+        name="Catchment Boundary",
+        style_function=lambda x: {
+            'color': map_blue, 'weight': 3, 'fillOpacity': 0.05
+        }
+    ).add_to(map_obj)
+
+    # Add clipped rivers
+    folium.GeoJson(
+        rivers_wgs84,
+        name="Rivers",
+        style_function=lambda x: {
+            'color': 'blue', 'weight': 1.2
+        }
+    ).add_to(map_obj)
+
+    # Add stations as dots (circle markers)
+    station_layer = folium.FeatureGroup(name="Stations")
+    for _, row in stations_wgs84.iterrows():
+        folium.CircleMarker(
+            location=[row.geometry.y, row.geometry.x],
+            radius=4,
+            color="orange",
+            fill=True,
+            fill_opacity=0.9,
+            tooltip=f"Station: {row['station_name']}<br>ID: {row['station_id']}"
+        ).add_to(station_layer)
+
+    station_layer.add_to(map_obj)
+
+    # Add layer control
+    folium.LayerControl().add_to(map_obj)
+
+    # Save map
+    map_obj.save(output_html)
+    print(f"Map saved to: {output_html}")
+
+    return map_obj
+
+def plot_static_catchment_map_png(catchment_polygon: gpd.GeoDataFrame, stations_gdf: gpd.GeoDataFrame, rivers_dir: str,
+                                  output_png: str, map_blue: str = "#1f78b4", station_color: str = "orange",
+                                  dot_size: int = 32, grid_interval: int = 1000, dpi: int = 300, basemap: str | None = None,
+                                  show_legend: bool = True):
+
+    # Ensure CRSs
+    if catchment_polygon.crs is None:
+        raise ValueError("catchment_polygon must have a CRS (expected EPSG:27700).")
+
+    target_crs = catchment_polygon.crs
+
+    # Read rivers (with bbox) robustly
+    watercourse_path = os.path.join(rivers_dir, "WatercourseLink.shp")
+    minx, miny, maxx, maxy = [float(v) for v in catchment_polygon.total_bounds]
+    try:
+        rivers_gdf = gpd.read_file(watercourse_path, bbox=(minx, miny, maxx, maxy))
+    except Exception:
+        # Fallback: read all, then clip
+        rivers_gdf = gpd.read_file(watercourse_path)
+
+    # Filter fictitious if present (robust to bool/str)
+    if "fictitious" in rivers_gdf.columns:
+        rivers_gdf = rivers_gdf[rivers_gdf["fictitious"].astype(str).str.lower().isin(["false", "0"])]
+
+    # Reproject rivers/stations to match catchment
+    if rivers_gdf.crs != target_crs:
+        rivers_gdf = rivers_gdf.to_crs(target_crs)
+
+    stations = None
+    if stations_gdf is not None:
+        stations = stations_gdf.copy()
+        if stations.crs != target_crs:
+            stations = stations.to_crs(target_crs)
+
+    # --- Clip rivers to catchment (fast & robust) ---
+    # If catchment has multiple parts, union them for a clean boundary
+    catchment_geom = gpd.GeoSeries(unary_union(catchment_polygon.geometry), crs=target_crs)
+    rivers_clip = gpd.clip(rivers_gdf, catchment_geom)
+
+    # --- Figure / Axes ---
+    fig, ax = plt.subplots(figsize=(10, 10), constrained_layout=True)
+    
+    plt.rcParams.update({
+        "font.size": 14, # base font size
+        "axes.labelsize": 20, # axis label size
+        "xtick.labelsize": 14, # tick labels
+        "ytick.labelsize": 14, 
+        "legend.fontsize": 14,
+        "axes.titlesize": 18
+    })
+
+    # --- Basemap (ESRI topo) in EPSG:27700 axes ---
+    # Uses contextily; if not installed or source fails, gracefully continue without basemap
+    try:
+        import contextily as ctx
+        source = basemap if basemap is not None else ctx.providers.Esri.WorldTopoMap
+
+        # Set extent first so tiles fetch correctly
+        pad = 0.05
+        cminx, cminy, cmaxx, cmaxy = catchment_polygon.total_bounds
+        dx, dy = (cmaxx - cminx), (cmaxy - cminy)
+        
+        pad_x = 0.3 
+        pad_y = 0.05
+
+        ax.set_xlim(cminx - dx * pad_x, cmaxx + dx * pad_x)
+        ax.set_ylim(cminy - dy * pad_y, cmaxy + dy * pad_y)
+        # ax.set_xlim(cminx - dx * pad, cmaxx + dx * pad)
+        # ax.set_ylim(cminy - dy * pad, cmaxy + dy * pad)
+
+        # Add basemap reprojected into the axis CRS (EPSG:27700)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # suppress minor rasterio warnings
+            ctx.add_basemap(ax, source=source, crs=target_crs, attribution=False)
+    except Exception as e:
+        print(f"[warn] Basemap unavailable ({e}). Proceeding without basemap.")
+
+    # --- Plot layers on top ---
+    # Rivers
+    if not rivers_clip.empty:
+        rivers_clip.plot(ax=ax, color="royalblue", linewidth=0.8, alpha=0.9, label="Rivers", zorder=3)
+
+    # Catchment boundary (no fill)
+    catchment_polygon.plot(ax=ax, facecolor="none", edgecolor=map_blue, linewidth=1.6, zorder=4, label="Catchment")
+
+    # Stations (small dots)
+    if stations is not None and not stations.empty:
+        ax.scatter(
+            stations.geometry.x,
+            stations.geometry.y,
+            s=dot_size,  # dot size
+            c=station_color,
+            edgecolors="black",
+            linewidths=0.3,
+            zorder=5,
+            label="Stations",
+        )
+
+    # --- Axes, grid, aspect ---
+    ax.set_xlabel("EPSG:27700 Easting (m)")
+    ax.set_ylabel("EPSG:27700 Northing (m)")
+    ax.set_aspect("equal", adjustable="box")
+
+    # Grid (major + minor)
+    ax.xaxis.set_major_locator(MultipleLocator(grid_interval))
+    ax.yaxis.set_major_locator(MultipleLocator(grid_interval))
+    # Optional minor grid at half interval:
+    if grid_interval >= 200:
+        ax.xaxis.set_minor_locator(MultipleLocator(grid_interval / 2))
+        ax.yaxis.set_minor_locator(MultipleLocator(grid_interval / 2))
+        ax.grid(which="minor", color="0.85", linestyle=":", linewidth=0.4, alpha=0.6)
+    ax.grid(which="major", color="0.6", linestyle="--", linewidth=0.6, alpha=0.7)
+
+    if show_legend and stations is not None and not stations.empty:
+        ax.legend(loc="upper right", frameon=True)
+
+    # --- Save ---
+    fig.savefig(output_png, dpi=dpi, bbox_inches="tight")
+    print(f"Static map saved to: {output_png}")
+
+    return fig, ax
+
+def plot_static_superficial_geology_map(catchment_polygon: gpd.GeoDataFrame, superficial_gdf: gpd.GeoDataFrame,
+                                        stations_gdf: gpd.GeoDataFrame, output_png: str, geo_colors: dict, map_blue: str = "#1f78b4",
+                                        station_color: str = "orange", dot_size: int = 32, grid_interval: int = 1000, dpi: int = 300):
+    """Plot superficial geology filled polygons within the catchment, with stations and boundary."""
+    target_crs = catchment_polygon.crs
+
+    # Reproject geology + stations to match catchment
+    if superficial_gdf.crs != target_crs:
+        superficial_gdf = superficial_gdf.to_crs(target_crs)
+    if stations_gdf is not None and stations_gdf.crs != target_crs:
+        stations_gdf = stations_gdf.to_crs(target_crs)
+
+    # Clip geology to catchment
+    catchment_geom = gpd.GeoSeries(unary_union(catchment_polygon.geometry), crs=target_crs)
+    superficial_clip = gpd.clip(superficial_gdf, catchment_geom)
+
+    # --- Figure / Axes ---
+    fig, ax = plt.subplots(figsize=(10, 10), constrained_layout=True)
+
+    # Extent + basemap
+    cminx, cminy, cmaxx, cmaxy = catchment_polygon.total_bounds
+    dx, dy = (cmaxx - cminx), (cmaxy - cminy)
+    pad_x, pad_y = 0.3, 0.05
+    ax.set_xlim(cminx - dx * pad_x, cmaxx + dx * pad_x)
+    ax.set_ylim(cminy - dy * pad_y, cmaxy + dy * pad_y)
+
+    try:
+        ctx.add_basemap(ax, crs=target_crs, source=ctx.providers.Esri.WorldTopoMap, attribution=False)
+    except Exception as e:
+        print(f"[warn] Basemap unavailable: {e}")
+
+    # Plot superficial geology polygons (filled by category)
+    superficial_clip.plot(
+        ax=ax,
+        column="geo_superficial_type",
+        categorical=True,
+        legend=True,
+        color=[geo_colors.get(val, "#cccccc") for val in superficial_clip["geo_superficial_type"]],
+        edgecolor="none",
+        alpha=0.7,
+        zorder=2
+    )
+
+    # Catchment outline
+    catchment_polygon.plot(ax=ax, facecolor="none", edgecolor=map_blue, linewidth=1.6, zorder=3)
+
+    # Stations
+    if stations_gdf is not None and not stations_gdf.empty:
+        ax.scatter(
+            stations_gdf.geometry.x,
+            stations_gdf.geometry.y,
+            s=dot_size,
+            c=station_color,
+            edgecolors="black",
+            linewidths=0.3,
+            zorder=4,
+            label="Stations"
+        )
+        
+    # build custom legend
+    legend_handles = []
+    for cat, color in geo_colors.items():
+        patch = mpatches.Patch(color=color, label=cat)
+        legend_handles.append(patch)
+
+    ax.legend(
+        handles=legend_handles,
+        title="Superficial geology",
+        loc="upper right",
+        frameon=True,
+        fontsize=12,
+        title_fontsize=14
+    )
+
+
+    # Axes labels + grid
+    ax.set_xlabel("EPSG:27700 Easting (m)", fontsize=14)
+    ax.set_ylabel("EPSG:27700 Northing (m)", fontsize=14)
+    ax.set_aspect("equal", adjustable="box")
+    ax.xaxis.set_major_locator(MultipleLocator(grid_interval))
+    ax.yaxis.set_major_locator(MultipleLocator(grid_interval))
+    ax.grid(which="major", color="0.6", linestyle="--", linewidth=0.6, alpha=0.7)
+
+    # Save
+    fig.savefig(output_png, dpi=dpi, bbox_inches="tight")
+    print(f"Static superficial geology map saved to: {output_png}")
+    return fig, ax

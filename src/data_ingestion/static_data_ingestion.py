@@ -891,7 +891,7 @@ def load_and_process_geology_layers(base_dir: str, mesh_crs: str, columns_of_int
     
     logger.info(f"Full geology dataframe saved to {geology_filename}.\n")
 
-    return mesh_geology_df
+    return mesh_geology_df, bedrock_gdf, superficial_gdf
 
 def get_geo_feats():
     """
