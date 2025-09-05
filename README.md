@@ -1,11 +1,11 @@
 # MSc Groundwater GWL Project
 
-This repository contains the code and data for my MSc dissertation on groundwater level modelling in UK catchments using GNN-based architectures.
+This repository contains the code only for my proejct on groundwater level modelling in UK catchments using a GAT-LSTM architecture.
 
 
 ## CEDA Credentials
 
-To access HadUK-Grid data via OPeNDAP:
+To access HadUK-Grid data via OPeNDAP you will need to add your own credentials to the project:
 
 1. Create a file called `ceda_credentials.netrc` in the project root with this format:
 
